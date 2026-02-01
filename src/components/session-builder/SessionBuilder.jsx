@@ -1,0 +1,532 @@
+import { useState, useEffect, useCallback } from 'react';
+import { pdf } from '@react-pdf/renderer';
+import Header from '../Header';
+import SessionSummary from '../SessionSummary';
+import Section from '../Section';
+import AddSectionModal from '../AddSectionModal';
+import LibraryModal from '../LibraryModal';
+import SessionPlanPDF from '../SessionPlanPDF';
+import { useLocalStorage } from '../../hooks/useLocalStorage';
+import {
+  defaultSection,
+  libraryPayloadToSection,
+  sectionToLibraryPayload,
+  getStarterLibraryItems,
+  toast,
+  downloadJson,
+  uid,
+  nowIso,
+} from '../../utils/helpers';
+
+const LIB_KEY = "ppp_section_library_v1";
+
+export default function SessionBuilder({ teamsContext }) {
+  const {
+    selectedTeamId,
+    selectedSessionId,
+    getTeam,
+    getSession,
+    updateSession,
+    navigateToTeamDetail,
+  } = teamsContext;
+
+  // Get the current session from team context
+  const team = getTeam(selectedTeamId);
+  const session = getSession(selectedTeamId, selectedSessionId);
+
+  // Library state (global, shared across teams)
+  const [library, setLibrary] = useLocalStorage(LIB_KEY, {
+    version: 1,
+    items: [],
+  });
+
+  // Modal states
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isLibraryModalOpen, setIsLibraryModalOpen] = useState(false);
+  const [libraryInsertMode, setLibraryInsertMode] = useState('append');
+
+  // Initialize starter library items if empty
+  useEffect(() => {
+    if (library.items.length === 0) {
+      setLibrary({
+        ...library,
+        items: getStarterLibraryItems(),
+      });
+    }
+  }, []); // Only run once on mount
+
+  // Handle missing team or session
+  if (!team || !session) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-xl text-slate-400 mb-4">Session not found</p>
+          <button
+            onClick={() => navigateToTeamDetail(selectedTeamId)}
+            className="btn btn-primary"
+          >
+            Back to Team
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Helper to update session in team context
+  const setSession = useCallback((updater) => {
+    const newSession = typeof updater === 'function' ? updater(session) : updater;
+    updateSession(selectedTeamId, selectedSessionId, newSession);
+  }, [selectedTeamId, selectedSessionId, session, updateSession]);
+
+  // Session Summary handlers
+  const handleUpdateSummary = useCallback((updatedSummary) => {
+    setSession(prev => ({ ...prev, summary: updatedSummary }));
+  }, [setSession]);
+
+  // Section handlers
+  const handleUpdateSection = useCallback((sectionId, updatedSection) => {
+    setSession(prev => ({
+      ...prev,
+      sections: prev.sections.map(s => s.id === sectionId ? updatedSection : s)
+    }));
+  }, [setSession]);
+
+  const handleRemoveSection = useCallback((sectionId) => {
+    setSession(prev => ({
+      ...prev,
+      sections: prev.sections.filter(s => s.id !== sectionId),
+      selectedSectionId: prev.selectedSectionId === sectionId ? null : prev.selectedSectionId
+    }));
+  }, [setSession]);
+
+  const handleDuplicateSection = useCallback((sectionId) => {
+    const section = session.sections.find(s => s.id === sectionId);
+    if (!section) return;
+
+    const copy = structuredClone(section);
+    copy.id = uid();
+    copy.name = (copy.name || 'Section') + ' (copy)';
+    copy.variations = (copy.variations || []).map(v => ({ ...v, id: uid() }));
+
+    setSession(prev => ({
+      ...prev,
+      sections: [...prev.sections, copy]
+    }));
+    toast('Section duplicated ✅');
+  }, [session.sections, setSession]);
+
+  const handleSelectSection = useCallback((sectionId) => {
+    setSession(prev => ({ ...prev, selectedSectionId: sectionId }));
+  }, [setSession]);
+
+  const handleSaveToLibrary = useCallback((section, name) => {
+    const payload = sectionToLibraryPayload(section);
+    const entryName = (name || section.name || 'Untitled section').trim() || 'Untitled section';
+
+    // Check if item with same name exists
+    const existing = library.items.find(x => (x.name || '').toLowerCase() === entryName.toLowerCase());
+
+    const item = {
+      id: existing?.id || uid(),
+      name: entryName,
+      type: section.type || payload.type || 'Other',
+      payload,
+      updatedAt: nowIso(),
+    };
+
+    if (existing) {
+      // Update existing
+      setLibrary(prev => ({
+        ...prev,
+        items: prev.items.map(x => x.id === existing.id ? item : x)
+      }));
+    } else {
+      // Add new
+      setLibrary(prev => ({
+        ...prev,
+        items: [item, ...prev.items]
+      }));
+    }
+
+    toast('Saved to Library ✅');
+  }, [library.items, setLibrary]);
+
+  // Add section handlers
+  const handleAddSection = useCallback(() => {
+    setIsAddModalOpen(true);
+  }, []);
+
+  const handleBuildFromScratch = useCallback(() => {
+    const newSection = defaultSection();
+    newSection.type = 'Practice';
+    setSession(prev => ({ ...prev, sections: [...prev.sections, newSection] }));
+    setIsAddModalOpen(false);
+    toast('New section added ✅');
+  }, [setSession]);
+
+  const handleChooseFromLibrary = useCallback(() => {
+    setIsAddModalOpen(false);
+    setIsLibraryModalOpen(true);
+  }, []);
+
+  // PPP button - create Play/Practice/Play structure
+  const handlePPP = useCallback(() => {
+    const freePlayItem = library.items.find(x => x.name.toLowerCase().includes('free play'));
+    const gameItem = library.items.find(x => x.name.toLowerCase().includes('game'));
+
+    const newSections = [];
+
+    // Add Free Play
+    if (freePlayItem) {
+      newSections.push(libraryPayloadToSection(freePlayItem.payload));
+    } else {
+      const s = defaultSection();
+      s.type = 'Play';
+      s.name = 'Free Play';
+      newSections.push(s);
+    }
+
+    // Add Practice
+    const practice = defaultSection();
+    practice.type = 'Practice';
+    practice.name = 'Practice (Core Activity)';
+    newSections.push(practice);
+
+    // Add The Game
+    if (gameItem) {
+      newSections.push(libraryPayloadToSection(gameItem.payload));
+    } else {
+      const s = defaultSection();
+      s.type = 'Play';
+      s.name = 'The Game';
+      newSections.push(s);
+    }
+
+    setSession(prev => ({ ...prev, sections: newSections }));
+    toast('PPP structure created ✅');
+  }, [library.items, setSession]);
+
+  // Add Practice button - insert before last Play/Game
+  const handleAddPractice = useCallback(() => {
+    const newSection = defaultSection();
+    newSection.type = 'Practice';
+    newSection.name = 'Practice';
+
+    // Find last Play/Game section
+    let lastPlayIndex = -1;
+    for (let i = session.sections.length - 1; i >= 0; i--) {
+      const type = (session.sections[i].type || '').toLowerCase();
+      if (type === 'play' || type === 'game') {
+        lastPlayIndex = i;
+        break;
+      }
+    }
+
+    if (lastPlayIndex >= 0) {
+      setSession(prev => ({
+        ...prev,
+        sections: [
+          ...prev.sections.slice(0, lastPlayIndex),
+          newSection,
+          ...prev.sections.slice(lastPlayIndex)
+        ]
+      }));
+    } else {
+      setSession(prev => ({
+        ...prev,
+        sections: [...prev.sections, newSection]
+      }));
+    }
+
+    toast('Practice added ✅');
+  }, [session.sections, setSession]);
+
+  // Library handlers
+  const handleInsertLibraryItem = useCallback((itemId) => {
+    const item = library.items.find(x => x.id === itemId);
+    if (!item) return;
+
+    const newSection = libraryPayloadToSection(item.payload);
+
+    if (libraryInsertMode === 'after-selected' && session.selectedSectionId) {
+      const idx = session.sections.findIndex(s => s.id === session.selectedSectionId);
+      if (idx >= 0) {
+        setSession(prev => ({
+          ...prev,
+          sections: [
+            ...prev.sections.slice(0, idx + 1),
+            newSection,
+            ...prev.sections.slice(idx + 1)
+          ]
+        }));
+      } else {
+        setSession(prev => ({
+          ...prev,
+          sections: [...prev.sections, newSection]
+        }));
+      }
+    } else {
+      setSession(prev => ({
+        ...prev,
+        sections: [...prev.sections, newSection]
+      }));
+    }
+
+    toast('Section inserted ✅');
+  }, [library.items, libraryInsertMode, session.selectedSectionId, session.sections, setSession]);
+
+  const handleOverwriteLibraryItem = useCallback((itemId) => {
+    if (!session.selectedSectionId) return;
+
+    const section = session.sections.find(s => s.id === session.selectedSectionId);
+    const item = library.items.find(x => x.id === itemId);
+    if (!section || !item) return;
+
+    const payload = sectionToLibraryPayload(section);
+    const updatedItem = {
+      ...item,
+      type: section.type || payload.type || 'Other',
+      payload,
+      updatedAt: nowIso(),
+    };
+
+    setLibrary(prev => ({
+      ...prev,
+      items: prev.items.map(x => x.id === itemId ? updatedItem : x)
+    }));
+
+    toast('Library item overwritten ✅');
+  }, [session.selectedSectionId, session.sections, library.items, setLibrary]);
+
+  const handleDeleteLibraryItem = useCallback((itemId) => {
+    setLibrary(prev => ({
+      ...prev,
+      items: prev.items.filter(x => x.id !== itemId)
+    }));
+    toast('Library item deleted ✅');
+  }, [setLibrary]);
+
+  const handleExportLibrary = useCallback(() => {
+    downloadJson('ppp-library.json', library);
+    toast('Library exported ✅');
+  }, [library]);
+
+  const handleImportLibrary = useCallback((file) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const imported = JSON.parse(reader.result);
+        if (!imported.items || !Array.isArray(imported.items)) {
+          throw new Error('Invalid library format');
+        }
+        setLibrary(imported);
+        toast('Library imported ✅');
+      } catch (error) {
+        alert('That library JSON didn\'t parse correctly.');
+      }
+    };
+    reader.readAsText(file);
+  }, [setLibrary]);
+
+  const handleClearLibrary = useCallback(() => {
+    if (!confirm('Clear your saved section library?')) return;
+    setLibrary({ version: 1, items: getStarterLibraryItems() });
+    toast('Library cleared ✅');
+  }, [setLibrary]);
+
+  // Session import/export/clear
+  const handleExportSession = useCallback(() => {
+    downloadJson((session.summary.title?.trim() || 'session') + '.json', session);
+    toast('Session exported ✅');
+  }, [session]);
+
+  const handleImportSession = useCallback((file) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const imported = JSON.parse(reader.result);
+        setSession(imported);
+        toast('Session imported ✅');
+      } catch (error) {
+        alert('That session JSON didn\'t parse correctly.');
+      }
+    };
+    reader.readAsText(file);
+  }, [setSession]);
+
+  const handleClearSession = useCallback(() => {
+    if (!confirm('Clear the whole session?')) return;
+    setSession({
+      ...session,
+      summary: { title: '', date: '', duration: '', ageGroup: '', moment: '', playerActions: [], keyQualities: [], notes: '', keywords: '' },
+      sections: [],
+      selectedSectionId: null,
+    });
+    toast('Session cleared ✅');
+  }, [setSession, session]);
+
+  const handleSave = useCallback(() => {
+    // Auto-saving is handled by team context updates, but provide feedback
+    toast('Saved ✅');
+  }, []);
+
+  const handleDownloadPDF = useCallback(async () => {
+    try {
+      console.log('=== PDF Generation Started ===');
+      console.log('Session data:', session);
+
+      toast('Generating PDF...');
+
+      // Generate the PDF blob
+      console.log('Creating PDF component...');
+      const pdfComponent = <SessionPlanPDF session={session} />;
+      console.log('PDF component created:', pdfComponent);
+
+      console.log('Generating PDF blob...');
+      const blob = await pdf(pdfComponent).toBlob();
+      console.log('PDF blob generated:', blob);
+      console.log('Blob size:', blob.size, 'bytes');
+      console.log('Blob type:', blob.type);
+
+      // Create download link
+      console.log('Creating download link...');
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = (session.summary.title?.trim() || 'session-plan') + '.pdf';
+      console.log('Download filename:', link.download);
+
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      console.log('=== PDF Generation Complete ===');
+      toast('PDF downloaded ✅');
+    } catch (error) {
+      console.error('=== PDF Generation Error ===');
+      console.error('Error type:', error.constructor.name);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+      console.error('Full error:', error);
+      toast('PDF generation failed ❌ - Check console for details');
+    }
+  }, [session]);
+
+  const handleBackToTeam = useCallback(() => {
+    navigateToTeamDetail(selectedTeamId);
+  }, [navigateToTeamDetail, selectedTeamId]);
+
+  return (
+    <div className="min-h-screen bg-slate-900 text-slate-100">
+      {/* Breadcrumb Navigation */}
+      <div className="bg-slate-800 border-b border-slate-700 px-4 py-3">
+        <div className="max-w-7xl mx-auto">
+          <button
+            onClick={handleBackToTeam}
+            className="text-blue-400 hover:text-blue-300 flex items-center gap-2"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            <span>Back to {team.name}</span>
+          </button>
+        </div>
+      </div>
+
+      <Header
+        onPPP={handlePPP}
+        onAddPractice={handleAddPractice}
+        onOpenLibrary={() => setIsLibraryModalOpen(true)}
+        onSave={handleSave}
+        onDownloadPDF={handleDownloadPDF}
+      />
+
+      <main className="max-w-7xl mx-auto px-4 py-6">
+        <SessionSummary
+          summary={session.summary}
+          onUpdate={handleUpdateSummary}
+        />
+
+        {session.sections.length > 0 && (
+          <div className="mt-8">
+            <h2 className="text-2xl font-bold mb-2">Sections</h2>
+            <p className="text-slate-400 text-sm mb-4">
+              Always start and end with Play. Add as many Practice blocks as you want (drills or variations).
+            </p>
+          </div>
+        )}
+
+        {session.sections.map(section => (
+          <Section
+            key={section.id}
+            section={section}
+            isSelected={session.selectedSectionId === section.id}
+            onUpdate={(updated) => handleUpdateSection(section.id, updated)}
+            onRemove={() => handleRemoveSection(section.id)}
+            onDuplicate={() => handleDuplicateSection(section.id)}
+            onSaveToLibrary={handleSaveToLibrary}
+            onSelectSection={handleSelectSection}
+          />
+        ))}
+
+        <div className="flex justify-center my-8">
+          <button onClick={handleAddSection} className="btn btn-primary text-lg px-6 py-3">
+            + Add Exercise
+          </button>
+        </div>
+
+        <footer className="text-slate-400 text-sm text-center my-4">
+          Tip: Click <strong>Download PDF</strong> to export your session plan as a formatted PDF document.
+        </footer>
+
+        <div className="no-print flex flex-wrap gap-3 justify-center my-6">
+          <button onClick={handleExportSession} className="btn btn-subtle text-sm">
+            Export Session JSON
+          </button>
+          <label className="btn btn-subtle text-sm cursor-pointer">
+            Import Session JSON
+            <input
+              type="file"
+              accept="application/json"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  handleImportSession(file);
+                  e.target.value = '';
+                }
+              }}
+              className="hidden"
+            />
+          </label>
+          <button onClick={handleClearSession} className="btn btn-danger text-sm">
+            Clear session
+          </button>
+        </div>
+      </main>
+
+      {/* Modals */}
+      <AddSectionModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onChooseLibrary={handleChooseFromLibrary}
+        onBuildFromScratch={handleBuildFromScratch}
+      />
+
+      <LibraryModal
+        isOpen={isLibraryModalOpen}
+        onClose={() => setIsLibraryModalOpen(false)}
+        library={library}
+        selectedSectionId={session.selectedSectionId}
+        insertMode={libraryInsertMode}
+        onInsert={handleInsertLibraryItem}
+        onOverwrite={handleOverwriteLibraryItem}
+        onDelete={handleDeleteLibraryItem}
+        onSetInsertMode={setLibraryInsertMode}
+        onExportLibrary={handleExportLibrary}
+        onImportLibrary={handleImportLibrary}
+        onClearLibrary={handleClearLibrary}
+      />
+    </div>
+  );
+}

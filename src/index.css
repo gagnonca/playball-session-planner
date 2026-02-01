@@ -1,0 +1,139 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Dark theme base styles */
+@layer base {
+  :root {
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --bg-tertiary: #334155;
+    --text-primary: #f1f5f9;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+    --border: #334155;
+    --accent: #3b82f6;
+    --accent-hover: #2563eb;
+    --success: #10b981;
+    --danger: #ef4444;
+  }
+
+  body {
+    @apply bg-slate-900 text-slate-100 antialiased;
+    background: linear-gradient(to bottom right, #1e293b 0%, #0f172a 50%, #020617 100%);
+    min-height: 100vh;
+  }
+}
+
+/* Custom components */
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900;
+  }
+
+  .btn-primary {
+    @apply bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500;
+  }
+
+  .btn-secondary {
+    @apply bg-slate-700 hover:bg-slate-600 text-slate-100 focus:ring-slate-500;
+  }
+
+  .btn-danger {
+    @apply bg-red-600 hover:bg-red-700 text-white focus:ring-red-500;
+  }
+
+  .btn-subtle {
+    @apply bg-slate-800 hover:bg-slate-700 text-slate-300 focus:ring-slate-500;
+  }
+
+  .card {
+    @apply bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl shadow-lg;
+  }
+
+  .input-field {
+    @apply w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2
+           text-slate-100 placeholder-slate-500
+           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+           transition-all duration-200;
+  }
+
+  .label-text {
+    @apply text-sm font-medium text-slate-400 mb-1.5 block;
+  }
+
+  .modal-backdrop {
+    @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-40;
+  }
+
+  .modal-content {
+    @apply fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
+           w-full max-w-4xl max-h-[90vh] overflow-auto
+           bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 p-6;
+  }
+
+  /* Print styles */
+  @media print {
+    body {
+      @apply bg-white text-black;
+      background: white;
+    }
+
+    .no-print {
+      display: none !important;
+    }
+
+    .card {
+      @apply bg-white border-gray-300;
+    }
+
+    .input-field {
+      @apply bg-white border-gray-300 text-black;
+    }
+
+    .btn {
+      @apply hidden;
+    }
+  }
+}
+
+/* Utilities */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.slate.700') theme('colors.slate.900');
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    @apply bg-slate-900;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-slate-700 rounded-full;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-600;
+  }
+}
+
+/* Tldraw custom styles for dark theme integration */
+.tldraw__editor {
+  --color-background: #0f172a !important;
+  --color-panel: #1e293b !important;
+  --color-panel-contrast: #334155 !important;
+}
+
+.tldraw {
+  --color-background: #0f172a !important;
+}
+
+/* Make tldraw canvas have a soccer field green background */
+.tl-canvas {
+  background-color: #4CAF50 !important;
+}
