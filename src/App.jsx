@@ -1,4 +1,3 @@
-import './App.css';
 import AppShell from './components/AppShell';
 
 function App() {
