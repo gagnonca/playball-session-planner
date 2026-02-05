@@ -3,8 +3,8 @@ import TeamCard from './TeamCard';
 import CreateTeamModal from './CreateTeamModal';
 import { toast } from '../../utils/helpers';
 
-export default function TeamList({ teamsContext }) {
-  const { teamsData, navigateToTeamDetail, deleteTeam } = teamsContext;
+export default function TeamList({ teamsContext, diagramLibrary }) {
+  const { teamsData, navigateToTeamDetail, deleteTeam, navigateToDiagramLibrary } = teamsContext;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingTeam, setEditingTeam] = useState(null);
 
@@ -42,9 +42,25 @@ export default function TeamList({ teamsContext }) {
     <div className="min-h-screen bg-slate-900 text-slate-100">
       {/* Header */}
       <div className="bg-slate-800 border-b border-slate-700 p-6">
-        <div className="max-w-6xl mx-auto">
-          <h1 className="text-3xl font-bold mb-2">PlayBall Session Planner</h1>
-          <p className="text-slate-400">Manage your teams and training sessions</p>
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold mb-2">PlayBall Session Planner</h1>
+            <p className="text-slate-400">Manage your teams and training sessions</p>
+          </div>
+          <button
+            onClick={() => navigateToDiagramLibrary()}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-lg transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <span>Diagram Library</span>
+            {diagramLibrary?.diagrams?.length > 0 && (
+              <span className="ml-1 px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">
+                {diagramLibrary.diagrams.length}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 

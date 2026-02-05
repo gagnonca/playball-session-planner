@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Variation from './Variation';
-import DiagramBuilderImproved from './DiagramBuilderImproved';
+import ContextualHelp from './ContextualHelp';
 import { fileToDataUrl, defaultVariation } from '../utils/helpers';
 
 export default function Section({
@@ -11,8 +11,20 @@ export default function Section({
   onDuplicate,
   onSaveToLibrary,
   onSelectSection,
+  teamsContext,
+  diagramLibrary,
 }) {
-  const [showDiagramBuilder, setShowDiagramBuilder] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [previousType, setPreviousType] = useState(section.type);
+
+  // Show help when section type changes
+  useEffect(() => {
+    if (section.type !== previousType) {
+      setShowHelp(true);
+      setPreviousType(section.type);
+    }
+  }, [section.type, previousType]);
 
   const handleChange = (field, value) => {
     onUpdate({ ...section, [field]: value });
@@ -27,14 +39,22 @@ export default function Section({
   };
 
   const handleRemoveImage = () => {
-    handleChange('imageDataUrl', '');
-    handleChange('diagramData', null);
+    // Update both fields in a single call to avoid race condition
+    onUpdate({ ...section, imageDataUrl: '', diagramData: null });
   };
 
-  const handleSaveDiagram = (diagramData) => {
-    handleChange('diagramData', diagramData);
-    handleChange('imageDataUrl', diagramData.dataUrl);
-    setShowDiagramBuilder(false); // Close modal
+  const handleOpenDiagramBuilder = () => {
+    if (teamsContext) {
+      const { selectedTeamId, selectedSessionId, navigateToDiagramBuilder } = teamsContext;
+      navigateToDiagramBuilder(selectedTeamId, selectedSessionId, section.id);
+    }
+  };
+
+  const handleOpenDiagramLibrary = () => {
+    if (teamsContext) {
+      const { selectedTeamId, selectedSessionId, navigateToDiagramLibrary } = teamsContext;
+      navigateToDiagramLibrary(true, selectedTeamId, selectedSessionId, section.id);
+    }
   };
 
   const handleAddVariation = () => {
@@ -63,6 +83,20 @@ export default function Section({
     <div className="card p-6 my-4">
       {/* Section Header */}
       <div className="flex justify-between items-start gap-4 mb-4">
+        <button
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          className="flex items-center gap-2 text-slate-400 hover:text-slate-200 transition-colors"
+          title={isCollapsed ? "Expand" : "Collapse"}
+        >
+          <svg
+            className={`w-5 h-5 transition-transform ${isCollapsed ? 'rotate-0' : 'rotate-90'}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
         <div className="flex-1">
           <div className="inline-block px-3 py-1 bg-slate-700 text-slate-300 text-xs font-semibold rounded-full mb-2">
             {section.type.toUpperCase()}
@@ -73,6 +107,7 @@ export default function Section({
             onChange={(e) => handleChange('name', e.target.value)}
             placeholder="Section name (e.g., Free Play (2v2) / Practice: Passing Gates / The Game)"
             className="input-field text-lg font-bold"
+            onFocus={() => setIsCollapsed(false)}
           />
 
           <div className="flex flex-wrap gap-3 mt-3">
@@ -85,8 +120,6 @@ export default function Section({
               >
                 <option value="Play">Play</option>
                 <option value="Practice">Practice</option>
-                <option value="Game">Game</option>
-                <option value="Other">Other</option>
               </select>
             </div>
 
@@ -131,8 +164,19 @@ export default function Section({
         </div>
       </div>
 
-      {/* Two Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
+      {/* Collapsible Content */}
+      {!isCollapsed && (
+        <>
+          {/* Contextual Help */}
+          {showHelp && (
+            <ContextualHelp
+              type={section.type.toLowerCase()}
+              onDismiss={() => setShowHelp(false)}
+            />
+          )}
+
+          {/* Two Column Layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
         {/* Image/Diagram Box */}
         <div className="border-2 border-dashed border-slate-700 rounded-xl p-4 flex flex-col gap-3">
           {section.imageDataUrl ? (
@@ -142,16 +186,26 @@ export default function Section({
                 alt="Section diagram"
                 className="w-full rounded-lg border border-slate-700"
               />
-              <div className="flex gap-2 no-print">
-                <button
-                  onClick={() => setShowDiagramBuilder(true)}
-                  className="btn btn-primary flex-1"
-                >
-                  {section.diagramData ? 'Edit Diagram' : 'Build Diagram'}
-                </button>
-                <button onClick={handleRemoveImage} className="btn btn-subtle">
-                  Remove
-                </button>
+              <div className="flex flex-col gap-2 no-print">
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleOpenDiagramBuilder}
+                    className="btn btn-primary flex-1"
+                  >
+                    {section.diagramData ? 'Edit Diagram' : 'Build Diagram'}
+                  </button>
+                  <button onClick={handleRemoveImage} className="btn btn-danger">
+                    Remove
+                  </button>
+                </div>
+                {diagramLibrary?.diagrams?.length > 0 && (
+                  <button
+                    onClick={handleOpenDiagramLibrary}
+                    className="btn btn-subtle w-full"
+                  >
+                    Replace from Library
+                  </button>
+                )}
               </div>
             </>
           ) : (
@@ -161,11 +215,19 @@ export default function Section({
               </div>
               <div className="flex flex-col gap-2 no-print">
                 <button
-                  onClick={() => setShowDiagramBuilder(true)}
+                  onClick={handleOpenDiagramBuilder}
                   className="btn btn-primary"
                 >
                   Build Diagram
                 </button>
+                {diagramLibrary?.diagrams?.length > 0 && (
+                  <button
+                    onClick={handleOpenDiagramLibrary}
+                    className="btn btn-subtle"
+                  >
+                    Insert from Library
+                  </button>
+                )}
                 <label className="btn btn-subtle cursor-pointer">
                   Upload image
                   <input
@@ -203,26 +265,32 @@ export default function Section({
               />
             </div>
 
+            {/* Guided Questions - Only for Practice sections */}
+            {section.type === 'Practice' && (
+              <>
+                <div>
+                  <label className="label-text">Guided questions</label>
+                  <textarea
+                    value={section.questions}
+                    onChange={(e) => handleChange('questions', e.target.value)}
+                    rows="3"
+                    className="input-field resize-y"
+                    placeholder="What questions will help players discover the solution?"
+                  />
+                </div>
 
-            <div>
-              <label className="label-text">Guided questions</label>
-              <textarea
-                value={section.questions}
-                onChange={(e) => handleChange('questions', e.target.value)}
-                rows="3"
-                className="input-field resize-y"
-              />
-            </div>
-
-            <div>
-              <label className="label-text">Answers</label>
-              <textarea
-                value={section.answers}
-                onChange={(e) => handleChange('answers', e.target.value)}
-                rows="3"
-                className="input-field resize-y"
-              />
-            </div>
+                <div>
+                  <label className="label-text">Answers</label>
+                  <textarea
+                    value={section.answers}
+                    onChange={(e) => handleChange('answers', e.target.value)}
+                    rows="3"
+                    className="input-field resize-y"
+                    placeholder="What are the key points players should learn?"
+                  />
+                </div>
+              </>
+            )}
 
             <div>
               <label className="label-text">Notes</label>
@@ -248,25 +316,16 @@ export default function Section({
                   variation={variation}
                   onUpdate={(updated) => handleUpdateVariation(index, updated)}
                   onRemove={() => handleRemoveVariation(index)}
+                  parentDiagram={section.diagramData}
                 />
               ))}
             </div>
           )}
         </div>
       </div>
-
-      {/* Full-Screen Diagram Builder Modal */}
-      {showDiagramBuilder && (
-        <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-50">
-          <div className="w-full h-full">
-            <DiagramBuilderImproved
-              initialDiagram={section.diagramData}
-              onSave={handleSaveDiagram}
-              onClose={() => setShowDiagramBuilder(false)}
-            />
-          </div>
-        </div>
+        </>
       )}
+
     </div>
   );
 }

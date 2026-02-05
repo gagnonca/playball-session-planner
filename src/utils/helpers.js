@@ -67,6 +67,8 @@ export function defaultVariation() {
     questions: "",
     answers: "",
     notes: "",
+    imageDataUrl: "",
+    diagramData: null,
   };
 }
 
@@ -124,6 +126,7 @@ export function defaultSession() {
       keyQualities: [],
       notes: "",
       keywords: "",
+      reflectionNotes: "",
     },
     sections: [],
     selectedSectionId: null,

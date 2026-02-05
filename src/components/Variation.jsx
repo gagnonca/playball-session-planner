@@ -1,8 +1,38 @@
-import React from 'react';
+import React, { useState } from 'react';
+import DiagramBuilder from './DiagramBuilderNew';
+import { fileToDataUrl } from '../utils/helpers';
 
-export default function Variation({ variation, onUpdate, onRemove }) {
+export default function Variation({ variation, onUpdate, onRemove, parentDiagram }) {
+  const [showDiagramBuilder, setShowDiagramBuilder] = useState(false);
+
   const handleChange = (field, value) => {
     onUpdate({ ...variation, [field]: value });
+  };
+
+  const handleImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const dataUrl = await fileToDataUrl(file);
+    handleChange('imageDataUrl', dataUrl);
+    e.target.value = '';
+  };
+
+  const handleRemoveImage = () => {
+    handleChange('imageDataUrl', '');
+    handleChange('diagramData', null);
+  };
+
+  const handleSaveDiagram = (diagramData) => {
+    handleChange('diagramData', diagramData);
+    handleChange('imageDataUrl', diagramData.dataUrl);
+    setShowDiagramBuilder(false);
+  };
+
+  const handleCopyFromParent = () => {
+    if (parentDiagram) {
+      handleChange('diagramData', parentDiagram);
+      handleChange('imageDataUrl', parentDiagram.dataUrl);
+    }
   };
 
   return (
@@ -23,7 +53,63 @@ export default function Variation({ variation, onUpdate, onRemove }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4 mb-4">
+        {/* Diagram Box */}
+        <div className="border-2 border-dashed border-slate-700 rounded-xl p-3 flex flex-col gap-2">
+          {variation.imageDataUrl ? (
+            <>
+              <img
+                src={variation.imageDataUrl}
+                alt="Variation diagram"
+                className="w-full rounded-lg border border-slate-700"
+              />
+              <div className="flex gap-2 no-print">
+                <button
+                  onClick={() => setShowDiagramBuilder(true)}
+                  className="btn btn-primary flex-1 text-xs py-1"
+                >
+                  Edit Diagram
+                </button>
+                <button
+                  onClick={handleRemoveImage}
+                  className="btn btn-danger text-xs py-1"
+                >
+                  Remove
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <p className="text-sm text-slate-400 mb-2">Diagram</p>
+              {parentDiagram && (
+                <button
+                  onClick={handleCopyFromParent}
+                  className="btn btn-secondary text-xs py-1"
+                >
+                  📋 Copy from Parent
+                </button>
+              )}
+              <button
+                onClick={() => setShowDiagramBuilder(true)}
+                className="btn btn-primary text-xs py-1"
+              >
+                🎨 Build Diagram
+              </button>
+              <label className="btn btn-subtle text-xs py-1 cursor-pointer">
+                📁 Upload Image
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          )}
+        </div>
+
+        {/* Text Fields */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="label-text">Objective</label>
           <textarea
@@ -74,6 +160,20 @@ export default function Variation({ variation, onUpdate, onRemove }) {
           />
         </div>
       </div>
+      </div>
+
+      {/* Diagram Builder Modal */}
+      {showDiagramBuilder && (
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-50">
+          <div className="w-full h-full">
+            <DiagramBuilder
+              initialDiagram={variation.diagramData}
+              onSave={handleSaveDiagram}
+              onClose={() => setShowDiagramBuilder(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

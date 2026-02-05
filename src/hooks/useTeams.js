@@ -19,6 +19,8 @@ export default function useTeams() {
   const [currentView, setCurrentView] = useState('teams');
   const [selectedTeamId, setSelectedTeamId] = useState(null);
   const [selectedSessionId, setSelectedSessionId] = useState(null);
+  const [selectedSectionId, setSelectedSectionId] = useState(null);
+  const [editingDiagramId, setEditingDiagramId] = useState(null); // For editing library diagrams
 
   // Initialize teams data with auto-migration
   useEffect(() => {
@@ -60,6 +62,8 @@ export default function useTeams() {
         setCurrentView(viewState.currentView || 'teams');
         setSelectedTeamId(viewState.selectedTeamId || null);
         setSelectedSessionId(viewState.selectedSessionId || null);
+        setSelectedSectionId(viewState.selectedSectionId || null);
+        setEditingDiagramId(viewState.editingDiagramId || null);
       }
     } catch (error) {
       console.error('Error initializing teams:', error);
@@ -91,12 +95,14 @@ export default function useTeams() {
         currentView,
         selectedTeamId,
         selectedSessionId,
+        selectedSectionId,
+        editingDiagramId,
       };
       localStorage.setItem(CURRENT_VIEW_KEY, JSON.stringify(viewState));
     } catch (error) {
       console.error('Error saving view state:', error);
     }
-  }, [currentView, selectedTeamId, selectedSessionId]);
+  }, [currentView, selectedTeamId, selectedSessionId, selectedSectionId, editingDiagramId]);
 
   // ============ Team CRUD Operations ============
 
@@ -234,6 +240,52 @@ export default function useTeams() {
     setCurrentView('session-builder');
     setSelectedTeamId(teamId);
     setSelectedSessionId(sessionId);
+    setSelectedSectionId(null);
+    setEditingDiagramId(null);
+  };
+
+  const navigateToDiagramBuilder = (teamId, sessionId, sectionId) => {
+    setCurrentView('diagram-builder');
+    setSelectedTeamId(teamId);
+    setSelectedSessionId(sessionId);
+    setSelectedSectionId(sectionId);
+    setEditingDiagramId(null);
+  };
+
+  const navigateToDiagramLibrary = (insertMode = false, teamId = null, sessionId = null, sectionId = null) => {
+    setCurrentView('diagram-library');
+    if (insertMode) {
+      // Keep context for inserting back to section
+      setSelectedTeamId(teamId);
+      setSelectedSessionId(sessionId);
+      setSelectedSectionId(sectionId);
+    } else {
+      setSelectedTeamId(null);
+      setSelectedSessionId(null);
+      setSelectedSectionId(null);
+    }
+    setEditingDiagramId(null);
+  };
+
+  const navigateToEditLibraryDiagram = (diagramId) => {
+    setCurrentView('diagram-builder');
+    setEditingDiagramId(diagramId);
+    // Clear section context when editing library diagram
+    setSelectedTeamId(null);
+    setSelectedSessionId(null);
+    setSelectedSectionId(null);
+  };
+
+  const navigateBackFromDiagramBuilder = () => {
+    if (selectedTeamId && selectedSessionId) {
+      // Return to session builder
+      setCurrentView('session-builder');
+      setSelectedSectionId(null);
+    } else {
+      // Return to diagram library
+      setCurrentView('diagram-library');
+    }
+    setEditingDiagramId(null);
   };
 
   // ============ Return API ============
@@ -244,6 +296,8 @@ export default function useTeams() {
     currentView,
     selectedTeamId,
     selectedSessionId,
+    selectedSectionId,
+    editingDiagramId,
 
     // Team operations
     createTeam,
@@ -262,5 +316,9 @@ export default function useTeams() {
     navigateToTeams,
     navigateToTeamDetail,
     navigateToSessionBuilder,
+    navigateToDiagramBuilder,
+    navigateToDiagramLibrary,
+    navigateToEditLibraryDiagram,
+    navigateBackFromDiagramBuilder,
   };
 }

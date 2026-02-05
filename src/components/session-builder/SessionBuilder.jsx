@@ -1,5 +1,21 @@
 import { useState, useEffect, useCallback } from 'react';
 import { pdf } from '@react-pdf/renderer';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import Header from '../Header';
 import SessionSummary from '../SessionSummary';
 import Section from '../Section';
@@ -20,7 +36,46 @@ import {
 
 const LIB_KEY = "ppp_section_library_v1";
 
-export default function SessionBuilder({ teamsContext }) {
+// Sortable wrapper component for sections
+function SortableSection({ section, teamsContext, diagramLibrary, ...props }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: section.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <div className="flex items-start gap-2">
+        {/* Drag Handle */}
+        <button
+          {...attributes}
+          {...listeners}
+          className="cursor-grab active:cursor-grabbing mt-6 p-2 hover:bg-slate-700 rounded transition-colors no-print"
+          title="Drag to reorder"
+        >
+          <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+          </svg>
+        </button>
+        <div className="flex-1">
+          <Section section={section} teamsContext={teamsContext} diagramLibrary={diagramLibrary} {...props} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function SessionBuilder({ teamsContext, diagramLibrary }) {
   const {
     selectedTeamId,
     selectedSessionId,
@@ -44,6 +99,14 @@ export default function SessionBuilder({ teamsContext }) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isLibraryModalOpen, setIsLibraryModalOpen] = useState(false);
   const [libraryInsertMode, setLibraryInsertMode] = useState('append');
+
+  // Drag and drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   // Initialize starter library items if empty
   useEffect(() => {
@@ -117,6 +180,23 @@ export default function SessionBuilder({ teamsContext }) {
 
   const handleSelectSection = useCallback((sectionId) => {
     setSession(prev => ({ ...prev, selectedSectionId: sectionId }));
+  }, [setSession]);
+
+  // Handle drag and drop reordering
+  const handleDragEnd = useCallback((event) => {
+    const { active, over } = event;
+
+    if (active.id !== over.id) {
+      setSession(prev => {
+        const oldIndex = prev.sections.findIndex(s => s.id === active.id);
+        const newIndex = prev.sections.findIndex(s => s.id === over.id);
+
+        return {
+          ...prev,
+          sections: arrayMove(prev.sections, oldIndex, newIndex),
+        };
+      });
+    }
   }, [setSession]);
 
   const handleSaveToLibrary = useCallback((section, name) => {
@@ -435,8 +515,6 @@ export default function SessionBuilder({ teamsContext }) {
       </div>
 
       <Header
-        onPPP={handlePPP}
-        onAddPractice={handleAddPractice}
         onOpenLibrary={() => setIsLibraryModalOpen(true)}
         onSave={handleSave}
         onDownloadPDF={handleDownloadPDF}
@@ -452,23 +530,36 @@ export default function SessionBuilder({ teamsContext }) {
           <div className="mt-8">
             <h2 className="text-2xl font-bold mb-2">Sections</h2>
             <p className="text-slate-400 text-sm mb-4">
-              Always start and end with Play. Add as many Practice blocks as you want (drills or variations).
+              Always start and end with Play. Add as many Practice blocks as you want (drills or variations). Drag to reorder.
             </p>
           </div>
         )}
 
-        {session.sections.map(section => (
-          <Section
-            key={section.id}
-            section={section}
-            isSelected={session.selectedSectionId === section.id}
-            onUpdate={(updated) => handleUpdateSection(section.id, updated)}
-            onRemove={() => handleRemoveSection(section.id)}
-            onDuplicate={() => handleDuplicateSection(section.id)}
-            onSaveToLibrary={handleSaveToLibrary}
-            onSelectSection={handleSelectSection}
-          />
-        ))}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={session.sections.map(s => s.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            {session.sections.map(section => (
+              <SortableSection
+                key={section.id}
+                section={section}
+                isSelected={session.selectedSectionId === section.id}
+                onUpdate={(updated) => handleUpdateSection(section.id, updated)}
+                onRemove={() => handleRemoveSection(section.id)}
+                onDuplicate={() => handleDuplicateSection(section.id)}
+                onSaveToLibrary={handleSaveToLibrary}
+                onSelectSection={handleSelectSection}
+                teamsContext={teamsContext}
+                diagramLibrary={diagramLibrary}
+              />
+            ))}
+          </SortableContext>
+        </DndContext>
 
         <div className="flex justify-center my-8">
           <button onClick={handleAddSection} className="btn btn-primary text-lg px-6 py-3">

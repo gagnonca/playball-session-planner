@@ -541,11 +541,10 @@ export default function DiagramBuilder({ initialDiagram, onSave }) {
                 <button
                   key={cone.value}
                   onClick={() => setSelectedConeColor(cone)}
-                  className={`px-2 py-1 rounded text-xs font-medium transition-all ${
-                    selectedConeColor.value === cone.value
+                  className={`px-2 py-1 rounded text-xs font-medium transition-all ${selectedConeColor.value === cone.value
                       ? 'ring-2 ring-blue-500'
                       : 'opacity-70 hover:opacity-100'
-                  }`}
+                    }`}
                   style={{ backgroundColor: cone.color, color: cone.value === 'yellow' ? '#000' : '#FFF' }}
                 >
                   {cone.label}

@@ -208,6 +208,19 @@ export default function SessionSummary({ summary, onUpdate }) {
             className="input-field resize-y"
           />
         </div>
+
+        {/* Post-Session Reflection */}
+        <div className="mt-6 pt-6 border-t border-slate-700">
+          <h3 className="text-lg font-semibold mb-2 text-blue-400">Post-Session Reflection</h3>
+          <p className="text-xs text-slate-500 mb-3">Complete after training to reflect on the session</p>
+          <textarea
+            value={summary.reflectionNotes || ''}
+            onChange={(e) => handleChange('reflectionNotes', e.target.value)}
+            rows="4"
+            placeholder={`Questions to guide your reflection:\n• How did you do in achieving the goals of the training session?\n• What did you do well?\n• What could you do better?`}
+            className="input-field resize-y"
+          />
+        </div>
       </div>
     </div>
   );
