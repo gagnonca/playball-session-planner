@@ -1,6 +1,7 @@
 import React from 'react';
 import useTeams from '../hooks/useTeams';
 import useDiagramLibrary from '../hooks/useDiagramLibrary';
+import { VIEWS } from '../constants/navigation';
 import TeamList from './teams/TeamList';
 import TeamDetail from './teams/TeamDetail';
 import SessionBuilder from './session-builder/SessionBuilder';
@@ -136,7 +137,7 @@ export default function AppShell() {
   };
 
   // Full-page diagram builder view
-  if (currentView === 'diagram-builder') {
+  if (currentView === VIEWS.DIAGRAM_BUILDER) {
     const context = getDiagramContext();
     return (
       <div className="min-h-screen bg-slate-900">
@@ -155,7 +156,7 @@ export default function AppShell() {
   }
 
   // Diagram library view
-  if (currentView === 'diagram-library') {
+  if (currentView === VIEWS.DIAGRAM_LIBRARY) {
     return (
       <DiagramLibrary
         teamsContext={teamsContext}
@@ -166,9 +167,9 @@ export default function AppShell() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100">
-      {currentView === 'teams' && <TeamList teamsContext={teamsContext} diagramLibrary={diagramLibrary} />}
-      {currentView === 'team-detail' && <TeamDetail teamsContext={teamsContext} />}
-      {currentView === 'session-builder' && <SessionBuilder teamsContext={teamsContext} diagramLibrary={diagramLibrary} />}
+      {currentView === VIEWS.TEAMS && <TeamList teamsContext={teamsContext} diagramLibrary={diagramLibrary} />}
+      {currentView === VIEWS.TEAM_DETAIL && <TeamDetail teamsContext={teamsContext} />}
+      {currentView === VIEWS.SESSION_BUILDER && <SessionBuilder teamsContext={teamsContext} diagramLibrary={diagramLibrary} />}
     </div>
   );
 }

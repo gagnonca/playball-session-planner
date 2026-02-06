@@ -7,13 +7,14 @@ import {
   migrateToTeamStructure,
 } from '../utils/helpers';
 import { TEAMS_KEY, CURRENT_VIEW_KEY, LEGACY_SESSION_KEY } from '../constants/storage';
+import { VIEWS } from '../constants/navigation';
 
 export default function useTeams() {
   // Teams data state
   const [teamsData, setTeamsData] = useState(null);
 
   // Navigation state
-  const [currentView, setCurrentView] = useState('teams');
+  const [currentView, setCurrentView] = useState(VIEWS.TEAMS);
   const [selectedTeamId, setSelectedTeamId] = useState(null);
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [selectedSectionId, setSelectedSectionId] = useState(null);
@@ -56,7 +57,7 @@ export default function useTeams() {
       const savedView = localStorage.getItem(CURRENT_VIEW_KEY);
       if (savedView) {
         const viewState = JSON.parse(savedView);
-        setCurrentView(viewState.currentView || 'teams');
+        setCurrentView(viewState.currentView || VIEWS.TEAMS);
         setSelectedTeamId(viewState.selectedTeamId || null);
         setSelectedSessionId(viewState.selectedSessionId || null);
         setSelectedSectionId(viewState.selectedSectionId || null);
@@ -222,19 +223,19 @@ export default function useTeams() {
   // ============ Navigation Operations ============
 
   const navigateToTeams = () => {
-    setCurrentView('teams');
+    setCurrentView(VIEWS.TEAMS);
     setSelectedTeamId(null);
     setSelectedSessionId(null);
   };
 
   const navigateToTeamDetail = (teamId) => {
-    setCurrentView('team-detail');
+    setCurrentView(VIEWS.TEAM_DETAIL);
     setSelectedTeamId(teamId);
     setSelectedSessionId(null);
   };
 
   const navigateToSessionBuilder = (teamId, sessionId) => {
-    setCurrentView('session-builder');
+    setCurrentView(VIEWS.SESSION_BUILDER);
     setSelectedTeamId(teamId);
     setSelectedSessionId(sessionId);
     setSelectedSectionId(null);
@@ -242,7 +243,7 @@ export default function useTeams() {
   };
 
   const navigateToDiagramBuilder = (teamId, sessionId, sectionId) => {
-    setCurrentView('diagram-builder');
+    setCurrentView(VIEWS.DIAGRAM_BUILDER);
     setSelectedTeamId(teamId);
     setSelectedSessionId(sessionId);
     setSelectedSectionId(sectionId);
@@ -250,7 +251,7 @@ export default function useTeams() {
   };
 
   const navigateToDiagramLibrary = (insertMode = false, teamId = null, sessionId = null, sectionId = null) => {
-    setCurrentView('diagram-library');
+    setCurrentView(VIEWS.DIAGRAM_LIBRARY);
     if (insertMode) {
       // Keep context for inserting back to section
       setSelectedTeamId(teamId);
@@ -265,7 +266,7 @@ export default function useTeams() {
   };
 
   const navigateToEditLibraryDiagram = (diagramId) => {
-    setCurrentView('diagram-builder');
+    setCurrentView(VIEWS.DIAGRAM_BUILDER);
     setEditingDiagramId(diagramId);
     // Clear section context when editing library diagram
     setSelectedTeamId(null);
@@ -276,11 +277,11 @@ export default function useTeams() {
   const navigateBackFromDiagramBuilder = () => {
     if (selectedTeamId && selectedSessionId) {
       // Return to session builder
-      setCurrentView('session-builder');
+      setCurrentView(VIEWS.SESSION_BUILDER);
       setSelectedSectionId(null);
     } else {
       // Return to diagram library
-      setCurrentView('diagram-library');
+      setCurrentView(VIEWS.DIAGRAM_LIBRARY);
     }
     setEditingDiagramId(null);
   };
