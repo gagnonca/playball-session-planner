@@ -7,6 +7,7 @@ import {
   FIELD_TYPES as BASE_FIELD_TYPES,
   MOMENTS,
 } from '../../constants/diagram';
+import { generateId } from '../../utils/id';
 import ballSvg from '../../assets/ball.svg';
 import coneSvg from '../../assets/cone.svg';
 import netSvg from '../../assets/net.svg';
@@ -20,8 +21,6 @@ const FIELD_TYPES = BASE_FIELD_TYPES.map(ft => ({
   image: ft.id === 'full' ? fieldFullImg : fieldSmallImg,
 }));
 
-// Generate unique ID
-const generateId = () => `shape-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
 const DiagramBuilder = ({
   initialDiagram,

@@ -85,5 +85,5 @@ export const ARROW_CONFIG = {
   pointerWidth: 10,
 };
 
-// Unique ID generator
-export const generateId = (prefix = 'item') => `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+// Re-export from shared utility
+export { generateId } from '../../../utils/id';

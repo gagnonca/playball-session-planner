@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
+import { generateId } from '../utils/id';
 
 const DIAGRAMS_KEY = 'ppp_diagram_library_v1';
-
-// Generate unique ID
-const uid = () => `diagram-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
 // Get current ISO timestamp
 const nowIso = () => new Date().toISOString();
@@ -41,7 +39,7 @@ export default function useDiagramLibrary() {
   // tags: { ageGroup?: string, moments?: string[], type?: string }
   const saveDiagram = (diagramData, name, description = '', tags = {}) => {
     const newDiagram = {
-      id: uid(),
+      id: generateId('diagram'),
       name: name || 'Untitled Diagram',
       description,
       dataUrl: diagramData.dataUrl,
@@ -89,7 +87,7 @@ export default function useDiagramLibrary() {
 
     const duplicated = {
       ...original,
-      id: uid(),
+      id: generateId('diagram'),
       name: `${original.name} (Copy)`,
       createdAt: nowIso(),
       updatedAt: nowIso(),

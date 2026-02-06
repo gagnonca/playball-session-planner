@@ -7,6 +7,7 @@ import Cone from './shapes/Cone';
 import Attacker from './shapes/Attacker';
 import Defender from './shapes/Defender';
 import { FIELD_TYPES, CONE_COLORS } from '../../constants/diagram';
+import { generateId } from '../../utils/id';
 import ballSvgUrl from '../../assets/ball.svg';
 import netSvgUrl from '../../assets/net.svg';
 
@@ -35,9 +36,6 @@ const DiagramBuilderKonva = ({ onSave, onClose }) => {
     loadImage(ballSvgUrl, setBallImage);
     loadImage(netSvgUrl, setGoalImage);
   }, []);
-
-  // Helper to generate unique IDs
-  const generateId = (type) => `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
 
   // Handle canvas click for stamp placement
   const handleStageClick = (e) => {
