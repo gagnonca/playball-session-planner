@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import TeamCard from './TeamCard';
 import CreateTeamModal from './CreateTeamModal';
 import { toast } from '../../utils/helpers';
+import appStoreBadge from '../../assets/app-store-badge.svg';
 
 export default function TeamList({ teamsContext, diagramLibrary }) {
   const { teamsData, navigateToTeamDetail, deleteTeam, navigateToDiagramLibrary } = teamsContext;
@@ -44,8 +45,23 @@ export default function TeamList({ teamsContext, diagramLibrary }) {
       <div className="bg-slate-800 border-b border-slate-700 p-6">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold mb-2">PlayBall Session Planner</h1>
-            <p className="text-slate-400">Manage your teams and training sessions</p>
+            <h1 className="text-3xl font-bold mb-2">PlayBall - Session Planner</h1>
+            <div className="flex items-center gap-4">
+              <p className="text-slate-400">Manage your teams and training sessions</p>
+              <a
+                href="https://apps.apple.com/us/app/playball-equal-playing-time/id6744836650"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-shrink-0 opacity-90 hover:opacity-100 transition-opacity"
+                title="Download PlayBall - Equal Playing Time on the App Store"
+              >
+                <img
+                  src={appStoreBadge}
+                  alt="Download on the App Store"
+                  className="h-10"
+                />
+              </a>
+            </div>
           </div>
           <button
             onClick={() => navigateToDiagramLibrary()}

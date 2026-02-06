@@ -25,11 +25,15 @@ export default function DiagramLibrary({ teamsContext, diagramLibrary }) {
   // Get unique tags from all diagrams for filter dropdowns
   const uniqueAgeGroups = [...new Set(diagrams.map(d => d.tags?.ageGroup).filter(Boolean))];
   // Flatten moments arrays and get unique values (also handle legacy single moment)
+  // Normalize to capitalized form to avoid duplicates from casing differences
   const uniqueMoments = [...new Set(diagrams.flatMap(d => {
     const moments = d.tags?.moments || [];
     const legacyMoment = d.tags?.moment;
     return [...(Array.isArray(moments) ? moments : []), ...(legacyMoment ? [legacyMoment] : [])];
-  }).filter(Boolean))];
+  }).filter(Boolean).map(m => {
+    // Normalize: capitalize first letter of each word
+    return m.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
+  }))];
   const uniqueTypes = [...new Set(diagrams.map(d => d.tags?.type).filter(Boolean))];
 
   // Filter diagrams by search and tags
@@ -41,11 +45,13 @@ export default function DiagramLibrary({ teamsContext, diagramLibrary }) {
 
     // Handle moments filter - check both array and legacy single moment
     // Play type diagrams match all moments (they're not moment-specific)
+    // Use case-insensitive comparison to handle old lowercase and new capitalized values
     const diagramMoments = diagram.tags?.moments || [];
     const legacyMoment = diagram.tags?.moment;
     const allMoments = [...(Array.isArray(diagramMoments) ? diagramMoments : []), ...(legacyMoment ? [legacyMoment] : [])];
     const isPlay = diagram.tags?.type === 'Play';
-    const matchesMoment = !filterMoment || isPlay || allMoments.includes(filterMoment);
+    const matchesMoment = !filterMoment || isPlay ||
+      allMoments.some(m => m.toLowerCase() === filterMoment.toLowerCase());
 
     // Handle type filter
     const matchesType = !filterType || diagram.tags?.type === filterType;

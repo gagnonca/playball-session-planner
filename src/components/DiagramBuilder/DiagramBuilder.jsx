@@ -51,9 +51,6 @@ const DiagramBuilder = ({
   });
   const [diagramType, setDiagramType] = useState(initialDiagram?.tags?.type || sectionType || '');
 
-  // Check if we're in standalone/library mode (can edit tags) vs section mode (tags come from context)
-  const isStandaloneMode = !ageGroup && !moment && !sectionType;
-
   // Shapes state - initialize from initialDiagram if provided
   const [shapes, setShapes] = useState(initialDiagram?.elements || []);
   const [selectedId, setSelectedId] = useState(null);
@@ -119,6 +116,26 @@ const DiagramBuilder = ({
       }
     });
   }, []);
+
+  // Sync metadata state when props change (allows editing after reopening)
+  useEffect(() => {
+    setDiagramName(initialDiagram?.name || defaultName || '');
+    setDiagramDescription(initialDiagram?.description || defaultDescription || '');
+    setDiagramAgeGroup(initialDiagram?.tags?.ageGroup || ageGroup || '');
+    setDiagramMoments(() => {
+      const m = initialDiagram?.tags?.moments || initialDiagram?.tags?.moment || moment || [];
+      return Array.isArray(m) ? m : (m ? [m] : []);
+    });
+    setDiagramType(initialDiagram?.tags?.type || sectionType || '');
+    setShapes(initialDiagram?.elements || []);
+    setLines(initialDiagram?.lines || []);
+    setFieldType(() => {
+      if (initialDiagram?.fieldType) {
+        return FIELD_TYPES.find(ft => ft.id === initialDiagram.fieldType) || FIELD_TYPES[0];
+      }
+      return FIELD_TYPES[0];
+    });
+  }, [initialDiagram, defaultName, defaultDescription, ageGroup, moment, sectionType]);
 
   // Track container size for responsive canvas
   useEffect(() => {
@@ -819,61 +836,45 @@ const DiagramBuilder = ({
             onChange={(e) => setDiagramName(e.target.value)}
             className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-52"
           />
-          {isStandaloneMode ? (
-            <>
-              <input
-                type="text"
-                placeholder="Description..."
-                value={diagramDescription}
-                onChange={(e) => setDiagramDescription(e.target.value)}
-                className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-40"
-              />
-              <input
-                type="text"
-                placeholder="Age group..."
-                value={diagramAgeGroup}
-                onChange={(e) => setDiagramAgeGroup(e.target.value)}
-                className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-24"
-              />
-              <select
-                value={diagramType}
-                onChange={(e) => setDiagramType(e.target.value)}
-                className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500"
-              >
-                <option value="">Type...</option>
-                <option value="Play">Play</option>
-                <option value="Practice">Practice</option>
-              </select>
-              {diagramType === 'Practice' && (
-                <div className="flex items-center gap-1">
-                  {MOMENTS.map(m => (
-                    <button
-                      key={m}
-                      onClick={() => toggleMoment(m)}
-                      className={`px-2 py-1 text-xs rounded transition-colors ${
-                        diagramMoments.includes(m)
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
-                      }`}
-                    >
-                      {m.replace('Transition to ', '→')}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
-          ) : (
-            (ageGroup || moment || sectionType) && (
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                {sectionType && (
-                  <span className={`px-2 py-0.5 rounded ${
-                    sectionType === 'Play' ? 'bg-blue-600/30 text-blue-300' : 'bg-green-600/30 text-green-300'
-                  }`}>{sectionType}</span>
-                )}
-                {ageGroup && <span className="px-2 py-0.5 bg-slate-700 rounded">{ageGroup}</span>}
-                {moment && <span className="px-2 py-0.5 bg-purple-600/30 text-purple-300 rounded">{moment}</span>}
-              </div>
-            )
+          <input
+            type="text"
+            placeholder="Description..."
+            value={diagramDescription}
+            onChange={(e) => setDiagramDescription(e.target.value)}
+            className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-40"
+          />
+          <input
+            type="text"
+            placeholder="Age group..."
+            value={diagramAgeGroup}
+            onChange={(e) => setDiagramAgeGroup(e.target.value)}
+            className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-24"
+          />
+          <select
+            value={diagramType}
+            onChange={(e) => setDiagramType(e.target.value)}
+            className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500"
+          >
+            <option value="">Type...</option>
+            <option value="Play">Play</option>
+            <option value="Practice">Practice</option>
+          </select>
+          {diagramType === 'Practice' && (
+            <div className="flex items-center gap-1">
+              {MOMENTS.map(m => (
+                <button
+                  key={m}
+                  onClick={() => toggleMoment(m)}
+                  className={`px-2 py-1 text-xs rounded transition-colors ${
+                    diagramMoments.includes(m)
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                  }`}
+                >
+                  {m.replace('Transition to ', '→')}
+                </button>
+              ))}
+            </div>
           )}
         </div>
         <div className="flex items-center gap-3 shrink-0">

@@ -19,7 +19,9 @@ export default function SessionCard({ session, onSelect, onDuplicate, onDelete }
   };
 
   const getMomentEmoji = (moment) => {
-    switch (moment) {
+    // Handle both old lowercase and new capitalized values
+    const m = (moment || '').toLowerCase();
+    switch (m) {
       case 'attacking':
         return '⚡';
       case 'defending':

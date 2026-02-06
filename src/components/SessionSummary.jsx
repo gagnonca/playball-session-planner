@@ -111,10 +111,10 @@ export default function SessionSummary({ summary, onUpdate }) {
           <label className="label-text mb-1">Moment</label>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {[
-              { value: 'attacking', label: 'Attacking', emoji: '⚡' },
-              { value: 'defending', label: 'Defending', emoji: '🛡️' },
-              { value: 'transition to attack', label: 'Transition to Attack', emoji: '🔄' },
-              { value: 'transition to defense', label: 'Transition to Defense', emoji: '↩️' },
+              { value: 'Attacking', label: 'Attacking', emoji: '⚡' },
+              { value: 'Defending', label: 'Defending', emoji: '🛡️' },
+              { value: 'Transition to Attack', label: 'Transition to Attack', emoji: '🔄' },
+              { value: 'Transition to Defense', label: 'Transition to Defense', emoji: '↩️' },
             ].map(option => (
               <button
                 key={option.value}
