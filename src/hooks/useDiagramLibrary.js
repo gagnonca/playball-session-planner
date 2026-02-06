@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { generateId } from '../utils/id';
-
-const DIAGRAMS_KEY = 'ppp_diagram_library_v1';
+import { DIAGRAMS_KEY } from '../constants/storage';
 
 // Get current ISO timestamp
 const nowIso = () => new Date().toISOString();

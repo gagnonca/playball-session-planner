@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-
-const HELP_PREFS_KEY = 'ppp_help_preferences_v1';
+import { useLocalStorage } from '../hooks/useLocalStorage';
+import { HELP_PREFS_KEY } from '../constants/storage';
 
 // Help content for different section types
 const HELP_CONTENT = {
@@ -34,30 +34,19 @@ const HELP_CONTENT = {
 };
 
 export default function ContextualHelp({ type, onDismiss }) {
+  const [prefs, setPrefs] = useLocalStorage(HELP_PREFS_KEY, {});
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
     // Check if user has dismissed this help before
-    try {
-      const prefs = JSON.parse(localStorage.getItem(HELP_PREFS_KEY) || '{}');
-      if (!prefs[`dismissed_${type}`]) {
-        setIsVisible(true);
-      }
-    } catch (error) {
-      console.error('Error reading help preferences:', error);
+    if (!prefs[`dismissed_${type}`]) {
       setIsVisible(true);
     }
-  }, [type]);
+  }, [type, prefs]);
 
   const handleDismiss = (forever = false) => {
     if (forever) {
-      try {
-        const prefs = JSON.parse(localStorage.getItem(HELP_PREFS_KEY) || '{}');
-        prefs[`dismissed_${type}`] = true;
-        localStorage.setItem(HELP_PREFS_KEY, JSON.stringify(prefs));
-      } catch (error) {
-        console.error('Error saving help preferences:', error);
-      }
+      setPrefs({ ...prefs, [`dismissed_${type}`]: true });
     }
     setIsVisible(false);
     if (onDismiss) onDismiss();

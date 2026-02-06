@@ -6,10 +6,7 @@ import {
   defaultSession,
   migrateToTeamStructure,
 } from '../utils/helpers';
-
-const TEAMS_KEY = 'ppp_teams_v1';
-const CURRENT_VIEW_KEY = 'ppp_current_view_v1';
-const LEGACY_SESSION_KEY = 'ppp_session_builder_v2';
+import { TEAMS_KEY, CURRENT_VIEW_KEY, LEGACY_SESSION_KEY } from '../constants/storage';
 
 export default function useTeams() {
   // Teams data state
