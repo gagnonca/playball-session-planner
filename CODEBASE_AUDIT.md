@@ -1,31 +1,40 @@
 # PlayBall Session Planner - Technical Audit & Refactor Plan
 
 **Generated:** February 2026
-**Codebase Size:** ~10,700 lines across 56 source files
+**Last Updated:** February 2026 (Phases 0-5 Complete)
+**Codebase Size:** ~8,800 lines across 52 source files (after cleanup)
 **Primary Stack:** React 18, Vite, Tailwind CSS, react-konva, @dnd-kit
 
 ---
 
 ## 1. Executive Summary
 
-### Critical Maintainability Issues
+### Completed Refactoring (Phases 0-5)
 
-| Priority | Issue | Impact | Estimated Effort |
-|----------|-------|--------|------------------|
-| **P0** | 5 dead DiagramBuilder implementations (~3,500 lines) | Confusion, bundle bloat | Low (deletion) |
-| **P0** | Monolithic DiagramBuilder.jsx (1,736 lines) | Hard to debug, test, modify | Medium-High |
-| **P1** | Unused modular architecture (1,729 lines written but not wired up) | Wasted investment, parallel implementations | Medium |
-| **P1** | Duplicate ID generation functions (4 implementations) | Inconsistent IDs, potential collisions | Low |
-| **P1** | Duplicate constants (CONE_COLORS, FIELD_TYPES, etc.) | Drift risk, maintenance burden | Low |
-| **P2** | Two different diagram editors in production | Inconsistent UX, double maintenance | Medium |
-| **P2** | Inconsistent localStorage patterns (3 approaches) | Fragile state, debugging difficulty | Medium |
+| Phase | Status | What Was Done |
+|-------|--------|---------------|
+| **Phase 0** | ✅ Complete | Deleted ~1,900 lines of dead code (3 files) |
+| **Phase 1** | ✅ Complete | Created `src/constants/diagram.js` - unified constants |
+| **Phase 2** | ✅ Complete | Created `src/utils/id.js` - single ID generation |
+| **Phase 3** | ✅ Complete | Created `src/hooks/useKonvaImage.js` - shared image loading |
+| **Phase 4** | ✅ Complete | Created `src/constants/storage.js` - centralized keys |
+| **Phase 5** | ✅ Complete | Created `src/constants/navigation.js` - view constants |
 
-### Why These Matter
+### Remaining Issues
 
-1. **Dead code** creates cognitive overhead: developers must understand what's active vs abandoned
-2. **The 1,736-line monolith** is the primary area of active development but is nearly impossible to unit test
-3. **Parallel implementations** mean bug fixes must be applied multiple times
-4. **Inconsistent patterns** lead to "which way do I do this?" questions on every new feature
+| Priority | Issue | Impact | Status |
+|----------|-------|--------|--------|
+| **P0** | Monolithic DiagramBuilder.jsx (1,736 lines) | Hard to debug, test, modify | Pending (Phase 6) |
+| **P1** | Unused modular architecture (1,729 lines) | Wasted investment | Ready to wire up |
+| **P2** | Two different diagram editors in production | Inconsistent UX | Pending |
+
+### What Was Fixed
+
+1. ~~Dead code~~ → **Deleted** ~1,900 lines
+2. ~~Duplicate ID functions (4)~~ → **Unified** to `src/utils/id.js`
+3. ~~Duplicate constants~~ → **Consolidated** to `src/constants/diagram.js`
+4. ~~Inconsistent localStorage patterns~~ → **Standardized** keys in `src/constants/storage.js`
+5. ~~Magic string navigation~~ → **Constants** in `src/constants/navigation.js`
 
 ---
 
