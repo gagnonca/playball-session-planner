@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Stage, Layer, Rect, Transformer } from 'react-konva';
 import Toolbar from './Toolbar';
 import Ball from './shapes/Ball';
@@ -6,20 +6,19 @@ import Goal from './shapes/Goal';
 import Cone from './shapes/Cone';
 import Attacker from './shapes/Attacker';
 import Defender from './shapes/Defender';
-import { useEffect } from 'react';
+import { FIELD_TYPES, CONE_COLORS } from '../../constants/diagram';
 import ballSvgUrl from '../../assets/ball.svg';
 import netSvgUrl from '../../assets/net.svg';
 
-// Default field template (full field)
-const FIELD_WIDTH = 800;
-const FIELD_HEIGHT = 533;
+// Use first field type dimensions
+const FIELD_WIDTH = FIELD_TYPES[0].width + 100; // Slightly wider for this builder
+const FIELD_HEIGHT = FIELD_TYPES[0].height + 8;
 
 const DiagramBuilderKonva = ({ onSave, onClose }) => {
   const stageRef = useRef(null);
-  // Toolbar state
 
   const [toolMode, setToolMode] = useState('select');
-  const [selectedConeColor, setSelectedConeColor] = useState('#FF6B35');
+  const [selectedConeColor, setSelectedConeColor] = useState(CONE_COLORS[0].color);
 
   const [items, setItems] = useState([]); // Placed stamps
   const [ballImage, setBallImage] = useState(null);

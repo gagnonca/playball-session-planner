@@ -1,5 +1,12 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Stage, Layer, Rect, Circle, Line, Group, RegularPolygon, Image, Ellipse, Transformer } from 'react-konva';
+import {
+  TOOLS,
+  LINE_TYPES,
+  CONE_COLORS,
+  FIELD_TYPES as BASE_FIELD_TYPES,
+  MOMENTS,
+} from '../../constants/diagram';
 import ballSvg from '../../assets/ball.svg';
 import coneSvg from '../../assets/cone.svg';
 import netSvg from '../../assets/net.svg';
@@ -7,38 +14,11 @@ import fieldFullImg from '../../assets/field-full.png';
 import fieldSmallImg from '../../assets/field-small.png';
 import goalImg from '../../assets/goal-3d.png';
 
-// Tool modes
-const TOOLS = {
-  SELECT: 'select',
-  ATTACKER: 'attacker',
-  DEFENDER: 'defender',
-  BALL: 'ball',
-  GOAL: 'goal',
-  CONE: 'cone',
-  LINE: 'line', // Single line tool - type selected in right panel
-  FIELD: 'field', // Field/canvas settings
-};
-
-// Line types (for right panel selection)
-const LINE_TYPES = {
-  PASS: 'pass',
-  MOVEMENT: 'movement',
-  DRIBBLE: 'dribble',
-};
-
-// Cone colors
-const CONE_COLORS = [
-  { id: 'orange', color: '#FF6B35' },
-  { id: 'yellow', color: '#FDD835' },
-  { id: 'blue', color: '#42A5F5' },
-  { id: 'green', color: '#66BB6A' },
-];
-
-// Field types - with image references and aspect ratios
-const FIELD_TYPES = [
-  { id: 'full', label: 'Full Field', width: 700, height: 525, image: fieldFullImg }, // 4:3 aspect ratio
-  { id: 'small', label: 'Small Field', width: 700, height: 525, image: fieldSmallImg }, // 4:3 aspect ratio
-];
+// Augment field types with image references
+const FIELD_TYPES = BASE_FIELD_TYPES.map(ft => ({
+  ...ft,
+  image: ft.id === 'full' ? fieldFullImg : fieldSmallImg,
+}));
 
 // Generate unique ID
 const generateId = () => `shape-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -74,14 +54,6 @@ const DiagramBuilder = ({
 
   // Check if we're in standalone/library mode (can edit tags) vs section mode (tags come from context)
   const isStandaloneMode = !ageGroup && !moment && !sectionType;
-
-  // Available moments for multi-select
-  const MOMENTS = [
-    'Attacking',
-    'Defending',
-    'Transition to Attack',
-    'Transition to Defense',
-  ];
 
   // Shapes state - initialize from initialDiagram if provided
   const [shapes, setShapes] = useState(initialDiagram?.elements || []);
