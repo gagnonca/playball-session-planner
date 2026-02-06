@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState } from 'react';
 import { Stage, Layer, Rect, Transformer } from 'react-konva';
 import Toolbar from './Toolbar';
 import Ball from './shapes/Ball';
@@ -8,6 +8,7 @@ import Attacker from './shapes/Attacker';
 import Defender from './shapes/Defender';
 import { FIELD_TYPES, CONE_COLORS } from '../../constants/diagram';
 import { generateId } from '../../utils/id';
+import useKonvaImage from '../../hooks/useKonvaImage';
 import ballSvgUrl from '../../assets/ball.svg';
 import netSvgUrl from '../../assets/net.svg';
 
@@ -22,20 +23,9 @@ const DiagramBuilderKonva = ({ onSave, onClose }) => {
   const [selectedConeColor, setSelectedConeColor] = useState(CONE_COLORS[0].color);
 
   const [items, setItems] = useState([]); // Placed stamps
-  const [ballImage, setBallImage] = useState(null);
-  const [goalImage, setGoalImage] = useState(null);
+  const ballImage = useKonvaImage(ballSvgUrl);
+  const goalImage = useKonvaImage(netSvgUrl);
   const [selectedId, setSelectedId] = useState(null);
-
-  // Load SVG assets for Ball and Goal
-  useEffect(() => {
-    const loadImage = (src, setter) => {
-      const img = new window.Image();
-      img.onload = () => setter(img);
-      img.src = src;
-    };
-    loadImage(ballSvgUrl, setBallImage);
-    loadImage(netSvgUrl, setGoalImage);
-  }, []);
 
   // Handle canvas click for stamp placement
   const handleStageClick = (e) => {

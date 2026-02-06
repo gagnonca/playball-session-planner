@@ -1,16 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef } from 'react';
 import { Group, Image, Rect } from 'react-konva';
+import useKonvaImage from '../../../../hooks/useKonvaImage';
 import netSvg from '../../../../assets/net.svg';
 
 const Goal = ({ id, x, y, rotation = 0, width = 80, height = 40, isSelected, onSelect, onDragEnd, onTransformEnd }) => {
-  const [image, setImage] = useState(null);
+  const image = useKonvaImage(netSvg);
   const groupRef = useRef(null);
-
-  useEffect(() => {
-    const img = new window.Image();
-    img.onload = () => setImage(img);
-    img.src = netSvg;
-  }, []);
 
   return (
     <Group

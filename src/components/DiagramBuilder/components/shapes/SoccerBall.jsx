@@ -1,17 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef } from 'react';
 import { Group, Image } from 'react-konva';
+import useKonvaImage from '../../../../hooks/useKonvaImage';
 import ballSvg from '../../../../assets/ball.svg';
 
 const SoccerBall = ({ id, x, y, rotation = 0, isSelected, onSelect, onDragEnd, onTransformEnd }) => {
-  const [image, setImage] = useState(null);
+  const image = useKonvaImage(ballSvg);
   const groupRef = useRef(null);
   const size = 30; // Display size
-
-  useEffect(() => {
-    const img = new window.Image();
-    img.onload = () => setImage(img);
-    img.src = ballSvg;
-  }, []);
 
   if (!image) return null;
 
