@@ -1,9 +1,17 @@
-import React, { useState } from 'react';
-import DiagramBuilder from './DiagramBuilderNew';
+import React, { useCallback } from 'react';
 import { fileToDataUrl } from '../utils/helpers';
 
-export default function Variation({ variation, onUpdate, onRemove, parentDiagram }) {
-  const [showDiagramBuilder, setShowDiagramBuilder] = useState(false);
+// Auto-grow textarea handler
+const useAutoGrow = () => {
+  return useCallback((e) => {
+    const target = e.target;
+    target.style.height = 'auto';
+    target.style.height = Math.max(target.scrollHeight, 72) + 'px';
+  }, []);
+};
+
+export default function Variation({ variation, onUpdate, onRemove, parentDiagram, sectionId, teamsContext }) {
+  const handleAutoGrow = useAutoGrow();
 
   const handleChange = (field, value) => {
     onUpdate({ ...variation, [field]: value });
@@ -22,17 +30,16 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
     handleChange('diagramData', null);
   };
 
-  const handleSaveDiagram = (diagramData) => {
-    handleChange('diagramData', diagramData);
-    handleChange('imageDataUrl', diagramData.dataUrl);
-    setShowDiagramBuilder(false);
+  const handleOpenDiagramBuilder = (useParentAsBase = false) => {
+    if (teamsContext) {
+      const { selectedTeamId, selectedSessionId, navigateToVariationDiagramBuilder } = teamsContext;
+      navigateToVariationDiagramBuilder(selectedTeamId, selectedSessionId, sectionId, variation.id, useParentAsBase);
+    }
   };
 
-  const handleCopyFromParent = () => {
-    if (parentDiagram) {
-      handleChange('diagramData', parentDiagram);
-      handleChange('imageDataUrl', parentDiagram.dataUrl);
-    }
+  const handleCopyFromParentAndEdit = () => {
+    // Open diagram builder with parent diagram as starting point
+    handleOpenDiagramBuilder(true);
   };
 
   return (
@@ -65,7 +72,7 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
               />
               <div className="flex gap-2 no-print">
                 <button
-                  onClick={() => setShowDiagramBuilder(true)}
+                  onClick={() => handleOpenDiagramBuilder(false)}
                   className="btn btn-primary flex-1 text-xs py-1"
                 >
                   Edit Diagram
@@ -83,20 +90,20 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
               <p className="text-sm text-slate-400 mb-2">Diagram</p>
               {parentDiagram && (
                 <button
-                  onClick={handleCopyFromParent}
+                  onClick={handleCopyFromParentAndEdit}
                   className="btn btn-secondary text-xs py-1"
                 >
-                  📋 Copy from Parent
+                  Start from Parent
                 </button>
               )}
               <button
-                onClick={() => setShowDiagramBuilder(true)}
+                onClick={() => handleOpenDiagramBuilder(false)}
                 className="btn btn-primary text-xs py-1"
               >
-                🎨 Build Diagram
+                Build Diagram
               </button>
               <label className="btn btn-subtle text-xs py-1 cursor-pointer">
-                📁 Upload Image
+                Upload Image
                 <input
                   type="file"
                   accept="image/*"
@@ -115,8 +122,9 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
           <textarea
             value={variation.objective}
             onChange={(e) => handleChange('objective', e.target.value)}
+            onInput={handleAutoGrow}
             rows="3"
-            className="input-field resize-y"
+            className="input-field resize-none overflow-hidden"
           />
         </div>
 
@@ -125,8 +133,9 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
           <textarea
             value={variation.organization}
             onChange={(e) => handleChange('organization', e.target.value)}
+            onInput={handleAutoGrow}
             rows="3"
-            className="input-field resize-y"
+            className="input-field resize-none overflow-hidden"
           />
         </div>
 
@@ -135,8 +144,9 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
           <textarea
             value={variation.questions}
             onChange={(e) => handleChange('questions', e.target.value)}
+            onInput={handleAutoGrow}
             rows="3"
-            className="input-field resize-y"
+            className="input-field resize-none overflow-hidden"
           />
         </div>
 
@@ -145,8 +155,9 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
           <textarea
             value={variation.answers}
             onChange={(e) => handleChange('answers', e.target.value)}
+            onInput={handleAutoGrow}
             rows="3"
-            className="input-field resize-y"
+            className="input-field resize-none overflow-hidden"
           />
         </div>
 
@@ -155,25 +166,13 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
           <textarea
             value={variation.notes}
             onChange={(e) => handleChange('notes', e.target.value)}
+            onInput={handleAutoGrow}
             rows="3"
-            className="input-field resize-y"
+            className="input-field resize-none overflow-hidden"
           />
         </div>
       </div>
       </div>
-
-      {/* Diagram Builder Modal */}
-      {showDiagramBuilder && (
-        <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-50">
-          <div className="w-full h-full">
-            <DiagramBuilder
-              initialDiagram={variation.diagramData}
-              onSave={handleSaveDiagram}
-              onClose={() => setShowDiagramBuilder(false)}
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

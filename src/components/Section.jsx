@@ -1,7 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Variation from './Variation';
 import ContextualHelp from './ContextualHelp';
 import { fileToDataUrl, defaultVariation } from '../utils/helpers';
+
+// Auto-grow textarea handler
+const useAutoGrow = () => {
+  const handleAutoGrow = useCallback((e) => {
+    const target = e.target;
+    target.style.height = 'auto';
+    target.style.height = Math.max(target.scrollHeight, 72) + 'px'; // Min height of 72px (3 rows)
+  }, []);
+
+  return handleAutoGrow;
+};
 
 export default function Section({
   section,
@@ -17,6 +28,7 @@ export default function Section({
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [previousType, setPreviousType] = useState(section.type);
+  const handleAutoGrow = useAutoGrow();
 
   // Show help when section type changes
   useEffect(() => {
@@ -250,8 +262,9 @@ export default function Section({
               <textarea
                 value={section.objective}
                 onChange={(e) => handleChange('objective', e.target.value)}
+                onInput={handleAutoGrow}
                 rows="3"
-                className="input-field resize-y"
+                className="input-field resize-none overflow-hidden"
               />
             </div>
 
@@ -260,8 +273,9 @@ export default function Section({
               <textarea
                 value={section.organization}
                 onChange={(e) => handleChange('organization', e.target.value)}
+                onInput={handleAutoGrow}
                 rows="3"
-                className="input-field resize-y"
+                className="input-field resize-none overflow-hidden"
               />
             </div>
 
@@ -273,8 +287,9 @@ export default function Section({
                   <textarea
                     value={section.questions}
                     onChange={(e) => handleChange('questions', e.target.value)}
+                    onInput={handleAutoGrow}
                     rows="3"
-                    className="input-field resize-y"
+                    className="input-field resize-none overflow-hidden"
                     placeholder="What questions will help players discover the solution?"
                   />
                 </div>
@@ -284,8 +299,9 @@ export default function Section({
                   <textarea
                     value={section.answers}
                     onChange={(e) => handleChange('answers', e.target.value)}
+                    onInput={handleAutoGrow}
                     rows="3"
-                    className="input-field resize-y"
+                    className="input-field resize-none overflow-hidden"
                     placeholder="What are the key points players should learn?"
                   />
                 </div>
@@ -297,8 +313,9 @@ export default function Section({
               <textarea
                 value={section.notes}
                 onChange={(e) => handleChange('notes', e.target.value)}
+                onInput={handleAutoGrow}
                 rows="3"
-                className="input-field resize-y"
+                className="input-field resize-none overflow-hidden"
               />
             </div>
           </div>
@@ -317,6 +334,8 @@ export default function Section({
                   onUpdate={(updated) => handleUpdateVariation(index, updated)}
                   onRemove={() => handleRemoveVariation(index)}
                   parentDiagram={section.diagramData}
+                  sectionId={section.id}
+                  teamsContext={teamsContext}
                 />
               ))}
             </div>

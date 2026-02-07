@@ -32,6 +32,7 @@ export default function AppShell() {
     selectedTeamId,
     selectedSessionId,
     selectedSectionId,
+    selectedVariationId,
     editingDiagramId,
     getTeam,
     getSession,
@@ -151,19 +152,7 @@ export default function AppShell() {
     };
   }, [teamsData]);
 
-  // Wait for teams data to load
-  if (!teamsData) {
-    return (
-      <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-slate-400">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Show shared team view if viewing a shared link
+  // Show shared team view if viewing a shared link (check BEFORE teamsData check)
   if (sharedTeamToken) {
     if (sharingContext.isLoading) {
       return (
@@ -287,46 +276,123 @@ export default function AppShell() {
                         </div>
                       </div>
 
-                      {section.objective && (
-                        <div className="mb-4">
-                          <span className="text-slate-500 text-sm">Objective:</span>
-                          <p className="text-slate-300 mt-1">{section.objective}</p>
-                        </div>
-                      )}
+                      {/* Two column layout like HC view */}
+                      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
+                        {/* Diagram */}
+                        {section.imageDataUrl && (
+                          <div>
+                            <img
+                              src={section.imageDataUrl}
+                              alt="Diagram"
+                              className="w-full rounded-lg border border-slate-700"
+                            />
+                          </div>
+                        )}
 
-                      {section.description && (
-                        <div className="mb-4">
-                          <span className="text-slate-500 text-sm">Description:</span>
-                          <p className="text-slate-300 mt-1 whitespace-pre-wrap">{section.description}</p>
-                        </div>
-                      )}
+                        {/* Content fields */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {section.objective && (
+                            <div>
+                              <span className="text-slate-500 text-sm font-medium">Objective</span>
+                              <p className="text-slate-300 mt-1 whitespace-pre-wrap">{section.objective}</p>
+                            </div>
+                          )}
 
-                      {section.keyPoints && (
-                        <div className="mb-4">
-                          <span className="text-slate-500 text-sm">Key Points:</span>
-                          <p className="text-slate-300 mt-1 whitespace-pre-wrap">{section.keyPoints}</p>
-                        </div>
-                      )}
+                          {section.organization && (
+                            <div>
+                              <span className="text-slate-500 text-sm font-medium">Organization</span>
+                              <p className="text-slate-300 mt-1 whitespace-pre-wrap">{section.organization}</p>
+                            </div>
+                          )}
 
-                      {/* Diagram */}
-                      {section.imageDataUrl && (
-                        <div className="mt-4">
-                          <img
-                            src={section.imageDataUrl}
-                            alt="Diagram"
-                            className="max-w-full rounded-lg border border-slate-700"
-                          />
+                          {/* Questions/Answers for Practice sections */}
+                          {section.type === 'Practice' && section.questions && (
+                            <div>
+                              <span className="text-slate-500 text-sm font-medium">Guided Questions</span>
+                              <p className="text-slate-300 mt-1 whitespace-pre-wrap">{section.questions}</p>
+                            </div>
+                          )}
+
+                          {section.type === 'Practice' && section.answers && (
+                            <div>
+                              <span className="text-slate-500 text-sm font-medium">Answers</span>
+                              <p className="text-slate-300 mt-1 whitespace-pre-wrap">{section.answers}</p>
+                            </div>
+                          )}
+
+                          {section.notes && (
+                            <div>
+                              <span className="text-slate-500 text-sm font-medium">Notes</span>
+                              <p className="text-slate-300 mt-1 whitespace-pre-wrap">{section.notes}</p>
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
 
                       {/* Variations */}
                       {section.variations?.length > 0 && (
-                        <div className="mt-4 pt-4 border-t border-slate-700">
-                          <span className="text-slate-500 text-sm">Variations:</span>
-                          <div className="mt-2 space-y-2">
+                        <div className="mt-6 pt-6 border-t border-slate-700">
+                          <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-semibold">Variations</h3>
+                            <p className="text-sm text-slate-400">Less / Core / More challenging options</p>
+                          </div>
+                          <div className="space-y-4">
                             {section.variations.map((variation, vIndex) => (
-                              <div key={vIndex} className="bg-slate-700/50 rounded p-3">
-                                <p className="text-slate-300 text-sm">{variation.text || variation}</p>
+                              <div key={variation.id || vIndex} className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+                                <h4 className="font-semibold text-slate-200 mb-4">
+                                  {variation.name || `Variation ${vIndex + 1}`}
+                                </h4>
+
+                                <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4">
+                                  {/* Variation Diagram */}
+                                  {variation.imageDataUrl && (
+                                    <div>
+                                      <img
+                                        src={variation.imageDataUrl}
+                                        alt="Variation diagram"
+                                        className="w-full rounded-lg border border-slate-600"
+                                      />
+                                    </div>
+                                  )}
+
+                                  {/* Variation Content */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {variation.objective && (
+                                      <div>
+                                        <span className="text-slate-500 text-sm font-medium">Objective</span>
+                                        <p className="text-slate-300 mt-1 text-sm whitespace-pre-wrap">{variation.objective}</p>
+                                      </div>
+                                    )}
+
+                                    {variation.organization && (
+                                      <div>
+                                        <span className="text-slate-500 text-sm font-medium">Organization</span>
+                                        <p className="text-slate-300 mt-1 text-sm whitespace-pre-wrap">{variation.organization}</p>
+                                      </div>
+                                    )}
+
+                                    {variation.questions && (
+                                      <div>
+                                        <span className="text-slate-500 text-sm font-medium">Guided Questions</span>
+                                        <p className="text-slate-300 mt-1 text-sm whitespace-pre-wrap">{variation.questions}</p>
+                                      </div>
+                                    )}
+
+                                    {variation.answers && (
+                                      <div>
+                                        <span className="text-slate-500 text-sm font-medium">Answers</span>
+                                        <p className="text-slate-300 mt-1 text-sm whitespace-pre-wrap">{variation.answers}</p>
+                                      </div>
+                                    )}
+
+                                    {variation.notes && (
+                                      <div>
+                                        <span className="text-slate-500 text-sm font-medium">Notes</span>
+                                        <p className="text-slate-300 mt-1 text-sm whitespace-pre-wrap">{variation.notes}</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -425,10 +491,61 @@ export default function AppShell() {
     }
   }
 
-  // Handle saving diagram from builder back to section AND to library
+  // Wait for teams data to load (for non-shared views)
+  if (!teamsData) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-slate-400">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Handle saving diagram from builder back to section/variation AND to library
   const handleDiagramSave = (diagramData) => {
-    if (selectedTeamId && selectedSessionId && selectedSectionId) {
-      // Get current session and update the specific section
+    if (selectedTeamId && selectedSessionId && selectedSectionId && selectedVariationId) {
+      // Saving to a variation within a section
+      const team = getTeam(selectedTeamId);
+      const session = getSession(selectedTeamId, selectedSessionId);
+      if (session) {
+        const section = session.sections.find(s => s.id === selectedSectionId);
+        if (section) {
+          const updatedVariations = section.variations.map(v =>
+            v.id === selectedVariationId
+              ? { ...v, diagramData, imageDataUrl: diagramData.dataUrl }
+              : v
+          );
+          const updatedSections = session.sections.map(s =>
+            s.id === selectedSectionId
+              ? { ...s, variations: updatedVariations }
+              : s
+          );
+          updateSession(selectedTeamId, selectedSessionId, { sections: updatedSections });
+
+          // Also save to library with context
+          const variation = section.variations.find(v => v.id === selectedVariationId);
+          diagramLibrary.saveDiagram(
+            {
+              dataUrl: diagramData.dataUrl,
+              elements: diagramData.elements || [],
+              lines: diagramData.lines || [],
+              fieldType: diagramData.fieldType || 'full',
+            },
+            diagramData.name || variation?.name || section?.name || 'Untitled Diagram',
+            diagramData.description || '',
+            {
+              ageGroup: team?.ageGroup || '',
+              moments: session?.summary?.moment ? [session.summary.moment] : [],
+              type: section?.type || '',
+            }
+          );
+        }
+      }
+      navigateBackFromDiagramBuilder();
+    } else if (selectedTeamId && selectedSessionId && selectedSectionId) {
+      // Saving to a section (not a variation)
       const team = getTeam(selectedTeamId);
       const session = getSession(selectedTeamId, selectedSessionId);
       if (session) {
@@ -458,7 +575,7 @@ export default function AppShell() {
         );
       }
       navigateBackFromDiagramBuilder();
-    } else if (editingDiagramId) {
+    } else if (editingDiagramId && editingDiagramId !== 'USE_PARENT') {
       // Updating a library diagram
       diagramLibrary.updateDiagram(editingDiagramId, {
         name: diagramData.name,
@@ -489,7 +606,7 @@ export default function AppShell() {
 
   // Get initial diagram data and context for editor
   const getDiagramContext = () => {
-    if (editingDiagramId) {
+    if (editingDiagramId && editingDiagramId !== 'USE_PARENT') {
       // Editing library diagram - return existing data
       const diagram = diagramLibrary.getDiagram(editingDiagramId);
       return {
@@ -499,6 +616,27 @@ export default function AppShell() {
         ageGroup: diagram?.tags?.ageGroup || '',
         moment: diagram?.tags?.moment || '',
         sectionType: diagram?.tags?.type || '',
+      };
+    } else if (selectedTeamId && selectedSessionId && selectedSectionId && selectedVariationId) {
+      // Editing variation diagram
+      const team = getTeam(selectedTeamId);
+      const session = getSession(selectedTeamId, selectedSessionId);
+      const section = session?.sections.find(s => s.id === selectedSectionId);
+      const variation = section?.variations.find(v => v.id === selectedVariationId);
+
+      // Use parent diagram as base if USE_PARENT flag is set, or if variation has no diagram
+      const useParentAsBase = editingDiagramId === 'USE_PARENT';
+      const initialDiagram = useParentAsBase
+        ? section?.diagramData || null
+        : (variation?.diagramData || section?.diagramData || null);
+
+      return {
+        initialDiagram,
+        defaultName: variation?.name || section?.name || '',
+        defaultDescription: variation?.objective || section?.objective || '',
+        ageGroup: team?.ageGroup || '',
+        moment: session?.summary?.moment || '',
+        sectionType: section?.type || '',
       };
     } else if (selectedTeamId && selectedSessionId && selectedSectionId) {
       // Editing section diagram - get context from team/session/section

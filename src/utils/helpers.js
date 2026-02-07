@@ -106,6 +106,7 @@ export function defaultTeam(name = "My Team", ageGroup = "") {
     id: uid(),
     name,
     ageGroup,
+    defaultDuration: "60", // Default session duration
     createdAt: nowIso(),
     updatedAt: nowIso(),
     sessions: [],
@@ -120,14 +121,15 @@ export function defaultTeam(name = "My Team", ageGroup = "") {
 }
 
 // Default session structure
-export function defaultSession() {
+// Accepts optional teamDefaults { ageGroup, defaultDuration } to pre-fill session
+export function defaultSession(teamDefaults = null) {
   return {
     id: uid(),
     summary: {
       title: "",
       date: "",
-      duration: "",
-      ageGroup: "",
+      duration: teamDefaults?.defaultDuration || "",
+      ageGroup: teamDefaults?.ageGroup || "",
       moment: "",
       playerActions: [],
       keyQualities: [],

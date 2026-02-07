@@ -18,6 +18,7 @@ export default function useTeams() {
   const [selectedTeamId, setSelectedTeamId] = useState(null);
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [selectedSectionId, setSelectedSectionId] = useState(null);
+  const [selectedVariationId, setSelectedVariationId] = useState(null); // For editing variation diagrams
   const [editingDiagramId, setEditingDiagramId] = useState(null); // For editing library diagrams
 
   // Initialize teams data with auto-migration
@@ -61,6 +62,7 @@ export default function useTeams() {
         setSelectedTeamId(viewState.selectedTeamId || null);
         setSelectedSessionId(viewState.selectedSessionId || null);
         setSelectedSectionId(viewState.selectedSectionId || null);
+        setSelectedVariationId(viewState.selectedVariationId || null);
         setEditingDiagramId(viewState.editingDiagramId || null);
       }
     } catch (error) {
@@ -94,13 +96,14 @@ export default function useTeams() {
         selectedTeamId,
         selectedSessionId,
         selectedSectionId,
+        selectedVariationId,
         editingDiagramId,
       };
       localStorage.setItem(CURRENT_VIEW_KEY, JSON.stringify(viewState));
     } catch (error) {
       console.error('Error saving view state:', error);
     }
-  }, [currentView, selectedTeamId, selectedSessionId, selectedSectionId, editingDiagramId]);
+  }, [currentView, selectedTeamId, selectedSessionId, selectedSectionId, selectedVariationId, editingDiagramId]);
 
   // ============ Team CRUD Operations ============
 
@@ -145,7 +148,17 @@ export default function useTeams() {
   // ============ Session CRUD Operations ============
 
   const createSession = (teamId, sessionData = null) => {
-    const session = sessionData || defaultSession();
+    // If no session data provided, create default with team defaults
+    let session = sessionData;
+    if (!session) {
+      const team = getTeam(teamId);
+      const teamDefaults = team ? {
+        ageGroup: team.ageGroup,
+        defaultDuration: team.defaultDuration,
+      } : null;
+      session = defaultSession(teamDefaults);
+    }
+
     setTeamsData(prev => ({
       ...prev,
       teams: prev.teams.map(team =>
@@ -247,7 +260,17 @@ export default function useTeams() {
     setSelectedTeamId(teamId);
     setSelectedSessionId(sessionId);
     setSelectedSectionId(sectionId);
+    setSelectedVariationId(null);
     setEditingDiagramId(null);
+  };
+
+  const navigateToVariationDiagramBuilder = (teamId, sessionId, sectionId, variationId, useParentAsBase = false) => {
+    setCurrentView(VIEWS.DIAGRAM_BUILDER);
+    setSelectedTeamId(teamId);
+    setSelectedSessionId(sessionId);
+    setSelectedSectionId(sectionId);
+    setSelectedVariationId(variationId);
+    setEditingDiagramId(useParentAsBase ? 'USE_PARENT' : null); // Special flag to use parent diagram as base
   };
 
   const navigateToDiagramLibrary = (insertMode = false, teamId = null, sessionId = null, sectionId = null) => {
@@ -295,6 +318,7 @@ export default function useTeams() {
     selectedTeamId,
     selectedSessionId,
     selectedSectionId,
+    selectedVariationId,
     editingDiagramId,
 
     // Team operations
@@ -315,6 +339,7 @@ export default function useTeams() {
     navigateToTeamDetail,
     navigateToSessionBuilder,
     navigateToDiagramBuilder,
+    navigateToVariationDiagramBuilder,
     navigateToDiagramLibrary,
     navigateToEditLibraryDiagram,
     navigateBackFromDiagramBuilder,

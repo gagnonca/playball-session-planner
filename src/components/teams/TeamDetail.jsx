@@ -18,6 +18,7 @@ export default function TeamDetail({ teamsContext, sharingContext, diagramLibrar
 
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [filterType, setFilterType] = useState('all'); // 'all', 'scheduled', 'templates'
 
   const team = getTeam(selectedTeamId);
@@ -101,7 +102,64 @@ export default function TeamDetail({ teamsContext, sharingContext, diagramLibrar
           <div className="flex items-start justify-between">
             <div>
               <h1 className="text-3xl font-bold mb-2">{team.name}</h1>
-              {team.ageGroup && <p className="text-slate-400">{team.ageGroup}</p>}
+              <div className="flex items-center gap-3 text-slate-400">
+                {team.ageGroup && <span>{team.ageGroup}</span>}
+                {team.defaultDuration && (
+                  <>
+                    {team.ageGroup && <span className="text-slate-600">·</span>}
+                    <span>{team.defaultDuration} min default</span>
+                  </>
+                )}
+                <button
+                  onClick={() => setShowSettings(!showSettings)}
+                  className="text-blue-400 hover:text-blue-300 text-sm"
+                >
+                  {showSettings ? 'Hide' : 'Edit'}
+                </button>
+              </div>
+              {/* Inline Settings */}
+              {showSettings && (
+                <div className="mt-3 p-4 bg-slate-700/50 rounded-lg border border-slate-600 flex flex-wrap gap-4 items-end">
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Team Name</label>
+                    <input
+                      type="text"
+                      value={team.name}
+                      onChange={(e) => updateTeam(selectedTeamId, { name: e.target.value })}
+                      className="input-field w-48"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Age Group</label>
+                    <input
+                      type="text"
+                      value={team.ageGroup || ''}
+                      onChange={(e) => updateTeam(selectedTeamId, { ageGroup: e.target.value })}
+                      placeholder="e.g., U8"
+                      className="input-field w-24"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Default Duration</label>
+                    <input
+                      type="text"
+                      value={team.defaultDuration || ''}
+                      onChange={(e) => updateTeam(selectedTeamId, { defaultDuration: e.target.value })}
+                      placeholder="60"
+                      className="input-field w-24"
+                    />
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowSettings(false);
+                      toast('Team settings saved');
+                    }}
+                    className="btn btn-primary text-sm"
+                  >
+                    Done
+                  </button>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <button

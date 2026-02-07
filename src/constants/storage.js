@@ -20,6 +20,7 @@ export const DIAGRAMS_KEY = 'ppp_diagram_library_v1';
 
 // UI preferences
 export const HELP_PREFS_KEY = 'ppp_help_preferences_v1';
+export const SUMMARY_COLLAPSED_KEY = 'ppp_summary_collapsed_v1';
 
 // Device sync and sharing
 export const COACH_IDENTITY_KEY = 'ppp_coach_identity_v1';
