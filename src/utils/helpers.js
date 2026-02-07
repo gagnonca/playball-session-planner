@@ -50,11 +50,37 @@ export function defaultSection() {
     imageDataUrl: "",
     objective: "",
     organization: "",
-    questions: "",
-    answers: "",
+    guidedQA: "", // Merged questions/answers in Q1:/A1: format
     notes: "",
     variations: [],
   };
+}
+
+// Migrate old questions/answers fields to merged guidedQA format
+export function migrateToGuidedQA(questions, answers) {
+  if (!questions && !answers) return "";
+
+  const qLines = (questions || "").split("\n").filter(l => l.trim());
+  const aLines = (answers || "").split("\n").filter(l => l.trim());
+
+  if (qLines.length === 0 && aLines.length === 0) return "";
+
+  const pairs = [];
+  const maxLen = Math.max(qLines.length, aLines.length);
+
+  for (let i = 0; i < maxLen; i++) {
+    const q = qLines[i] || "";
+    const a = aLines[i] || "";
+    // Clean up any existing Q:/A: prefixes
+    const cleanQ = q.replace(/^Q\d*[:.]?\s*/i, "").trim();
+    const cleanA = a.replace(/^A\d*[:.]?\s*/i, "").trim();
+
+    if (cleanQ || cleanA) {
+      pairs.push(`Q${i + 1}: ${cleanQ}\nA${i + 1}: ${cleanA}`);
+    }
+  }
+
+  return pairs.join("\n\n");
 }
 
 // Default variation structure
@@ -64,8 +90,7 @@ export function defaultVariation() {
     name: "",
     objective: "",
     organization: "",
-    questions: "",
-    answers: "",
+    guidedQA: "", // Merged questions/answers in Q1:/A1: format
     notes: "",
     imageDataUrl: "",
     diagramData: null,
@@ -231,8 +256,7 @@ export function getStarterLibraryItems() {
       objective: "Let players play. Encourage lots of touches, bravery, and quick restarts.",
       organization: "Set up 2v2 (or 3v3) with small goals. Multiple fields if needed.",
       keywords: "Play, compete, score, restart",
-      questions: "How can you get the ball away from pressure? Where is space?",
-      answers: "Change direction, shield, pass to space, dribble into space.",
+      guidedQA: "Q1: How can you get the ball away from pressure?\nA1: Change direction, shield, pass to space\n\nQ2: Where is the space?\nA2: Look for gaps, dribble into open areas",
       notes: "",
       variations: []
     },
@@ -251,8 +275,7 @@ export function getStarterLibraryItems() {
       objective: "Transfer learning into a game. Minimal stoppages, coach on the fly.",
       organization: "4v4/5v5 scrimmage. Let them solve problems. Keep it fun and fast.",
       keywords: "Scan, space, support, defend",
-      questions: "Where can you support? When can you win it back?",
-      answers: "Move to open space, offer an angle, press when close, recover when far.",
+      guidedQA: "Q1: Where can you support?\nA1: Move to open space, offer an angle\n\nQ2: When can you win it back?\nA2: Press when close, recover when far",
       notes: "",
       variations: []
     },

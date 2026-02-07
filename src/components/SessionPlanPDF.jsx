@@ -281,21 +281,18 @@ export default function SessionPlanPDF({ session }) {
                 </View>
               )}
 
-              {/* Third Row: Questions and Answers */}
-              <View style={styles.contentRow}>
-                {section.questions && (
-                  <View style={styles.contentItem}>
-                    <Text style={styles.contentLabel}>Guided Questions</Text>
-                    <Text style={styles.contentText}>{section.questions}</Text>
-                  </View>
-                )}
-                {section.answers && (
-                  <View style={styles.contentItem}>
-                    <Text style={styles.contentLabel}>Answers</Text>
-                    <Text style={styles.contentText}>{section.answers}</Text>
-                  </View>
-                )}
-              </View>
+              {/* Third Row: Guided Q&A (merged questions/answers) */}
+              {(section.guidedQA || section.questions || section.answers) && (
+                <View style={{ marginTop: 6 }}>
+                  <Text style={styles.contentLabel}>Guided Q&A</Text>
+                  <Text style={styles.contentText}>
+                    {section.guidedQA ||
+                      (section.questions && section.answers
+                        ? `${section.questions}\n\n${section.answers}`
+                        : section.questions || section.answers)}
+                  </Text>
+                </View>
+              )}
 
               {/* Fourth Row: Notes */}
               {section.notes && (
@@ -313,8 +310,34 @@ export default function SessionPlanPDF({ session }) {
                 {section.variations.map((variation, vIndex) => (
                   <View key={variation?.id || vIndex} style={styles.variation}>
                     <Text style={styles.variationTitle}>{variation?.name || 'Variation'}</Text>
-                    {variation?.description && (
-                      <Text style={styles.variationText}>{variation.description}</Text>
+                    {variation?.objective && (
+                      <View style={{ marginTop: 3 }}>
+                        <Text style={{ ...styles.variationText, fontWeight: 'bold' }}>Objective:</Text>
+                        <Text style={styles.variationText}>{variation.objective}</Text>
+                      </View>
+                    )}
+                    {variation?.organization && (
+                      <View style={{ marginTop: 3 }}>
+                        <Text style={{ ...styles.variationText, fontWeight: 'bold' }}>Organization:</Text>
+                        <Text style={styles.variationText}>{variation.organization}</Text>
+                      </View>
+                    )}
+                    {(variation?.guidedQA || variation?.questions || variation?.answers) && (
+                      <View style={{ marginTop: 3 }}>
+                        <Text style={{ ...styles.variationText, fontWeight: 'bold' }}>Guided Q&A:</Text>
+                        <Text style={styles.variationText}>
+                          {variation.guidedQA ||
+                            (variation.questions && variation.answers
+                              ? `${variation.questions}\n${variation.answers}`
+                              : variation.questions || variation.answers)}
+                        </Text>
+                      </View>
+                    )}
+                    {variation?.notes && (
+                      <View style={{ marginTop: 3 }}>
+                        <Text style={{ ...styles.variationText, fontWeight: 'bold' }}>Notes:</Text>
+                        <Text style={styles.variationText}>{variation.notes}</Text>
+                      </View>
                     )}
                   </View>
                 ))}

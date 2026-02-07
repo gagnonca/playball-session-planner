@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { AI_CONFIG_KEY } from '../constants/storage';
+import { EXPERT_SYSTEM_PROMPT, FIELD_PROMPTS } from '../constants/prompts';
 
 /**
  * useAI Hook - OpenAI integration for content generation
@@ -266,6 +267,36 @@ Respond with JSON: { "questions": "Question 1?\\nQuestion 2?\\nQuestion 3?" }`;
     }
   }, [callOpenAI]);
 
+  // Generate content for a specific field using expert prompts
+  const generateFieldContent = useCallback(async (fieldName, context) => {
+    const promptBuilder = FIELD_PROMPTS[fieldName];
+    if (!promptBuilder) {
+      throw new Error(`Unknown field: ${fieldName}`);
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const userPrompt = promptBuilder(context);
+
+      const content = await callOpenAI([
+        { role: 'system', content: EXPERT_SYSTEM_PROMPT },
+        { role: 'user', content: userPrompt },
+      ], {
+        temperature: 0.7,
+        maxTokens: 600,
+      });
+
+      setIsLoading(false);
+      return content.trim();
+    } catch (e) {
+      setError(e.message);
+      setIsLoading(false);
+      throw e;
+    }
+  }, [callOpenAI]);
+
   return {
     // State
     isLoading,
@@ -282,5 +313,6 @@ Respond with JSON: { "questions": "Question 1?\\nQuestion 2?\\nQuestion 3?" }`;
     generateSectionContent,
     generateTitleSuggestions,
     generateQuestions,
+    generateFieldContent,
   };
 }

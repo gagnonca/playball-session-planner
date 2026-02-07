@@ -279,8 +279,7 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
     practice.time = template.practice.time;
     practice.objective = template.practice.objective;
     practice.organization = template.practice.organization;
-    practice.questions = template.practice.questions || '';
-    practice.answers = template.practice.answers || '';
+    practice.guidedQA = template.practice.guidedQA || '';
     newSections.push(practice);
 
     // Create The Game section

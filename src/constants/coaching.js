@@ -93,8 +93,7 @@ export const PPP_TEMPLATES = {
       time: '20 min',
       objective: 'Develop attacking skills through guided discovery.',
       organization: '',
-      questions: 'Where is the space? How can you get there? When should you pass vs dribble?',
-      answers: 'Look for gaps, move into open areas, pass when teammate is in better position.',
+      guidedQA: 'Q1: Where is the space?\nA1: Look for gaps between defenders, areas with fewer players\n\nQ2: How can you get there?\nA2: Move into open areas, check shoulder before receiving\n\nQ3: When should you pass vs dribble?\nA3: Pass when teammate is in better position, dribble when you have space',
     },
     play2: {
       name: 'The Game',
@@ -118,8 +117,7 @@ export const PPP_TEMPLATES = {
       time: '20 min',
       objective: 'Develop defending skills through guided discovery.',
       organization: '',
-      questions: 'When should you press? Where should you position yourself? How do you work together?',
-      answers: 'Press when ball is close, stay goal-side, communicate with teammates.',
+      guidedQA: 'Q1: When should you press?\nA1: Press when ball is close and you can win it\n\nQ2: Where should you position yourself?\nA2: Stay goal-side, between attacker and goal\n\nQ3: How do you work together?\nA3: Communicate with teammates, one presses while others cover',
     },
     play2: {
       name: 'The Game',
@@ -143,8 +141,7 @@ export const PPP_TEMPLATES = {
       time: '20 min',
       objective: 'Recognize and exploit transition moments when winning the ball.',
       organization: '',
-      questions: 'What do you see when you win the ball? Where is the space? How fast should you play?',
-      answers: 'Scan quickly, look for space behind defenders, play forward when possible.',
+      guidedQA: 'Q1: What do you see when you win the ball?\nA1: Scan quickly for open teammates and space\n\nQ2: Where is the space?\nA2: Often behind the defenders who were attacking\n\nQ3: How fast should you play?\nA3: Play forward quickly when possible, before defense recovers',
     },
     play2: {
       name: 'The Game',
@@ -168,8 +165,7 @@ export const PPP_TEMPLATES = {
       time: '20 min',
       objective: 'React quickly and intelligently when losing possession.',
       organization: '',
-      questions: 'What should you do immediately when you lose the ball? Where should you go?',
-      answers: 'React immediately, press the ball or recover to goal-side, communicate.',
+      guidedQA: 'Q1: What should you do immediately when you lose the ball?\nA1: React immediately - either press the ball or recover\n\nQ2: Where should you go?\nA2: Get goal-side, between the ball and your goal\n\nQ3: How do you decide to press or recover?\nA3: Press if close to ball, recover if far away',
     },
     play2: {
       name: 'The Game',
@@ -194,8 +190,7 @@ export const PPP_TEMPLATES = {
       time: '20 min',
       objective: '',
       organization: '',
-      questions: '',
-      answers: '',
+      guidedQA: '',
     },
     play2: {
       name: 'The Game',

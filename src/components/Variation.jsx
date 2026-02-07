@@ -1,5 +1,6 @@
-import React, { useCallback } from 'react';
-import { fileToDataUrl } from '../utils/helpers';
+import React, { useCallback, useState, useEffect } from 'react';
+import { fileToDataUrl, migrateToGuidedQA, toast } from '../utils/helpers';
+import { FIELD_PLACEHOLDERS } from '../constants/prompts';
 
 // Auto-grow textarea handler
 const useAutoGrow = () => {
@@ -10,8 +11,21 @@ const useAutoGrow = () => {
   }, []);
 };
 
-export default function Variation({ variation, onUpdate, onRemove, parentDiagram, sectionId, teamsContext }) {
+export default function Variation({ variation, onUpdate, onRemove, parentDiagram, sectionId, teamsContext, aiContext, parentSection }) {
   const handleAutoGrow = useAutoGrow();
+  const [activeAIField, setActiveAIField] = useState(null);
+  const [aiPromptText, setAIPromptText] = useState('');
+  const [generatingField, setGeneratingField] = useState(null);
+
+  // Migrate legacy questions/answers to guidedQA if needed
+  useEffect(() => {
+    if ((variation.questions || variation.answers) && !variation.guidedQA) {
+      const migrated = migrateToGuidedQA(variation.questions, variation.answers);
+      if (migrated) {
+        onUpdate({ ...variation, guidedQA: migrated, questions: '', answers: '' });
+      }
+    }
+  }, [variation.id]);
 
   const handleChange = (field, value) => {
     onUpdate({ ...variation, [field]: value });
@@ -41,6 +55,135 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
     // Open diagram builder with parent diagram as starting point
     handleOpenDiagramBuilder(true);
   };
+
+  // AI Content Generation - per field
+  const handleOpenAIPrompt = (fieldName) => {
+    if (!aiContext?.aiHook) return;
+
+    const { aiHook, onConfigureAI } = aiContext;
+
+    if (!aiHook.isConfigured()) {
+      if (onConfigureAI) {
+        onConfigureAI();
+      }
+      return;
+    }
+
+    setActiveAIField(fieldName);
+    setAIPromptText('');
+  };
+
+  const handleCancelAIPrompt = () => {
+    setActiveAIField(null);
+    setAIPromptText('');
+  };
+
+  const handleGenerateField = async () => {
+    if (!aiContext?.aiHook || !activeAIField || !aiPromptText.trim()) return;
+
+    const { aiHook, sessionSummary } = aiContext;
+
+    setGeneratingField(activeAIField);
+    try {
+      const context = {
+        moment: sessionSummary?.moment,
+        ageGroup: sessionSummary?.ageGroup,
+        playerActions: sessionSummary?.playerActions,
+        keyQualities: sessionSummary?.keyQualities,
+        sectionName: parentSection?.name || variation.name,
+        sectionType: parentSection?.type || 'Practice',
+        sectionTime: parentSection?.time,
+        objective: variation.objective || parentSection?.objective,
+        organization: variation.organization || parentSection?.organization,
+        guidedQA: variation.guidedQA || parentSection?.guidedQA,
+        notes: variation.notes || parentSection?.notes,
+        userPrompt: aiPromptText,
+      };
+
+      const content = await aiHook.generateFieldContent(activeAIField, context);
+      handleChange(activeAIField, content);
+      toast('Generated ✨');
+
+      setActiveAIField(null);
+      setAIPromptText('');
+    } catch (error) {
+      toast(`AI Error: ${error.message}`);
+    } finally {
+      setGeneratingField(null);
+    }
+  };
+
+  const handleAIPromptKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleGenerateField();
+    } else if (e.key === 'Escape') {
+      handleCancelAIPrompt();
+    }
+  };
+
+  const isAIConfigured = aiContext?.aiHook?.isConfigured?.() ?? false;
+
+  // Render AI-enabled field with floating AI button inside textarea
+  const renderAIField = (label, fieldName, value, placeholder, rows = 3, extraClasses = '') => (
+    <div>
+      <label className="label-text">{label}</label>
+      <div className="relative">
+        <textarea
+          value={value || ''}
+          onChange={(e) => handleChange(fieldName, e.target.value)}
+          onInput={handleAutoGrow}
+          rows={rows}
+          className={`input-field resize-none overflow-hidden pr-10 ${extraClasses}`}
+          placeholder={placeholder}
+        />
+        {aiContext && activeAIField !== fieldName && (
+          <button
+            onClick={() => handleOpenAIPrompt(fieldName)}
+            disabled={generatingField === fieldName}
+            className={`absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-md transition-all ${
+              isAIConfigured
+                ? 'text-yellow-400/60 hover:text-yellow-400 hover:bg-slate-700/50'
+                : 'text-slate-500/40 hover:text-slate-400 hover:bg-slate-700/50'
+            }`}
+            title={isAIConfigured ? 'Generate with AI' : 'Configure AI to enable'}
+          >
+            {generatingField === fieldName ? (
+              <span className="animate-pulse text-xs">...</span>
+            ) : (
+              <span className="text-sm">✨</span>
+            )}
+          </button>
+        )}
+        {activeAIField === fieldName && (
+          <div className="absolute top-2 right-2 left-2 flex gap-2 bg-slate-800/95 p-2 rounded-lg border border-slate-600 shadow-lg">
+            <input
+              type="text"
+              value={aiPromptText}
+              onChange={(e) => setAIPromptText(e.target.value)}
+              onKeyDown={handleAIPromptKeyDown}
+              placeholder={FIELD_PLACEHOLDERS[fieldName] || 'Describe what you want...'}
+              className="input-field flex-1 text-sm py-1"
+              autoFocus
+            />
+            <button
+              onClick={handleGenerateField}
+              disabled={!aiPromptText.trim() || generatingField === fieldName}
+              className="btn btn-primary text-sm px-3 py-1"
+            >
+              {generatingField === fieldName ? '...' : '✨'}
+            </button>
+            <button
+              onClick={handleCancelAIPrompt}
+              className="btn btn-subtle text-sm px-2 py-1"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <div className="mt-4 p-4 bg-slate-900/30 border border-slate-700 rounded-lg">
@@ -117,61 +260,38 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
 
         {/* Text Fields */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="label-text">Objective</label>
-          <textarea
-            value={variation.objective}
-            onChange={(e) => handleChange('objective', e.target.value)}
-            onInput={handleAutoGrow}
-            rows="3"
-            className="input-field resize-none overflow-hidden"
-          />
-        </div>
+          {renderAIField(
+            'Objective',
+            'objective',
+            variation.objective,
+            'What will players learn or improve?'
+          )}
 
-        <div>
-          <label className="label-text">Organization</label>
-          <textarea
-            value={variation.organization}
-            onChange={(e) => handleChange('organization', e.target.value)}
-            onInput={handleAutoGrow}
-            rows="3"
-            className="input-field resize-none overflow-hidden"
-          />
-        </div>
+          {renderAIField(
+            'Organization',
+            'organization',
+            variation.organization,
+            'Field setup, players, equipment...'
+          )}
 
-        <div>
-          <label className="label-text">Guided questions</label>
-          <textarea
-            value={variation.questions}
-            onChange={(e) => handleChange('questions', e.target.value)}
-            onInput={handleAutoGrow}
-            rows="3"
-            className="input-field resize-none overflow-hidden"
-          />
-        </div>
+          <div className="md:col-span-2">
+            {renderAIField(
+              'Guided Q&A',
+              'guidedQA',
+              variation.guidedQA,
+              'Q1: What do you see when you have the ball?\nA1: Look for open teammates, scan for space',
+              4,
+              'font-mono text-sm'
+            )}
+          </div>
 
-        <div>
-          <label className="label-text">Answers</label>
-          <textarea
-            value={variation.answers}
-            onChange={(e) => handleChange('answers', e.target.value)}
-            onInput={handleAutoGrow}
-            rows="3"
-            className="input-field resize-none overflow-hidden"
-          />
+          {renderAIField(
+            'Notes',
+            'notes',
+            variation.notes,
+            'Coaching tips, variations...'
+          )}
         </div>
-
-        <div>
-          <label className="label-text">Notes</label>
-          <textarea
-            value={variation.notes}
-            onChange={(e) => handleChange('notes', e.target.value)}
-            onInput={handleAutoGrow}
-            rows="3"
-            className="input-field resize-none overflow-hidden"
-          />
-        </div>
-      </div>
       </div>
     </div>
   );
