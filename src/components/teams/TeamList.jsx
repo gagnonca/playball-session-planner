@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import TeamCard from './TeamCard';
 import CreateTeamModal from './CreateTeamModal';
+import SyncStatus from '../SyncStatus';
 import { toast } from '../../utils/helpers';
 import appStoreBadge from '../../assets/app-store-badge.svg';
 
-export default function TeamList({ teamsContext, diagramLibrary }) {
+export default function TeamList({ teamsContext, diagramLibrary, syncContext, onShowLinkDevice }) {
   const { teamsData, navigateToTeamDetail, deleteTeam, navigateToDiagramLibrary } = teamsContext;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingTeam, setEditingTeam] = useState(null);
@@ -63,20 +64,31 @@ export default function TeamList({ teamsContext, diagramLibrary }) {
               </a>
             </div>
           </div>
-          <button
-            onClick={() => navigateToDiagramLibrary()}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-lg transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            <span>Diagram Library</span>
-            {diagramLibrary?.diagrams?.length > 0 && (
-              <span className="ml-1 px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">
-                {diagramLibrary.diagrams.length}
-              </span>
+          <div className="flex items-center gap-4">
+            {/* Sync Status */}
+            {syncContext && (
+              <SyncStatus
+                status={syncContext.syncStatus}
+                lastSyncAt={syncContext.lastSyncAt}
+                onLinkDevice={onShowLinkDevice}
+              />
             )}
-          </button>
+
+            <button
+              onClick={() => navigateToDiagramLibrary()}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-lg transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <span>Diagram Library</span>
+              {diagramLibrary?.diagrams?.length > 0 && (
+                <span className="ml-1 px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">
+                  {diagramLibrary.diagrams.length}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 

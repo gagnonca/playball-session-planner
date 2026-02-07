@@ -109,6 +109,13 @@ export function defaultTeam(name = "My Team", ageGroup = "") {
     createdAt: nowIso(),
     updatedAt: nowIso(),
     sessions: [],
+    // Sharing metadata for AC sharing
+    sharing: {
+      isShared: false,
+      shareToken: null,
+      sharedAt: null,
+      lastPushedAt: null,
+    },
   };
 }
 
