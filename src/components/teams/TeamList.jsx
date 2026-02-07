@@ -2,15 +2,17 @@ import React, { useState } from 'react';
 import TeamCard from './TeamCard';
 import CreateTeamModal from './CreateTeamModal';
 import SyncStatus from '../SyncStatus';
+import AboutModal from '../AboutModal';
 import { toast } from '../../utils/helpers';
-import appStoreBadge from '../../assets/app-store-badge.svg';
 
-export default function TeamList({ teamsContext, diagramLibrary, syncContext, onShowLinkDevice }) {
-  const { teamsData, navigateToTeamDetail, deleteTeam, navigateToDiagramLibrary } = teamsContext;
+export default function TeamList({ teamsContext, syncContext, sharingContext, onShowLinkDevice }) {
+  const { teamsData, navigateToTeamDetail, deleteTeam } = teamsContext;
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showAboutModal, setShowAboutModal] = useState(false);
   const [editingTeam, setEditingTeam] = useState(null);
 
   const teams = teamsData?.teams || [];
+  const followedShares = sharingContext?.followedShares || [];
 
   const handleSelectTeam = (teamId) => {
     navigateToTeamDetail(teamId);
@@ -46,23 +48,13 @@ export default function TeamList({ teamsContext, diagramLibrary, syncContext, on
       <div className="bg-slate-800 border-b border-slate-700 p-6">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold mb-2">PlayBall - Session Planner</h1>
-            <div className="flex items-center gap-4">
-              <p className="text-slate-400">Manage your teams and training sessions</p>
-              <a
-                href="https://apps.apple.com/us/app/playball-equal-playing-time/id6744836650"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-shrink-0 opacity-90 hover:opacity-100 transition-opacity"
-                title="Download PlayBall - Equal Playing Time on the App Store"
-              >
-                <img
-                  src={appStoreBadge}
-                  alt="Download on the App Store"
-                  className="h-10"
-                />
-              </a>
-            </div>
+            <button
+              onClick={() => setShowAboutModal(true)}
+              className="text-3xl font-bold mb-2 hover:text-blue-400 transition-colors text-left"
+            >
+              PlayBall
+            </button>
+            <p className="text-slate-400">Session Planner</p>
           </div>
           <div className="flex items-center gap-4">
             {/* Sync Status */}
@@ -73,21 +65,6 @@ export default function TeamList({ teamsContext, diagramLibrary, syncContext, on
                 onLinkDevice={onShowLinkDevice}
               />
             )}
-
-            <button
-              onClick={() => navigateToDiagramLibrary()}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-lg transition-colors"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              <span>Diagram Library</span>
-              {diagramLibrary?.diagrams?.length > 0 && (
-                <span className="ml-1 px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">
-                  {diagramLibrary.diagrams.length}
-                </span>
-              )}
-            </button>
           </div>
         </div>
       </div>
@@ -141,6 +118,61 @@ export default function TeamList({ teamsContext, diagramLibrary, syncContext, on
             ))}
           </div>
         )}
+
+        {/* Shared With Me Section (AC) */}
+        {followedShares.length > 0 && (
+          <div className="mt-12">
+            <div className="flex items-center gap-3 mb-6">
+              <h2 className="text-2xl font-bold">Shared With Me</h2>
+              <span className="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs font-medium rounded">
+                View Only
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {followedShares.map(share => (
+                <div
+                  key={share.shareToken}
+                  className="card p-5 hover:bg-slate-700/50 transition-colors"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-slate-100">
+                        {share.teamName || 'Shared Team'}
+                      </h3>
+                      {share.ageGroup && (
+                        <p className="text-sm text-slate-400 mt-1">{share.ageGroup}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`Stop following "${share.teamName || 'this team'}"?`)) {
+                          sharingContext.unfollowShare(share.shareToken);
+                          toast('Removed from followed teams');
+                        }
+                      }}
+                      className="p-2 text-slate-500 hover:text-red-400 hover:bg-slate-700 rounded transition-colors"
+                      title="Stop following"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="text-xs text-slate-500 mb-4">
+                    Followed {new Date(share.followedAt).toLocaleDateString()}
+                  </div>
+                  <a
+                    href={`/shared/${share.shareToken}`}
+                    className="btn btn-secondary w-full text-center"
+                  >
+                    View Team
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Create/Edit Team Modal */}
@@ -153,6 +185,11 @@ export default function TeamList({ teamsContext, diagramLibrary, syncContext, on
             setEditingTeam(null);
           }}
         />
+      )}
+
+      {/* About Modal */}
+      {showAboutModal && (
+        <AboutModal onClose={() => setShowAboutModal(false)} />
       )}
     </div>
   );

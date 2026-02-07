@@ -1,13 +1,34 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { generateShareToken } from '../utils/tokens';
+import { FOLLOWED_SHARES_KEY } from '../constants/storage';
 
 /**
  * Hook for managing team sharing with assistant coaches.
- * Handles share link generation, pushing updates, and revocation.
+ * Handles share link generation, pushing updates, revocation,
+ * and tracking followed shared teams (for ACs).
  */
 export default function useSharing() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [followedShares, setFollowedShares] = useState([]);
+
+  // Load followed shares from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(FOLLOWED_SHARES_KEY);
+      if (saved) {
+        setFollowedShares(JSON.parse(saved));
+      }
+    } catch (err) {
+      console.error('Failed to load followed shares:', err);
+    }
+  }, []);
+
+  // Persist followed shares to localStorage
+  const saveFollowedShares = useCallback((shares) => {
+    setFollowedShares(shares);
+    localStorage.setItem(FOLLOWED_SHARES_KEY, JSON.stringify(shares));
+  }, []);
 
   /**
    * Generate a share link for a team.
@@ -143,6 +164,50 @@ export default function useSharing() {
     }
   }, []);
 
+  /**
+   * Follow a shared team (for ACs to track teams they've accessed).
+   * Stores basic info so we can fetch updates later.
+   */
+  const followShare = useCallback((shareToken, teamInfo) => {
+    // Check if already following
+    const existing = followedShares.find(s => s.shareToken === shareToken);
+    if (existing) {
+      // Update team info but keep existing
+      const updated = followedShares.map(s =>
+        s.shareToken === shareToken
+          ? { ...s, teamName: teamInfo.name, ageGroup: teamInfo.ageGroup, lastViewedAt: new Date().toISOString() }
+          : s
+      );
+      saveFollowedShares(updated);
+      return;
+    }
+
+    // Add new followed share
+    const newShare = {
+      shareToken,
+      teamName: teamInfo.name,
+      ageGroup: teamInfo.ageGroup,
+      followedAt: new Date().toISOString(),
+      lastViewedAt: new Date().toISOString(),
+    };
+    saveFollowedShares([...followedShares, newShare]);
+  }, [followedShares, saveFollowedShares]);
+
+  /**
+   * Unfollow a shared team (stop tracking it).
+   */
+  const unfollowShare = useCallback((shareToken) => {
+    const updated = followedShares.filter(s => s.shareToken !== shareToken);
+    saveFollowedShares(updated);
+  }, [followedShares, saveFollowedShares]);
+
+  /**
+   * Check if a share is being followed.
+   */
+  const isFollowing = useCallback((shareToken) => {
+    return followedShares.some(s => s.shareToken === shareToken);
+  }, [followedShares]);
+
   return {
     isLoading,
     error,
@@ -151,5 +216,10 @@ export default function useSharing() {
     revokeShare,
     fetchSharedTeam,
     copyShareUrl,
+    // AC following features
+    followedShares,
+    followShare,
+    unfollowShare,
+    isFollowing,
   };
 }

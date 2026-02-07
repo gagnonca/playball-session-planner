@@ -24,3 +24,4 @@ export const HELP_PREFS_KEY = 'ppp_help_preferences_v1';
 // Device sync and sharing
 export const COACH_IDENTITY_KEY = 'ppp_coach_identity_v1';
 export const SHARED_TEAMS_KEY = 'ppp_shared_teams_v1';
+export const FOLLOWED_SHARES_KEY = 'ppp_followed_shares_v1';

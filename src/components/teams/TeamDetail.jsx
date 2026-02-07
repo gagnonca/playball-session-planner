@@ -4,13 +4,14 @@ import ScheduleSessionModal from './ScheduleSessionModal';
 import ShareModal from './ShareModal';
 import { toast } from '../../utils/helpers';
 
-export default function TeamDetail({ teamsContext, sharingContext }) {
+export default function TeamDetail({ teamsContext, sharingContext, diagramLibrary }) {
   const {
     selectedTeamId,
     getTeam,
     updateTeam,
     navigateToTeams,
     navigateToSessionBuilder,
+    navigateToDiagramLibrary,
     deleteSession,
     duplicateSession,
   } = teamsContext;
@@ -102,20 +103,36 @@ export default function TeamDetail({ teamsContext, sharingContext }) {
               <h1 className="text-3xl font-bold mb-2">{team.name}</h1>
               {team.ageGroup && <p className="text-slate-400">{team.ageGroup}</p>}
             </div>
-            {sharingContext && (
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => setShowShareModal(true)}
+                onClick={() => navigateToDiagramLibrary()}
                 className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-lg transition-colors"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-                <span>Share</span>
-                {team.sharing?.isShared && (
-                  <span className="ml-1 w-2 h-2 bg-green-400 rounded-full" title="Shared" />
+                <span className="hidden sm:inline">Diagrams</span>
+                {diagramLibrary?.diagrams?.length > 0 && (
+                  <span className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">
+                    {diagramLibrary.diagrams.length}
+                  </span>
                 )}
               </button>
-            )}
+              {sharingContext && (
+                <button
+                  onClick={() => setShowShareModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-lg transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                  </svg>
+                  <span className="hidden sm:inline">Share</span>
+                  {team.sharing?.isShared && (
+                    <span className="ml-1 w-2 h-2 bg-green-400 rounded-full" title="Shared" />
+                  )}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

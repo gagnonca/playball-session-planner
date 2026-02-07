@@ -323,8 +323,9 @@ export default function useSync() {
   /**
    * Reset sync by clearing the coach identity.
    * This allows the user to start fresh or link to a different account.
+   * Also notifies the server to unlink this device.
    */
-  const resetSync = useCallback(() => {
+  const resetSync = useCallback(async () => {
     // Clear pending syncs
     if (syncTimeoutRef.current) {
       clearTimeout(syncTimeoutRef.current);
@@ -332,12 +333,29 @@ export default function useSync() {
     }
     pendingPushRef.current = null;
 
+    // Notify server to unlink this device (fire and forget)
+    if (identity?.coachId && identity?.deviceId) {
+      try {
+        await fetch('/api/sync/unlink', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            coachId: identity.coachId,
+            deviceId: identity.deviceId,
+          }),
+        });
+      } catch (error) {
+        // Don't block reset if unlink fails
+        console.error('Failed to unlink device from server:', error);
+      }
+    }
+
     // Clear identity from localStorage
     localStorage.removeItem(COACH_IDENTITY_KEY);
     setIdentity(null);
     setSyncStatus('idle');
     setLastSyncAt(null);
-  }, []);
+  }, [identity]);
 
   /**
    * Check if sync is available (has identity and is online).

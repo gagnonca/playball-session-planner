@@ -58,6 +58,14 @@ export default function AppShell() {
       const team = await sharingContext.fetchSharedTeam(token);
       setSharedTeamData(team);
       setSharedTeamError(null);
+
+      // Auto-follow this shared team
+      if (team) {
+        sharingContext.followShare(token, {
+          name: team.teamName,
+          ageGroup: team.ageGroup,
+        });
+      }
     } catch (err) {
       setSharedTeamError(err.message);
       setSharedTeamData(null);
@@ -550,8 +558,8 @@ export default function AppShell() {
       {currentView === VIEWS.TEAMS && (
         <TeamList
           teamsContext={teamsContext}
-          diagramLibrary={diagramLibrary}
           syncContext={syncContext}
+          sharingContext={sharingContext}
           onShowLinkDevice={() => setShowLinkDeviceModal(true)}
         />
       )}
@@ -559,6 +567,7 @@ export default function AppShell() {
         <TeamDetail
           teamsContext={teamsContext}
           sharingContext={sharingContext}
+          diagramLibrary={diagramLibrary}
         />
       )}
       {currentView === VIEWS.SESSION_BUILDER && (
