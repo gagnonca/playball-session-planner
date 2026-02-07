@@ -33,6 +33,7 @@ import {
   uid,
   nowIso,
 } from '../../utils/helpers';
+import { PPP_TEMPLATES } from '../../constants/coaching';
 
 const LIB_KEY = "ppp_section_library_v1";
 
@@ -249,42 +250,45 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
     setIsLibraryModalOpen(true);
   }, []);
 
-  // PPP button - create Play/Practice/Play structure
+  // PPP button - create Play/Practice/Play structure with moment-based templates
   const handlePPP = useCallback(() => {
-    const freePlayItem = library.items.find(x => x.name.toLowerCase().includes('free play'));
-    const gameItem = library.items.find(x => x.name.toLowerCase().includes('game'));
+    const moment = session.summary.moment;
+    const template = PPP_TEMPLATES[moment] || PPP_TEMPLATES['default'];
 
     const newSections = [];
 
-    // Add Free Play
-    if (freePlayItem) {
-      newSections.push(libraryPayloadToSection(freePlayItem.payload));
-    } else {
-      const s = defaultSection();
-      s.type = 'Play';
-      s.name = 'Free Play';
-      newSections.push(s);
-    }
+    // Create Free Play section
+    const play1 = defaultSection();
+    play1.type = template.play1.type;
+    play1.name = template.play1.name;
+    play1.time = template.play1.time;
+    play1.objective = template.play1.objective;
+    play1.organization = template.play1.organization;
+    newSections.push(play1);
 
-    // Add Practice
+    // Create Practice section
     const practice = defaultSection();
-    practice.type = 'Practice';
-    practice.name = 'Practice (Core Activity)';
+    practice.type = template.practice.type;
+    practice.name = template.practice.name;
+    practice.time = template.practice.time;
+    practice.objective = template.practice.objective;
+    practice.organization = template.practice.organization;
+    practice.questions = template.practice.questions || '';
+    practice.answers = template.practice.answers || '';
     newSections.push(practice);
 
-    // Add The Game
-    if (gameItem) {
-      newSections.push(libraryPayloadToSection(gameItem.payload));
-    } else {
-      const s = defaultSection();
-      s.type = 'Play';
-      s.name = 'The Game';
-      newSections.push(s);
-    }
+    // Create The Game section
+    const play2 = defaultSection();
+    play2.type = template.play2.type;
+    play2.name = template.play2.name;
+    play2.time = template.play2.time;
+    play2.objective = template.play2.objective;
+    play2.organization = template.play2.organization;
+    newSections.push(play2);
 
     setSession(prev => ({ ...prev, sections: newSections }));
-    toast('PPP structure created ✅');
-  }, [library.items, setSession]);
+    toast('Play-Practice-Play structure created ✅');
+  }, [session.summary.moment, setSession]);
 
   // Add Practice button - insert before last Play/Game
   const handleAddPractice = useCallback(() => {
@@ -602,6 +606,11 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
         onClose={() => setIsAddModalOpen(false)}
         onChooseLibrary={handleChooseFromLibrary}
         onBuildFromScratch={handleBuildFromScratch}
+        onPPP={() => {
+          handlePPP();
+          setIsAddModalOpen(false);
+        }}
+        hasSections={session.sections.length > 0}
       />
 
       <LibraryModal

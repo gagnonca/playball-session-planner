@@ -1,6 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import TagSelector from './TagSelector';
 import { SUMMARY_COLLAPSED_KEY } from '../constants/storage';
+import {
+  MOMENT_ACTIONS,
+  MOMENT_QUALITIES,
+  ALL_PLAYER_ACTIONS,
+  ALL_KEY_QUALITIES,
+} from '../constants/coaching';
 
 // Auto-grow textarea handler
 const useAutoGrow = () => {
@@ -10,39 +16,6 @@ const useAutoGrow = () => {
     target.style.height = Math.max(target.scrollHeight, 72) + 'px';
   }, []);
 };
-
-// Suggestions for player actions
-const PLAYER_ACTION_SUGGESTIONS = [
-  'Pass',
-  'Dribble',
-  'Shoot',
-  'Receive',
-  'Support',
-  'Press',
-  'Defend',
-  'Tackle',
-  'Intercept',
-  'Clear',
-  'Create space',
-  'Scan',
-  'Communicate',
-];
-
-// Suggestions for key qualities
-const KEY_QUALITY_SUGGESTIONS = [
-  'Read & decide',
-  'Focus',
-  'Technical execution',
-  'Awareness',
-  'Quick thinking',
-  'Composure',
-  'Vision',
-  'Timing',
-  'First touch',
-  'Ball control',
-  'Communication',
-  'Teamwork',
-];
 
 // Moment options
 const MOMENT_OPTIONS = [
@@ -240,19 +213,23 @@ export default function SessionSummary({ summary, onUpdate }) {
             {/* Player Actions */}
             <TagSelector
               label="Player Actions"
-              suggestions={PLAYER_ACTION_SUGGESTIONS}
+              suggestions={ALL_PLAYER_ACTIONS}
               selectedTags={playerActions}
               onChange={(tags) => handleChange('playerActions', tags)}
               placeholder="Add custom..."
+              primaryTags={moment ? MOMENT_ACTIONS[moment]?.primary : null}
+              secondaryTags={moment ? MOMENT_ACTIONS[moment]?.secondary : null}
             />
 
             {/* Key Qualities */}
             <TagSelector
               label="Key Qualities"
-              suggestions={KEY_QUALITY_SUGGESTIONS}
+              suggestions={ALL_KEY_QUALITIES}
               selectedTags={keyQualities}
               onChange={(tags) => handleChange('keyQualities', tags)}
               placeholder="Add custom..."
+              primaryTags={moment ? MOMENT_QUALITIES[moment]?.primary : null}
+              secondaryTags={moment ? MOMENT_QUALITIES[moment]?.secondary : null}
             />
 
             {/* Session Notes */}
