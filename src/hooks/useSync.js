@@ -141,6 +141,7 @@ export default function useSync() {
 
   /**
    * Fetch latest teams from server.
+   * Returns { teams, version } for comparison with local version.
    */
   const pullTeams = useCallback(async () => {
     if (!identity?.coachId || !identity?.deviceId) {
@@ -183,7 +184,8 @@ export default function useSync() {
       setLastSyncAt(now);
       setSyncStatus('synced');
 
-      return data.teams;
+      // Return both teams and version for caller to compare
+      return { teams: data.teams, version: data.version };
     } catch (error) {
       console.error('Failed to pull teams:', error);
       setSyncStatus('error');
@@ -319,6 +321,25 @@ export default function useSync() {
   }, [identity, isOnline]);
 
   /**
+   * Reset sync by clearing the coach identity.
+   * This allows the user to start fresh or link to a different account.
+   */
+  const resetSync = useCallback(() => {
+    // Clear pending syncs
+    if (syncTimeoutRef.current) {
+      clearTimeout(syncTimeoutRef.current);
+      syncTimeoutRef.current = null;
+    }
+    pendingPushRef.current = null;
+
+    // Clear identity from localStorage
+    localStorage.removeItem(COACH_IDENTITY_KEY);
+    setIdentity(null);
+    setSyncStatus('idle');
+    setLastSyncAt(null);
+  }, []);
+
+  /**
    * Check if sync is available (has identity and is online).
    */
   const isSyncEnabled = Boolean(identity?.coachId && identity?.deviceId);
@@ -338,5 +359,6 @@ export default function useSync() {
     pullTeams,
     pushTeams,
     forcePush,
+    resetSync,
   };
 }

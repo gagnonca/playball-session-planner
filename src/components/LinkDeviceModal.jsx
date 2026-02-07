@@ -10,6 +10,7 @@ export default function LinkDeviceModal({
   onRequestCode,
   onConfirmCode,
   onInitialize,
+  onReset,
 }) {
   const [mode, setMode] = useState(hasIdentity ? 'generate' : 'join');
   const [pairingCode, setPairingCode] = useState('');
@@ -165,6 +166,24 @@ export default function LinkDeviceModal({
                 {isLoading ? 'Generating...' : 'Generate Code'}
               </button>
             )}
+
+            {/* Options when already synced */}
+            <div className="pt-4 border-t border-slate-700 space-y-3">
+              <button
+                onClick={() => setMode('join')}
+                className="w-full text-sm text-slate-400 hover:text-slate-300"
+              >
+                Join a different account instead
+              </button>
+              {onReset && (
+                <button
+                  onClick={onReset}
+                  className="w-full text-sm text-red-400 hover:text-red-300"
+                >
+                  Reset sync (disconnect this device)
+                </button>
+              )}
+            </div>
           </div>
         )}
 

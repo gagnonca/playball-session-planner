@@ -11,7 +11,7 @@ export default function ShareModal({
   onUpdateTeam,
   sharingHook,
 }) {
-  const { generateShareLink, pushUpdate, revokeShare, copyShareUrl, isLoading } = sharingHook;
+  const { generateShareLink, revokeShare, copyShareUrl, isLoading } = sharingHook;
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
 
   const isShared = team?.sharing?.isShared && team?.sharing?.shareToken;
@@ -45,26 +45,6 @@ export default function ShareModal({
       toast('Link copied to clipboard');
     } catch (err) {
       toast('Failed to copy link');
-    }
-  };
-
-  const handlePushUpdate = async () => {
-    if (!shareToken) return;
-    try {
-      const result = await pushUpdate(shareToken, team);
-
-      // Update last pushed timestamp
-      onUpdateTeam({
-        ...team,
-        sharing: {
-          ...team.sharing,
-          lastPushedAt: result.pushedAt,
-        },
-      });
-
-      toast('Updates pushed to assistants');
-    } catch (err) {
-      toast('Failed to push updates');
     }
   };
 
@@ -165,6 +145,14 @@ export default function ShareModal({
               </div>
             </div>
 
+            {/* Auto-sync indicator */}
+            <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+              <svg className="w-5 h-5 text-green-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span className="text-green-300 text-sm">Changes sync automatically</span>
+            </div>
+
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-slate-500">Shared:</span>
@@ -173,32 +161,19 @@ export default function ShareModal({
                 </span>
               </div>
               <div>
-                <span className="text-slate-500">Last update:</span>
+                <span className="text-slate-500">Last sync:</span>
                 <span className="ml-2 text-slate-300">
                   {formatDate(team.sharing.lastPushedAt)}
                 </span>
               </div>
             </div>
 
-            <div className="flex gap-3">
-              <button
-                onClick={handlePushUpdate}
-                disabled={isLoading}
-                className="flex-1 btn btn-primary"
-              >
-                {isLoading ? 'Pushing...' : 'Push Updates'}
-              </button>
-              <button
-                onClick={() => setShowRevokeConfirm(true)}
-                className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/50 rounded-lg transition-colors"
-              >
-                Stop Sharing
-              </button>
-            </div>
-
-            <p className="text-slate-500 text-xs">
-              Push updates to sync your latest changes with assistant coaches.
-            </p>
+            <button
+              onClick={() => setShowRevokeConfirm(true)}
+              className="w-full px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/50 rounded-lg transition-colors"
+            >
+              Stop Sharing
+            </button>
           </div>
         )}
 
@@ -228,7 +203,7 @@ export default function ShareModal({
 
         <div className="mt-6 pt-4 border-t border-slate-700">
           <p className="text-slate-500 text-xs text-center">
-            Assistants can only view sessions. They cannot make changes.
+            Assistants can only view sessions. Changes you make sync automatically.
           </p>
         </div>
       </div>

@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import useTeams from '../hooks/useTeams';
 import useDiagramLibrary from '../hooks/useDiagramLibrary';
 import useSync from '../hooks/useSync';
 import useSharing from '../hooks/useSharing';
 import { VIEWS } from '../constants/navigation';
-import { SHARED_TEAMS_KEY } from '../constants/storage';
+import { SHARED_TEAMS_KEY, TEAMS_KEY } from '../constants/storage';
 import TeamList from './teams/TeamList';
 import TeamDetail from './teams/TeamDetail';
 import SessionBuilder from './session-builder/SessionBuilder';
@@ -22,6 +22,9 @@ export default function AppShell() {
   const [sharedTeamToken, setSharedTeamToken] = useState(null);
   const [sharedTeamData, setSharedTeamData] = useState(null);
   const [sharedTeamError, setSharedTeamError] = useState(null);
+  const [selectedSharedSession, setSelectedSharedSession] = useState(null);
+  const hasCheckedForUpdates = useRef(false);
+  const sharedTeamsPushTimeouts = useRef({});
 
   const {
     currentView,
@@ -78,12 +81,67 @@ export default function AppShell() {
     }
   }, [teamsData, syncContext.identity, syncContext.isOnline]);
 
-  // Sync teams when they change
+  // Sync teams when they change (push to server)
   useEffect(() => {
     if (teamsData && syncContext.isSyncEnabled) {
       syncContext.pushTeams(teamsData);
     }
   }, [teamsData, syncContext.isSyncEnabled]);
+
+  // Auto-pull from server on app load when sync is enabled
+  useEffect(() => {
+    const checkForServerUpdates = async () => {
+      // Only check once per app load
+      if (hasCheckedForUpdates.current) return;
+      if (!syncContext.isSyncEnabled || !syncContext.isOnline) return;
+      if (!teamsData) return;
+
+      hasCheckedForUpdates.current = true;
+
+      try {
+        const result = await syncContext.pullTeams();
+        if (result && result.version > (syncContext.identity?.localVersion || 0)) {
+          // Server has newer data - update localStorage and reload
+          localStorage.setItem(TEAMS_KEY, JSON.stringify(result.teams));
+          window.location.reload();
+        }
+      } catch (err) {
+        console.error('Failed to check for server updates:', err);
+      }
+    };
+
+    checkForServerUpdates();
+  }, [teamsData, syncContext.isSyncEnabled, syncContext.isOnline]);
+
+  // Auto-push shared teams when teamsData changes
+  useEffect(() => {
+    if (!teamsData?.teams) return;
+
+    // Find all shared teams
+    const sharedTeams = teamsData.teams.filter(t => t.sharing?.isShared && t.sharing?.shareToken);
+
+    sharedTeams.forEach(team => {
+      const token = team.sharing.shareToken;
+
+      // Clear existing timeout for this team
+      if (sharedTeamsPushTimeouts.current[token]) {
+        clearTimeout(sharedTeamsPushTimeouts.current[token]);
+      }
+
+      // Debounce: wait 3 seconds before pushing to avoid rapid updates
+      sharedTeamsPushTimeouts.current[token] = setTimeout(() => {
+        sharingContext.pushUpdate(token, team)
+          .catch(err => console.error('Failed to auto-sync shared team:', err));
+      }, 3000);
+    });
+
+    // Cleanup function to clear timeouts
+    return () => {
+      Object.values(sharedTeamsPushTimeouts.current).forEach(timeout => {
+        clearTimeout(timeout);
+      });
+    };
+  }, [teamsData]);
 
   // Wait for teams data to load
   if (!teamsData) {
@@ -128,6 +186,154 @@ export default function AppShell() {
     }
 
     if (sharedTeamData) {
+      // Show session detail view if a session is selected
+      if (selectedSharedSession) {
+        return (
+          <div className="min-h-screen bg-slate-900 text-slate-100">
+            {/* Session Header */}
+            <div className="bg-slate-800 border-b border-slate-700 p-6">
+              <div className="max-w-4xl mx-auto">
+                <button
+                  onClick={() => setSelectedSharedSession(null)}
+                  className="text-blue-400 hover:text-blue-300 mb-3 flex items-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  Back to Sessions
+                </button>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs font-medium rounded">
+                    Shared Team
+                  </span>
+                  <span className="text-slate-500 text-sm">View Only</span>
+                </div>
+                <h1 className="text-2xl font-bold">
+                  {selectedSharedSession.summary?.title || 'Untitled Session'}
+                </h1>
+                {selectedSharedSession.summary?.date && (
+                  <p className="text-slate-400 mt-1">{selectedSharedSession.summary.date}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Session Content */}
+            <div className="max-w-4xl mx-auto p-6">
+              {/* Session Summary */}
+              <div className="card p-6 mb-6">
+                <h2 className="text-lg font-semibold mb-4">Session Info</h2>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  {selectedSharedSession.summary?.moment && (
+                    <div>
+                      <span className="text-slate-500">Moment:</span>
+                      <span className="ml-2 text-slate-300">{selectedSharedSession.summary.moment}</span>
+                    </div>
+                  )}
+                  {selectedSharedSession.summary?.theme && (
+                    <div>
+                      <span className="text-slate-500">Theme:</span>
+                      <span className="ml-2 text-slate-300">{selectedSharedSession.summary.theme}</span>
+                    </div>
+                  )}
+                  {selectedSharedSession.summary?.playerCount && (
+                    <div>
+                      <span className="text-slate-500">Players:</span>
+                      <span className="ml-2 text-slate-300">{selectedSharedSession.summary.playerCount}</span>
+                    </div>
+                  )}
+                  {selectedSharedSession.summary?.duration && (
+                    <div>
+                      <span className="text-slate-500">Duration:</span>
+                      <span className="ml-2 text-slate-300">{selectedSharedSession.summary.duration} min</span>
+                    </div>
+                  )}
+                </div>
+                {selectedSharedSession.summary?.notes && (
+                  <div className="mt-4 pt-4 border-t border-slate-700">
+                    <span className="text-slate-500 text-sm">Notes:</span>
+                    <p className="text-slate-300 mt-1 whitespace-pre-wrap">{selectedSharedSession.summary.notes}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Sections */}
+              <h2 className="text-lg font-semibold mb-4">
+                Sections ({selectedSharedSession.sections?.length || 0})
+              </h2>
+              {selectedSharedSession.sections?.length === 0 ? (
+                <div className="card p-8 text-center text-slate-400">
+                  No sections in this session.
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {selectedSharedSession.sections.map((section, index) => (
+                    <div key={section.id} className="card p-6">
+                      <div className="flex items-start justify-between mb-4">
+                        <div>
+                          <span className="text-xs text-slate-500 uppercase tracking-wider">
+                            {section.type || 'Section'} • {section.duration || '?'} min
+                          </span>
+                          <h3 className="text-lg font-semibold mt-1">
+                            {section.name || `Section ${index + 1}`}
+                          </h3>
+                        </div>
+                      </div>
+
+                      {section.objective && (
+                        <div className="mb-4">
+                          <span className="text-slate-500 text-sm">Objective:</span>
+                          <p className="text-slate-300 mt-1">{section.objective}</p>
+                        </div>
+                      )}
+
+                      {section.description && (
+                        <div className="mb-4">
+                          <span className="text-slate-500 text-sm">Description:</span>
+                          <p className="text-slate-300 mt-1 whitespace-pre-wrap">{section.description}</p>
+                        </div>
+                      )}
+
+                      {section.keyPoints && (
+                        <div className="mb-4">
+                          <span className="text-slate-500 text-sm">Key Points:</span>
+                          <p className="text-slate-300 mt-1 whitespace-pre-wrap">{section.keyPoints}</p>
+                        </div>
+                      )}
+
+                      {/* Diagram */}
+                      {section.imageDataUrl && (
+                        <div className="mt-4">
+                          <img
+                            src={section.imageDataUrl}
+                            alt="Diagram"
+                            className="max-w-full rounded-lg border border-slate-700"
+                          />
+                        </div>
+                      )}
+
+                      {/* Variations */}
+                      {section.variations?.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-slate-700">
+                          <span className="text-slate-500 text-sm">Variations:</span>
+                          <div className="mt-2 space-y-2">
+                            {section.variations.map((variation, vIndex) => (
+                              <div key={vIndex} className="bg-slate-700/50 rounded p-3">
+                                <p className="text-slate-300 text-sm">{variation.text || variation}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      // Show session list
       return (
         <div className="min-h-screen bg-slate-900 text-slate-100">
           {/* Shared Team Header */}
@@ -173,22 +379,35 @@ export default function AppShell() {
             ) : (
               <div className="space-y-4">
                 {sharedTeamData.sessions.map((session) => (
-                  <div key={session.id} className="card p-4">
-                    <h3 className="font-semibold text-lg">
-                      {session.summary?.title || 'Untitled Session'}
-                    </h3>
-                    {session.summary?.date && (
-                      <p className="text-slate-400 text-sm">{session.summary.date}</p>
-                    )}
-                    {session.summary?.moment && (
-                      <span className="inline-block mt-2 px-2 py-1 bg-slate-700 text-slate-300 text-xs rounded">
-                        {session.summary.moment}
-                      </span>
-                    )}
-                    <p className="text-slate-500 text-sm mt-2">
-                      {session.sections?.length || 0} section(s)
-                    </p>
-                  </div>
+                  <button
+                    key={session.id}
+                    onClick={() => setSelectedSharedSession(session)}
+                    className="card p-4 w-full text-left hover:bg-slate-700/50 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-semibold text-lg">
+                          {session.summary?.title || 'Untitled Session'}
+                        </h3>
+                        {session.summary?.date && (
+                          <p className="text-slate-400 text-sm">{session.summary.date}</p>
+                        )}
+                        <div className="flex items-center gap-2 mt-2">
+                          {session.summary?.moment && (
+                            <span className="px-2 py-1 bg-slate-700 text-slate-300 text-xs rounded">
+                              {session.summary.moment}
+                            </span>
+                          )}
+                          <span className="text-slate-500 text-sm">
+                            {session.sections?.length || 0} section(s)
+                          </span>
+                        </div>
+                      </div>
+                      <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </div>
+                  </button>
                 ))}
               </div>
             )}
@@ -358,6 +577,8 @@ export default function AppShell() {
           onConfirmCode={async (code) => {
             const teams = await syncContext.confirmPairingCode(code);
             if (teams) {
+              // Save teams to localStorage before reloading
+              localStorage.setItem(TEAMS_KEY, JSON.stringify(teams));
               // Reload page to pick up synced teams
               window.location.reload();
             }
@@ -368,6 +589,10 @@ export default function AppShell() {
             if (teamsData) {
               await syncContext.forcePush(teamsData);
             }
+          }}
+          onReset={() => {
+            syncContext.resetSync();
+            setShowLinkDeviceModal(false);
           }}
         />
       )}
