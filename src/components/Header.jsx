@@ -3,7 +3,9 @@ import React from 'react';
 export default function Header({
   onOpenLibrary,
   onSave,
-  onDownloadPDF
+  onDownloadPDF,
+  onOpenAISettings,
+  isAIConfigured = false,
 }) {
   const handleDownloadPDF = () => {
     onSave(); // Auto-save before downloading
@@ -26,6 +28,15 @@ export default function Header({
 
         {/* Actions */}
         <div className="flex items-center gap-3 flex-wrap no-print">
+          {onOpenAISettings && (
+            <button
+              onClick={onOpenAISettings}
+              className={`btn text-sm ${isAIConfigured ? 'btn-subtle' : 'btn-secondary'}`}
+              title={isAIConfigured ? 'AI configured - click to manage' : 'Set up AI assistant'}
+            >
+              ✨ {isAIConfigured ? 'AI On' : 'AI'}
+            </button>
+          )}
           <button onClick={onOpenLibrary} className="btn btn-secondary text-sm">
             Library
           </button>

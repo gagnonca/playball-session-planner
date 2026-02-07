@@ -21,8 +21,10 @@ import SessionSummary from '../SessionSummary';
 import Section from '../Section';
 import AddSectionModal from '../AddSectionModal';
 import LibraryModal from '../LibraryModal';
+import AIConfigModal from '../AIConfigModal';
 import SessionPlanPDF from '../SessionPlanPDF';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
+import useAI from '../../hooks/useAI';
 import {
   defaultSection,
   libraryPayloadToSection,
@@ -38,7 +40,7 @@ import { PPP_TEMPLATES } from '../../constants/coaching';
 const LIB_KEY = "ppp_section_library_v1";
 
 // Sortable wrapper component for sections
-function SortableSection({ section, teamsContext, diagramLibrary, ...props }) {
+function SortableSection({ section, teamsContext, diagramLibrary, aiContext, ...props }) {
   const {
     attributes,
     listeners,
@@ -69,7 +71,7 @@ function SortableSection({ section, teamsContext, diagramLibrary, ...props }) {
           </svg>
         </button>
         <div className="flex-1">
-          <Section section={section} teamsContext={teamsContext} diagramLibrary={diagramLibrary} {...props} />
+          <Section section={section} teamsContext={teamsContext} diagramLibrary={diagramLibrary} aiContext={aiContext} {...props} />
         </div>
       </div>
     </div>
@@ -99,7 +101,11 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isLibraryModalOpen, setIsLibraryModalOpen] = useState(false);
+  const [isAIConfigOpen, setIsAIConfigOpen] = useState(false);
   const [libraryInsertMode, setLibraryInsertMode] = useState('append');
+
+  // AI Hook
+  const aiHook = useAI();
 
   // Drag and drop sensors
   const sensors = useSensors(
@@ -522,6 +528,8 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
         onOpenLibrary={() => setIsLibraryModalOpen(true)}
         onSave={handleSave}
         onDownloadPDF={handleDownloadPDF}
+        onOpenAISettings={() => setIsAIConfigOpen(true)}
+        isAIConfigured={aiHook.isConfigured()}
       />
 
       <main className="max-w-7xl mx-auto px-4 py-6">
@@ -560,6 +568,11 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
                 onSelectSection={handleSelectSection}
                 teamsContext={teamsContext}
                 diagramLibrary={diagramLibrary}
+                aiContext={{
+                  aiHook,
+                  sessionSummary: session.summary,
+                  onConfigureAI: () => setIsAIConfigOpen(true),
+                }}
               />
             ))}
           </SortableContext>
@@ -626,6 +639,12 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
         onExportLibrary={handleExportLibrary}
         onImportLibrary={handleImportLibrary}
         onClearLibrary={handleClearLibrary}
+      />
+
+      <AIConfigModal
+        isOpen={isAIConfigOpen}
+        onClose={() => setIsAIConfigOpen(false)}
+        aiHook={aiHook}
       />
     </div>
   );

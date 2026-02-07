@@ -26,3 +26,6 @@ export const SUMMARY_COLLAPSED_KEY = 'ppp_summary_collapsed_v1';
 export const COACH_IDENTITY_KEY = 'ppp_coach_identity_v1';
 export const SHARED_TEAMS_KEY = 'ppp_shared_teams_v1';
 export const FOLLOWED_SHARES_KEY = 'ppp_followed_shares_v1';
+
+// AI Configuration (user's own OpenAI API key)
+export const AI_CONFIG_KEY = 'ppp_ai_config_v1';

@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Variation from './Variation';
 import ContextualHelp from './ContextualHelp';
-import { fileToDataUrl, defaultVariation } from '../utils/helpers';
+import { fileToDataUrl, defaultVariation, toast } from '../utils/helpers';
 
 // Auto-grow textarea handler
 const useAutoGrow = () => {
@@ -24,10 +24,12 @@ export default function Section({
   onSelectSection,
   teamsContext,
   diagramLibrary,
+  aiContext, // { aiHook, sessionSummary, onConfigureAI }
 }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [previousType, setPreviousType] = useState(section.type);
+  const [isGenerating, setIsGenerating] = useState(false);
   const handleAutoGrow = useAutoGrow();
 
   // Show help when section type changes
@@ -90,6 +92,52 @@ export default function Section({
     if (name === null) return;
     onSaveToLibrary(section, name);
   };
+
+  // AI Content Generation
+  const handleGenerateWithAI = async () => {
+    if (!aiContext?.aiHook) return;
+
+    const { aiHook, sessionSummary, onConfigureAI } = aiContext;
+
+    // Check if AI is configured
+    if (!aiHook.isConfigured()) {
+      if (onConfigureAI) {
+        onConfigureAI();
+      }
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      const result = await aiHook.generateSectionContent({
+        moment: sessionSummary?.moment,
+        ageGroup: sessionSummary?.ageGroup,
+        playerActions: sessionSummary?.playerActions,
+        keyQualities: sessionSummary?.keyQualities,
+        sectionName: section.name,
+        sectionType: section.type,
+        existingObjective: section.objective,
+      });
+
+      // Update section with generated content
+      onUpdate({
+        ...section,
+        objective: result.objective || section.objective,
+        organization: result.organization || section.organization,
+        questions: result.questions || section.questions,
+        answers: result.answers || section.answers,
+        notes: result.notes || section.notes,
+      });
+
+      toast('Content generated ✨');
+    } catch (error) {
+      toast(`AI Error: ${error.message}`);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const isAIConfigured = aiContext?.aiHook?.isConfigured?.() ?? false;
 
   return (
     <div className="card p-6 my-4">
@@ -161,6 +209,22 @@ export default function Section({
 
         {/* Action Buttons */}
         <div className="flex flex-wrap gap-2 no-print">
+          {aiContext && (
+            <button
+              onClick={handleGenerateWithAI}
+              disabled={isGenerating}
+              className={`btn text-sm ${isAIConfigured ? 'btn-secondary' : 'btn-subtle'}`}
+              title={isAIConfigured ? 'Generate content with AI' : 'Configure AI to enable'}
+            >
+              {isGenerating ? (
+                <>
+                  <span className="animate-pulse">Generating...</span>
+                </>
+              ) : (
+                <>✨ {isAIConfigured ? 'Generate' : 'AI'}</>
+              )}
+            </button>
+          )}
           <button onClick={handleSaveToLibrary} className="btn btn-subtle text-sm">
             Save to Library
           </button>
