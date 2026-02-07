@@ -2,39 +2,32 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Variation from './Variation';
 import ContextualHelp from './ContextualHelp';
 import { fileToDataUrl, defaultVariation, toast, migrateToGuidedQA } from '../utils/helpers';
-import { FIELD_PLACEHOLDERS } from '../constants/prompts';
 
 // Auto-grow textarea handler
 const useAutoGrow = () => {
   const handleAutoGrow = useCallback((e) => {
     const target = e.target;
     target.style.height = 'auto';
-    target.style.height = Math.max(target.scrollHeight, 72) + 'px'; // Min height of 72px (3 rows)
+    target.style.height = Math.max(target.scrollHeight, 72) + 'px';
   }, []);
-
   return handleAutoGrow;
 };
 
 export default function Section({
   section,
-  isSelected,
   onUpdate,
   onRemove,
-  onDuplicate,
   onSaveToLibrary,
-  onSelectSection,
+  onOpenLibrary,
   teamsContext,
   diagramLibrary,
-  aiContext, // { aiHook, sessionSummary, onConfigureAI }
+  aiContext,
 }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showTypeHelp, setShowTypeHelp] = useState(false);
   const [previousType, setPreviousType] = useState(section.type);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [activeAIField, setActiveAIField] = useState(null); // Which field's AI prompt is open
-  const [aiPromptText, setAIPromptText] = useState(''); // User's description for AI
-  const [generatingField, setGeneratingField] = useState(null); // Which field is currently generating
+  const [generatingField, setGeneratingField] = useState(null);
   const handleAutoGrow = useAutoGrow();
 
   // Migrate legacy questions/answers to guidedQA if needed
@@ -45,7 +38,7 @@ export default function Section({
         onUpdate({ ...section, guidedQA: migrated, questions: '', answers: '' });
       }
     }
-  }, [section.id]); // Only run once per section
+  }, [section.id]);
 
   // Show help when section type changes
   useEffect(() => {
@@ -64,11 +57,10 @@ export default function Section({
     if (!file) return;
     const dataUrl = await fileToDataUrl(file);
     handleChange('imageDataUrl', dataUrl);
-    e.target.value = ''; // Reset input
+    e.target.value = '';
   };
 
   const handleRemoveImage = () => {
-    // Update both fields in a single call to avoid race condition
     onUpdate({ ...section, imageDataUrl: '', diagramData: null });
   };
 
@@ -108,11 +100,11 @@ export default function Section({
     onSaveToLibrary(section, name);
   };
 
-  // AI Content Generation - per field
-  const handleOpenAIPrompt = (fieldName) => {
+  // AI Content Generation - direct generation from context (no user prompt)
+  const handleGenerateField = async (fieldName) => {
     if (!aiContext?.aiHook) return;
 
-    const { aiHook, onConfigureAI } = aiContext;
+    const { aiHook, sessionSummary, onConfigureAI } = aiContext;
 
     // Check if AI is configured
     if (!aiHook.isConfigured()) {
@@ -122,50 +114,25 @@ export default function Section({
       return;
     }
 
-    setActiveAIField(fieldName);
-    setAIPromptText('');
-  };
-
-  const handleCancelAIPrompt = () => {
-    setActiveAIField(null);
-    setAIPromptText('');
-  };
-
-  const handleGenerateField = async () => {
-    if (!aiContext?.aiHook || !activeAIField || !aiPromptText.trim()) return;
-
-    const { aiHook, sessionSummary } = aiContext;
-
-    setGeneratingField(activeAIField);
+    setGeneratingField(fieldName);
     try {
       const context = {
-        // Session-level context
         moment: sessionSummary?.moment,
         ageGroup: sessionSummary?.ageGroup,
         playerActions: sessionSummary?.playerActions,
         keyQualities: sessionSummary?.keyQualities,
-        // Section-level context
         sectionName: section.name,
         sectionType: section.type,
         sectionTime: section.time,
-        // Other fields for cross-referencing
         objective: section.objective,
         organization: section.organization,
         guidedQA: section.guidedQA,
         notes: section.notes,
-        // User's prompt
-        userPrompt: aiPromptText,
       };
 
-      const content = await aiHook.generateFieldContent(activeAIField, context);
-
-      // Update the specific field
-      handleChange(activeAIField, content);
+      const content = await aiHook.generateFieldContent(fieldName, context);
+      handleChange(fieldName, content);
       toast('Generated ✨');
-
-      // Close the prompt
-      setActiveAIField(null);
-      setAIPromptText('');
     } catch (error) {
       toast(`AI Error: ${error.message}`);
     } finally {
@@ -173,18 +140,9 @@ export default function Section({
     }
   };
 
-  const handleAIPromptKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleGenerateField();
-    } else if (e.key === 'Escape') {
-      handleCancelAIPrompt();
-    }
-  };
-
   const isAIConfigured = aiContext?.aiHook?.isConfigured?.() ?? false;
 
-  // Render AI-enabled field with floating AI button inside textarea
+  // Render field with floating AI button
   const renderAIField = (label, fieldName, value, placeholder, rows = 3, extraClasses = '') => (
     <div>
       <label className="label-text">{label}</label>
@@ -197,49 +155,19 @@ export default function Section({
           className={`input-field resize-none overflow-hidden pr-10 ${extraClasses}`}
           placeholder={placeholder}
         />
-        {aiContext && activeAIField !== fieldName && (
+        {aiContext && isAIConfigured && (
           <button
-            onClick={() => handleOpenAIPrompt(fieldName)}
+            onClick={() => handleGenerateField(fieldName)}
             disabled={generatingField === fieldName}
-            className={`absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-md transition-all ${
-              isAIConfigured
-                ? 'text-yellow-400/60 hover:text-yellow-400 hover:bg-slate-700/50'
-                : 'text-slate-500/40 hover:text-slate-400 hover:bg-slate-700/50'
-            }`}
-            title={isAIConfigured ? 'Generate with AI' : 'Configure AI to enable'}
+            className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-md transition-all text-yellow-400/60 hover:text-yellow-400 hover:bg-slate-700/50"
+            title="Generate with AI"
           >
             {generatingField === fieldName ? (
-              <span className="animate-pulse text-xs">...</span>
+              <span className="animate-spin text-xs">⟳</span>
             ) : (
               <span className="text-sm">✨</span>
             )}
           </button>
-        )}
-        {activeAIField === fieldName && (
-          <div className="absolute top-2 right-2 left-2 flex gap-2 bg-slate-800/95 p-2 rounded-lg border border-slate-600 shadow-lg">
-            <input
-              type="text"
-              value={aiPromptText}
-              onChange={(e) => setAIPromptText(e.target.value)}
-              onKeyDown={handleAIPromptKeyDown}
-              placeholder={FIELD_PLACEHOLDERS[fieldName] || 'Describe what you want...'}
-              className="input-field flex-1 text-sm py-1"
-              autoFocus
-            />
-            <button
-              onClick={handleGenerateField}
-              disabled={!aiPromptText.trim() || generatingField === fieldName}
-              className="btn btn-primary text-sm px-3 py-1"
-            >
-              {generatingField === fieldName ? '...' : '✨'}
-            </button>
-            <button
-              onClick={handleCancelAIPrompt}
-              className="btn btn-subtle text-sm px-2 py-1"
-            >
-              ✕
-            </button>
-          </div>
         )}
       </div>
     </div>
@@ -271,7 +199,7 @@ export default function Section({
             type="text"
             value={section.name}
             onChange={(e) => handleChange('name', e.target.value)}
-            placeholder="Section name (e.g., Free Play (2v2) / Practice: Passing Gates / The Game)"
+            placeholder="Section name (e.g., Free Play / Passing Gates / The Game)"
             className="input-field text-lg font-bold"
             onFocus={() => setIsCollapsed(false)}
           />
@@ -298,42 +226,49 @@ export default function Section({
             </div>
 
             <div className="flex items-center gap-2">
-              <label className="label-text">Time (optional)</label>
+              <label className="label-text">Time</label>
               <input
                 type="text"
                 value={section.time}
                 onChange={(e) => handleChange('time', e.target.value)}
-                placeholder="e.g., 10 min"
-                className="input-field w-32"
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <label className="label-text">Selected</label>
-              <input
-                type="radio"
-                name="selectedSection"
-                checked={isSelected}
-                onChange={() => onSelectSection(section.id)}
-                className="w-4 h-4"
+                placeholder="10 min"
+                className="input-field w-24"
               />
             </div>
           </div>
         </div>
 
         {/* Action Buttons */}
-        <div className="flex flex-wrap gap-2 no-print">
-          <button onClick={handleSaveToLibrary} className="btn btn-subtle text-sm">
-            Save to Library
+        <div className="flex items-center gap-2 no-print">
+          {onOpenLibrary && (
+            <button
+              onClick={onOpenLibrary}
+              className="btn btn-subtle text-sm"
+              title="Load from library"
+            >
+              Library
+            </button>
+          )}
+          <button
+            onClick={handleSaveToLibrary}
+            className="btn btn-subtle text-sm"
+            title="Save to library"
+          >
+            Save
           </button>
-          <button onClick={handleAddVariation} className="btn btn-subtle text-sm">
+          <button
+            onClick={handleAddVariation}
+            className="btn btn-subtle text-sm"
+            title="Add variation"
+          >
             + Variation
           </button>
-          <button onClick={onDuplicate} className="btn btn-subtle text-sm">
-            Duplicate
-          </button>
-          <button onClick={onRemove} className="btn btn-danger text-sm">
-            Remove
+          <button
+            onClick={onRemove}
+            className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-red-400 hover:bg-slate-700/50 rounded transition-colors"
+            title="Remove section"
+          >
+            ×
           </button>
         </div>
       </div>
@@ -360,184 +295,136 @@ export default function Section({
 
           {/* Two Column Layout */}
           <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
-        {/* Image/Diagram Box */}
-        <div className="border-2 border-dashed border-slate-700 rounded-xl p-4 flex flex-col gap-3">
-          {section.imageDataUrl ? (
-            <>
-              <img
-                src={section.imageDataUrl}
-                alt="Section diagram"
-                className="w-full rounded-lg border border-slate-700"
-              />
-              <div className="flex flex-col gap-2 no-print">
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleOpenDiagramBuilder}
-                    className="btn btn-primary flex-1"
-                  >
-                    {section.diagramData ? 'Edit Diagram' : 'Build Diagram'}
-                  </button>
-                  <button onClick={handleRemoveImage} className="btn btn-danger">
-                    Remove
-                  </button>
-                </div>
-                {diagramLibrary?.diagrams?.length > 0 && (
-                  <button
-                    onClick={handleOpenDiagramLibrary}
-                    className="btn btn-subtle w-full"
-                  >
-                    Replace from Library
-                  </button>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="text-slate-500 text-center py-8">
-                Upload an image or build a diagram
-              </div>
-              <div className="flex flex-col gap-2 no-print">
-                <button
-                  onClick={handleOpenDiagramBuilder}
-                  className="btn btn-primary"
-                >
-                  Build Diagram
-                </button>
-                {diagramLibrary?.diagrams?.length > 0 && (
-                  <button
-                    onClick={handleOpenDiagramLibrary}
-                    className="btn btn-subtle"
-                  >
-                    Insert from Library
-                  </button>
-                )}
-                <label className="btn btn-subtle cursor-pointer">
-                  Upload image
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                    className="hidden"
+            {/* Image/Diagram Box */}
+            <div className="border-2 border-dashed border-slate-700 rounded-xl p-4 flex flex-col gap-3">
+              {section.imageDataUrl ? (
+                <>
+                  <img
+                    src={section.imageDataUrl}
+                    alt="Section diagram"
+                    className="w-full rounded-lg border border-slate-700"
                   />
-                </label>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Content */}
-        <div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {renderAIField(
-              'Objective',
-              'objective',
-              section.objective,
-              'What will players learn or improve?'
-            )}
-
-            {renderAIField(
-              'Organization',
-              'organization',
-              section.organization,
-              'Field setup, players, equipment...'
-            )}
-
-            {/* Guided Q&A - Only for Practice sections */}
-            {section.type === 'Practice' && (
-              <div className="md:col-span-2">
-                <label className="label-text">Guided Q&A</label>
-                <div className="relative">
-                  <textarea
-                    value={section.guidedQA || ''}
-                    onChange={(e) => handleChange('guidedQA', e.target.value)}
-                    onInput={handleAutoGrow}
-                    rows={4}
-                    className="input-field resize-none overflow-hidden pr-10 font-mono text-sm"
-                    placeholder="Q1: What do you see when you have the ball?&#10;A1: Look for open teammates, scan for space&#10;&#10;Q2: When should you pass vs dribble?&#10;A2: Pass when teammate is in better position"
-                  />
-                  {aiContext && activeAIField !== 'guidedQA' && (
-                    <button
-                      onClick={() => handleOpenAIPrompt('guidedQA')}
-                      disabled={generatingField === 'guidedQA'}
-                      className={`absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-md transition-all ${
-                        isAIConfigured
-                          ? 'text-yellow-400/60 hover:text-yellow-400 hover:bg-slate-700/50'
-                          : 'text-slate-500/40 hover:text-slate-400 hover:bg-slate-700/50'
-                      }`}
-                      title={isAIConfigured ? 'Generate with AI' : 'Configure AI to enable'}
-                    >
-                      {generatingField === 'guidedQA' ? (
-                        <span className="animate-pulse text-xs">...</span>
-                      ) : (
-                        <span className="text-sm">✨</span>
-                      )}
-                    </button>
-                  )}
-                  {activeAIField === 'guidedQA' && (
-                    <div className="absolute top-2 right-2 left-2 flex gap-2 bg-slate-800/95 p-2 rounded-lg border border-slate-600 shadow-lg">
-                      <input
-                        type="text"
-                        value={aiPromptText}
-                        onChange={(e) => setAIPromptText(e.target.value)}
-                        onKeyDown={handleAIPromptKeyDown}
-                        placeholder={FIELD_PLACEHOLDERS['guidedQA'] || 'Describe what you want...'}
-                        className="input-field flex-1 text-sm py-1"
-                        autoFocus
-                      />
+                  <div className="flex flex-col gap-2 no-print">
+                    <div className="flex gap-2">
                       <button
-                        onClick={handleGenerateField}
-                        disabled={!aiPromptText.trim() || generatingField === 'guidedQA'}
-                        className="btn btn-primary text-sm px-3 py-1"
+                        onClick={handleOpenDiagramBuilder}
+                        className="btn btn-primary flex-1"
                       >
-                        {generatingField === 'guidedQA' ? '...' : '✨'}
+                        {section.diagramData ? 'Edit' : 'Build'}
                       </button>
-                      <button
-                        onClick={handleCancelAIPrompt}
-                        className="btn btn-subtle text-sm px-2 py-1"
-                      >
-                        ✕
+                      <button onClick={handleRemoveImage} className="btn btn-danger">
+                        ×
                       </button>
                     </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {renderAIField(
-              'Notes',
-              'notes',
-              section.notes,
-              'Coaching tips, variations...'
-            )}
-          </div>
-
-          {/* Variations */}
-          {section.variations.length > 0 && (
-            <div className="mt-6 pt-6 border-t border-slate-700">
-              <div className="flex justify-between items-center mb-2">
-                <h3 className="text-lg font-semibold">Variations</h3>
-                <p className="text-sm text-slate-400">Use for Less / Core / More challenging options</p>
-              </div>
-              {section.variations.map((variation, index) => (
-                <Variation
-                  key={variation.id}
-                  variation={variation}
-                  onUpdate={(updated) => handleUpdateVariation(index, updated)}
-                  onRemove={() => handleRemoveVariation(index)}
-                  parentDiagram={section.diagramData}
-                  sectionId={section.id}
-                  teamsContext={teamsContext}
-                  aiContext={aiContext}
-                  parentSection={section}
-                />
-              ))}
+                    {diagramLibrary?.diagrams?.length > 0 && (
+                      <button
+                        onClick={handleOpenDiagramLibrary}
+                        className="btn btn-subtle w-full"
+                      >
+                        Replace from Library
+                      </button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-slate-500 text-center py-8">
+                    Add a diagram
+                  </div>
+                  <div className="flex flex-col gap-2 no-print">
+                    <button
+                      onClick={handleOpenDiagramBuilder}
+                      className="btn btn-primary"
+                    >
+                      Build Diagram
+                    </button>
+                    {diagramLibrary?.diagrams?.length > 0 && (
+                      <button
+                        onClick={handleOpenDiagramLibrary}
+                        className="btn btn-subtle"
+                      >
+                        From Library
+                      </button>
+                    )}
+                    <label className="btn btn-subtle cursor-pointer">
+                      Upload
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </>
+              )}
             </div>
-          )}
-        </div>
-      </div>
+
+            {/* Content */}
+            <div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {renderAIField(
+                  'Objective',
+                  'objective',
+                  section.objective,
+                  'What will players learn or improve?'
+                )}
+
+                {renderAIField(
+                  'Organization',
+                  'organization',
+                  section.organization,
+                  'Field setup, players, equipment...'
+                )}
+
+                {/* Guided Q&A - Only for Practice sections */}
+                {section.type === 'Practice' && (
+                  <div className="md:col-span-2">
+                    {renderAIField(
+                      'Guided Q&A',
+                      'guidedQA',
+                      section.guidedQA,
+                      'Q1: What do you see?\nA1: Look for teammates...',
+                      4,
+                      'font-mono text-sm'
+                    )}
+                  </div>
+                )}
+
+                {renderAIField(
+                  'Notes',
+                  'notes',
+                  section.notes,
+                  'Coaching tips, variations...'
+                )}
+              </div>
+
+              {/* Variations */}
+              {section.variations.length > 0 && (
+                <div className="mt-6 pt-6 border-t border-slate-700">
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-lg font-semibold">Variations</h3>
+                    <p className="text-sm text-slate-400">Less / Core / More challenging</p>
+                  </div>
+                  {section.variations.map((variation, index) => (
+                    <Variation
+                      key={variation.id}
+                      variation={variation}
+                      onUpdate={(updated) => handleUpdateVariation(index, updated)}
+                      onRemove={() => handleRemoveVariation(index)}
+                      parentDiagram={section.diagramData}
+                      sectionId={section.id}
+                      teamsContext={teamsContext}
+                      aiContext={aiContext}
+                      parentSection={section}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </>
       )}
-
     </div>
   );
 }

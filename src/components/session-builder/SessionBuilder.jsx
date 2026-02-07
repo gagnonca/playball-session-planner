@@ -101,6 +101,7 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isLibraryModalOpen, setIsLibraryModalOpen] = useState(false);
+  const [libraryOpenedFromSectionId, setLibraryOpenedFromSectionId] = useState(null);
   const [isAIConfigOpen, setIsAIConfigOpen] = useState(false);
   const [libraryInsertMode, setLibraryInsertMode] = useState('append');
 
@@ -364,28 +365,24 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
     toast('Section inserted ✅');
   }, [library.items, libraryInsertMode, session.selectedSectionId, session.sections, setSession]);
 
-  const handleOverwriteLibraryItem = useCallback((itemId) => {
-    if (!session.selectedSectionId) return;
+  const handleReplaceWithLibraryItem = useCallback((itemId) => {
+    if (!libraryOpenedFromSectionId) return;
 
-    const section = session.sections.find(s => s.id === session.selectedSectionId);
     const item = library.items.find(x => x.id === itemId);
-    if (!section || !item) return;
+    if (!item) return;
 
-    const payload = sectionToLibraryPayload(section);
-    const updatedItem = {
-      ...item,
-      type: section.type || payload.type || 'Other',
-      payload,
-      updatedAt: nowIso(),
-    };
+    // Create new section from library item but keep the original section ID
+    const newSection = libraryPayloadToSection(item.payload);
+    newSection.id = libraryOpenedFromSectionId;
 
-    setLibrary(prev => ({
+    setSession(prev => ({
       ...prev,
-      items: prev.items.map(x => x.id === itemId ? updatedItem : x)
+      sections: prev.sections.map(s => s.id === libraryOpenedFromSectionId ? newSection : s)
     }));
 
-    toast('Library item overwritten ✅');
-  }, [session.selectedSectionId, session.sections, library.items, setLibrary]);
+    setIsLibraryModalOpen(false);
+    toast('Section replaced ✅');
+  }, [libraryOpenedFromSectionId, library.items, setSession]);
 
   const handleDeleteLibraryItem = useCallback((itemId) => {
     setLibrary(prev => ({
@@ -524,7 +521,6 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
       </div>
 
       <Header
-        onOpenLibrary={() => setIsLibraryModalOpen(true)}
         onSave={handleSave}
         onDownloadPDF={handleDownloadPDF}
         onOpenAISettings={() => setIsAIConfigOpen(true)}
@@ -559,12 +555,13 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
               <SortableSection
                 key={section.id}
                 section={section}
-                isSelected={session.selectedSectionId === section.id}
                 onUpdate={(updated) => handleUpdateSection(section.id, updated)}
                 onRemove={() => handleRemoveSection(section.id)}
-                onDuplicate={() => handleDuplicateSection(section.id)}
                 onSaveToLibrary={handleSaveToLibrary}
-                onSelectSection={handleSelectSection}
+                onOpenLibrary={() => {
+                  setLibraryOpenedFromSectionId(section.id);
+                  setIsLibraryModalOpen(true);
+                }}
                 teamsContext={teamsContext}
                 diagramLibrary={diagramLibrary}
                 aiContext={{
@@ -627,12 +624,15 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
 
       <LibraryModal
         isOpen={isLibraryModalOpen}
-        onClose={() => setIsLibraryModalOpen(false)}
+        onClose={() => {
+          setIsLibraryModalOpen(false);
+          setLibraryOpenedFromSectionId(null);
+        }}
         library={library}
-        selectedSectionId={session.selectedSectionId}
+        openedFromSectionId={libraryOpenedFromSectionId}
         insertMode={libraryInsertMode}
         onInsert={handleInsertLibraryItem}
-        onOverwrite={handleOverwriteLibraryItem}
+        onReplace={handleReplaceWithLibraryItem}
         onDelete={handleDeleteLibraryItem}
         onSetInsertMode={setLibraryInsertMode}
         onExportLibrary={handleExportLibrary}

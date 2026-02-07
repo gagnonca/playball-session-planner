@@ -1,7 +1,7 @@
 import React from 'react';
+import playballIcon from '../assets/playball-icon.png';
 
 export default function Header({
-  onOpenLibrary,
   onSave,
   onDownloadPDF,
   onOpenAISettings,
@@ -17,9 +17,11 @@ export default function Header({
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
         {/* Brand */}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-800 rounded-xl flex items-center justify-center text-2xl shadow-lg">
-            ⚽
-          </div>
+          <img
+            src={playballIcon}
+            alt="PlayBall"
+            className="w-10 h-10 rounded-xl shadow-lg"
+          />
           <div>
             <div className="font-bold text-lg tracking-tight">PlayBall Session Planner</div>
             <div className="text-xs text-slate-400">Build Your Training Sessions</div>
@@ -37,9 +39,6 @@ export default function Header({
               ✨ {isAIConfigured ? 'AI On' : 'AI'}
             </button>
           )}
-          <button onClick={onOpenLibrary} className="btn btn-secondary text-sm">
-            Library
-          </button>
           <button onClick={onSave} className="btn btn-secondary text-sm">
             Save
           </button>

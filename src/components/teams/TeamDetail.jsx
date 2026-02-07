@@ -19,7 +19,7 @@ export default function TeamDetail({ teamsContext, sharingContext, diagramLibrar
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [filterType, setFilterType] = useState('all'); // 'all', 'scheduled', 'templates'
+  const [filterType, setFilterType] = useState('all'); // 'all', 'scheduled'
 
   const team = getTeam(selectedTeamId);
 
@@ -42,8 +42,6 @@ export default function TeamDetail({ teamsContext, sharingContext, diagramLibrar
   const filteredSessions = sessions.filter(session => {
     if (filterType === 'scheduled') {
       return session.summary.date && session.summary.date.length > 0;
-    } else if (filterType === 'templates') {
-      return !session.summary.date || session.summary.date.length === 0;
     }
     return true; // 'all'
   });
@@ -64,7 +62,6 @@ export default function TeamDetail({ teamsContext, sharingContext, diagramLibrar
   });
 
   const scheduledCount = sessions.filter(s => s.summary.date && s.summary.date.length > 0).length;
-  const templateCount = sessions.filter(s => !s.summary.date || s.summary.date.length === 0).length;
 
   const handleSelectSession = (sessionId) => {
     navigateToSessionBuilder(selectedTeamId, sessionId);
@@ -198,7 +195,7 @@ export default function TeamDetail({ teamsContext, sharingContext, diagramLibrar
       {/* Main Content */}
       <div className="max-w-6xl mx-auto p-6">
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <div className="card p-4">
             <p className="text-sm text-slate-400 mb-1">Total Sessions</p>
             <p className="text-3xl font-bold text-blue-400">{sessions.length}</p>
@@ -206,10 +203,6 @@ export default function TeamDetail({ teamsContext, sharingContext, diagramLibrar
           <div className="card p-4">
             <p className="text-sm text-slate-400 mb-1">Scheduled</p>
             <p className="text-3xl font-bold text-green-400">{scheduledCount}</p>
-          </div>
-          <div className="card p-4">
-            <p className="text-sm text-slate-400 mb-1">Templates</p>
-            <p className="text-3xl font-bold text-purple-400">{templateCount}</p>
           </div>
         </div>
 
@@ -236,16 +229,6 @@ export default function TeamDetail({ teamsContext, sharingContext, diagramLibrar
             >
               Scheduled ({scheduledCount})
             </button>
-            <button
-              onClick={() => setFilterType('templates')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                filterType === 'templates'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-              }`}
-            >
-              Templates ({templateCount})
-            </button>
           </div>
           <button onClick={() => setShowScheduleModal(true)} className="btn btn-primary">
             + New Session
@@ -270,9 +253,7 @@ export default function TeamDetail({ teamsContext, sharingContext, diagramLibrar
                 />
               </svg>
               <h3 className="text-xl font-semibold text-slate-300 mb-2">
-                {filterType === 'all' && 'No sessions yet'}
-                {filterType === 'scheduled' && 'No scheduled sessions'}
-                {filterType === 'templates' && 'No template sessions'}
+                {filterType === 'all' ? 'No sessions yet' : 'No scheduled sessions'}
               </h3>
               <p className="text-slate-500 mb-6">
                 Create your first session to get started

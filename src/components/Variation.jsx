@@ -1,6 +1,5 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { fileToDataUrl, migrateToGuidedQA, toast } from '../utils/helpers';
-import { FIELD_PLACEHOLDERS } from '../constants/prompts';
 
 // Auto-grow textarea handler
 const useAutoGrow = () => {
@@ -13,8 +12,6 @@ const useAutoGrow = () => {
 
 export default function Variation({ variation, onUpdate, onRemove, parentDiagram, sectionId, teamsContext, aiContext, parentSection }) {
   const handleAutoGrow = useAutoGrow();
-  const [activeAIField, setActiveAIField] = useState(null);
-  const [aiPromptText, setAIPromptText] = useState('');
   const [generatingField, setGeneratingField] = useState(null);
 
   // Migrate legacy questions/answers to guidedQA if needed
@@ -52,15 +49,14 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
   };
 
   const handleCopyFromParentAndEdit = () => {
-    // Open diagram builder with parent diagram as starting point
     handleOpenDiagramBuilder(true);
   };
 
-  // AI Content Generation - per field
-  const handleOpenAIPrompt = (fieldName) => {
+  // AI Content Generation - direct generation from context (no user prompt)
+  const handleGenerateField = async (fieldName) => {
     if (!aiContext?.aiHook) return;
 
-    const { aiHook, onConfigureAI } = aiContext;
+    const { aiHook, sessionSummary, onConfigureAI } = aiContext;
 
     if (!aiHook.isConfigured()) {
       if (onConfigureAI) {
@@ -69,21 +65,7 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
       return;
     }
 
-    setActiveAIField(fieldName);
-    setAIPromptText('');
-  };
-
-  const handleCancelAIPrompt = () => {
-    setActiveAIField(null);
-    setAIPromptText('');
-  };
-
-  const handleGenerateField = async () => {
-    if (!aiContext?.aiHook || !activeAIField || !aiPromptText.trim()) return;
-
-    const { aiHook, sessionSummary } = aiContext;
-
-    setGeneratingField(activeAIField);
+    setGeneratingField(fieldName);
     try {
       const context = {
         moment: sessionSummary?.moment,
@@ -97,15 +79,11 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
         organization: variation.organization || parentSection?.organization,
         guidedQA: variation.guidedQA || parentSection?.guidedQA,
         notes: variation.notes || parentSection?.notes,
-        userPrompt: aiPromptText,
       };
 
-      const content = await aiHook.generateFieldContent(activeAIField, context);
-      handleChange(activeAIField, content);
+      const content = await aiHook.generateFieldContent(fieldName, context);
+      handleChange(fieldName, content);
       toast('Generated ✨');
-
-      setActiveAIField(null);
-      setAIPromptText('');
     } catch (error) {
       toast(`AI Error: ${error.message}`);
     } finally {
@@ -113,18 +91,9 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
     }
   };
 
-  const handleAIPromptKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleGenerateField();
-    } else if (e.key === 'Escape') {
-      handleCancelAIPrompt();
-    }
-  };
-
   const isAIConfigured = aiContext?.aiHook?.isConfigured?.() ?? false;
 
-  // Render AI-enabled field with floating AI button inside textarea
+  // Render field with floating AI button
   const renderAIField = (label, fieldName, value, placeholder, rows = 3, extraClasses = '') => (
     <div>
       <label className="label-text">{label}</label>
@@ -137,49 +106,19 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
           className={`input-field resize-none overflow-hidden pr-10 ${extraClasses}`}
           placeholder={placeholder}
         />
-        {aiContext && activeAIField !== fieldName && (
+        {aiContext && isAIConfigured && (
           <button
-            onClick={() => handleOpenAIPrompt(fieldName)}
+            onClick={() => handleGenerateField(fieldName)}
             disabled={generatingField === fieldName}
-            className={`absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-md transition-all ${
-              isAIConfigured
-                ? 'text-yellow-400/60 hover:text-yellow-400 hover:bg-slate-700/50'
-                : 'text-slate-500/40 hover:text-slate-400 hover:bg-slate-700/50'
-            }`}
-            title={isAIConfigured ? 'Generate with AI' : 'Configure AI to enable'}
+            className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-md transition-all text-yellow-400/60 hover:text-yellow-400 hover:bg-slate-700/50"
+            title="Generate with AI"
           >
             {generatingField === fieldName ? (
-              <span className="animate-pulse text-xs">...</span>
+              <span className="animate-spin text-xs">⟳</span>
             ) : (
               <span className="text-sm">✨</span>
             )}
           </button>
-        )}
-        {activeAIField === fieldName && (
-          <div className="absolute top-2 right-2 left-2 flex gap-2 bg-slate-800/95 p-2 rounded-lg border border-slate-600 shadow-lg">
-            <input
-              type="text"
-              value={aiPromptText}
-              onChange={(e) => setAIPromptText(e.target.value)}
-              onKeyDown={handleAIPromptKeyDown}
-              placeholder={FIELD_PLACEHOLDERS[fieldName] || 'Describe what you want...'}
-              className="input-field flex-1 text-sm py-1"
-              autoFocus
-            />
-            <button
-              onClick={handleGenerateField}
-              disabled={!aiPromptText.trim() || generatingField === fieldName}
-              className="btn btn-primary text-sm px-3 py-1"
-            >
-              {generatingField === fieldName ? '...' : '✨'}
-            </button>
-            <button
-              onClick={handleCancelAIPrompt}
-              className="btn btn-subtle text-sm px-2 py-1"
-            >
-              ✕
-            </button>
-          </div>
         )}
       </div>
     </div>
@@ -197,9 +136,10 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
         />
         <button
           onClick={onRemove}
-          className="btn btn-danger ml-3 no-print"
+          className="ml-3 w-8 h-8 flex items-center justify-center text-slate-400 hover:text-red-400 hover:bg-slate-700/50 rounded transition-colors no-print"
+          title="Remove variation"
         >
-          Remove
+          ×
         </button>
       </div>
 
@@ -218,13 +158,13 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
                   onClick={() => handleOpenDiagramBuilder(false)}
                   className="btn btn-primary flex-1 text-xs py-1"
                 >
-                  Edit Diagram
+                  Edit
                 </button>
                 <button
                   onClick={handleRemoveImage}
                   className="btn btn-danger text-xs py-1"
                 >
-                  Remove
+                  ×
                 </button>
               </div>
             </>
@@ -246,7 +186,7 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
                 Build Diagram
               </button>
               <label className="btn btn-subtle text-xs py-1 cursor-pointer">
-                Upload Image
+                Upload
                 <input
                   type="file"
                   accept="image/*"
@@ -279,7 +219,7 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
               'Guided Q&A',
               'guidedQA',
               variation.guidedQA,
-              'Q1: What do you see when you have the ball?\nA1: Look for open teammates, scan for space',
+              'Q1: What do you see?\nA1: Look for teammates...',
               4,
               'font-mono text-sm'
             )}

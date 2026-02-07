@@ -4,6 +4,7 @@ import CreateTeamModal from './CreateTeamModal';
 import SyncStatus from '../SyncStatus';
 import AboutModal from '../AboutModal';
 import { toast } from '../../utils/helpers';
+import playballIcon from '../../assets/playball-icon.png';
 
 export default function TeamList({ teamsContext, syncContext, sharingContext, onShowLinkDevice }) {
   const { teamsData, navigateToTeamDetail, deleteTeam } = teamsContext;
@@ -47,16 +48,18 @@ export default function TeamList({ teamsContext, syncContext, sharingContext, on
       {/* Header */}
       <div className="bg-slate-800 border-b border-slate-700 p-6">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div>
-            <button
-              onClick={() => setShowAboutModal(true)}
-              className="text-3xl font-bold mb-2 hover:text-blue-400 transition-colors text-left"
-            >
-              PlayBall
-            </button>
-            <p className="text-slate-400">Session Planner</p>
-          </div>
           <div className="flex items-center gap-4">
+            <img
+              src={playballIcon}
+              alt="PlayBall"
+              className="w-14 h-14 rounded-2xl shadow-lg"
+            />
+            <div>
+              <h1 className="text-3xl font-bold">PlayBall</h1>
+              <p className="text-slate-400">Session Planner</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
             {/* Sync Status */}
             {syncContext && (
               <SyncStatus
@@ -65,6 +68,17 @@ export default function TeamList({ teamsContext, syncContext, sharingContext, on
                 onLinkDevice={onShowLinkDevice}
               />
             )}
+            {/* About Button */}
+            <button
+              onClick={() => setShowAboutModal(true)}
+              className="flex items-center gap-2 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors text-sm"
+              title="About PlayBall"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="hidden sm:inline">About</span>
+            </button>
           </div>
         </div>
       </div>

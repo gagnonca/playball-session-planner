@@ -4,10 +4,10 @@ export default function LibraryModal({
   isOpen,
   onClose,
   library,
-  selectedSectionId,
+  openedFromSectionId,
   insertMode,
   onInsert,
-  onOverwrite,
+  onReplace,
   onDelete,
   onSetInsertMode,
   onExportLibrary,
@@ -111,20 +111,15 @@ export default function LibraryModal({
                   >
                     Insert
                   </button>
-                  <button
-                    onClick={() => {
-                      if (!selectedSectionId) {
-                        alert('Select a section first (radio button).');
-                        return;
-                      }
-                      const ok = confirm(`Overwrite "${item.name}" with the selected section?`);
-                      if (ok) onOverwrite(item.id);
-                    }}
-                    className="btn btn-subtle text-sm"
-                    title="Re-save this library item using the currently selected section"
-                  >
-                    Overwrite
-                  </button>
+                  {openedFromSectionId && (
+                    <button
+                      onClick={() => onReplace(item.id)}
+                      className="btn btn-secondary text-sm"
+                      title="Replace the current section with this library item"
+                    >
+                      Replace
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       const ok = confirm(`Delete "${item.name}" from your library?`);
