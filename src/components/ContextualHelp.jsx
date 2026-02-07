@@ -3,7 +3,7 @@ import { useLocalStorage } from '../hooks/useLocalStorage';
 import { HELP_PREFS_KEY } from '../constants/storage';
 
 // Help content for different section types
-const HELP_CONTENT = {
+export const HELP_CONTENT = {
   play: {
     title: "Play Section",
     content: (
@@ -31,18 +31,70 @@ const HELP_CONTENT = {
       </div>
     ),
   },
+  moments: {
+    title: "Moments of the Game",
+    content: (
+      <div className="space-y-3">
+        <p>Every soccer game can be broken down into <strong>four moments</strong>. By focusing on one moment per session, you create targeted, game-realistic training.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+          <div className="bg-slate-800/50 rounded-lg p-3">
+            <div className="flex items-center gap-2 font-semibold text-blue-300 mb-1">
+              <span>⚡</span> Attacking
+            </div>
+            <p className="text-xs text-slate-400">When your team has the ball and is trying to score. Focus on passing, dribbling, shooting, creating space.</p>
+          </div>
+          <div className="bg-slate-800/50 rounded-lg p-3">
+            <div className="flex items-center gap-2 font-semibold text-blue-300 mb-1">
+              <span>🛡️</span> Defending
+            </div>
+            <p className="text-xs text-slate-400">When the opponent has the ball. Focus on positioning, pressing, tackling, communication.</p>
+          </div>
+          <div className="bg-slate-800/50 rounded-lg p-3">
+            <div className="flex items-center gap-2 font-semibold text-blue-300 mb-1">
+              <span>🔄</span> Transition to Attack
+            </div>
+            <p className="text-xs text-slate-400">The moment you win the ball back. Can you quickly play forward and exploit the disorganized defense?</p>
+          </div>
+          <div className="bg-slate-800/50 rounded-lg p-3">
+            <div className="flex items-center gap-2 font-semibold text-blue-300 mb-1">
+              <span>↩️</span> Transition to Defense
+            </div>
+            <p className="text-xs text-slate-400">The moment you lose possession. React immediately - press the ball or recover goal-side.</p>
+          </div>
+        </div>
+        <p className="text-sm text-slate-400 mt-2">💡 Pick one moment to focus your session around. This helps create cohesive, purposeful training!</p>
+      </div>
+    ),
+  },
 };
 
-export default function ContextualHelp({ type, onDismiss }) {
+// Utility to reset all help preferences
+export function resetHelpPreferences() {
+  try {
+    localStorage.removeItem(HELP_PREFS_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export default function ContextualHelp({ type, onDismiss, forceShow = false }) {
   const [prefs, setPrefs] = useLocalStorage(HELP_PREFS_KEY, {});
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    // Check if user has dismissed this help before
-    if (!prefs[`dismissed_${type}`]) {
+    // Show if forced or if user hasn't dismissed this help before
+    if (forceShow || !prefs[`dismissed_${type}`]) {
       setIsVisible(true);
     }
-  }, [type, prefs]);
+  }, [type, prefs, forceShow]);
+
+  // Handle external forceShow changes
+  useEffect(() => {
+    if (forceShow) {
+      setIsVisible(true);
+    }
+  }, [forceShow]);
 
   const handleDismiss = (forever = false) => {
     if (forever) {

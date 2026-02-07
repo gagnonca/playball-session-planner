@@ -29,6 +29,7 @@ export default function Section({
 }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showTypeHelp, setShowTypeHelp] = useState(false);
   const [previousType, setPreviousType] = useState(section.type);
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeAIField, setActiveAIField] = useState(null); // Which field's AI prompt is open
@@ -278,6 +279,14 @@ export default function Section({
           <div className="flex flex-wrap gap-3 mt-3">
             <div className="flex items-center gap-2">
               <label className="label-text">Type</label>
+              <button
+                type="button"
+                onClick={() => setShowTypeHelp(true)}
+                className="w-5 h-5 rounded-full bg-slate-700 hover:bg-slate-600 text-slate-400 hover:text-slate-200 text-xs flex items-center justify-center transition-colors"
+                title="What is Play vs Practice?"
+              >
+                ?
+              </button>
               <select
                 value={section.type}
                 onChange={(e) => handleChange('type', e.target.value)}
@@ -332,11 +341,20 @@ export default function Section({
       {/* Collapsible Content */}
       {!isCollapsed && (
         <>
-          {/* Contextual Help */}
+          {/* Contextual Help - auto-shown on type change */}
           {showHelp && (
             <ContextualHelp
               type={section.type.toLowerCase()}
               onDismiss={() => setShowHelp(false)}
+            />
+          )}
+
+          {/* Contextual Help - on-demand via ? button */}
+          {showTypeHelp && (
+            <ContextualHelp
+              type={section.type.toLowerCase()}
+              forceShow={true}
+              onDismiss={() => setShowTypeHelp(false)}
             />
           )}
 

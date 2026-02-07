@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import TagSelector from './TagSelector';
+import ContextualHelp, { resetHelpPreferences } from './ContextualHelp';
 import { SUMMARY_COLLAPSED_KEY } from '../constants/storage';
 import {
   MOMENT_ACTIONS,
@@ -7,6 +8,7 @@ import {
   ALL_PLAYER_ACTIONS,
   ALL_KEY_QUALITIES,
 } from '../constants/coaching';
+import { toast } from '../utils/helpers';
 
 // Auto-grow textarea handler
 const useAutoGrow = () => {
@@ -27,6 +29,7 @@ const MOMENT_OPTIONS = [
 
 export default function SessionSummary({ summary, onUpdate }) {
   const [titleOverride, setTitleOverride] = useState(false);
+  const [showMomentsHelp, setShowMomentsHelp] = useState(false);
   const handleAutoGrow = useAutoGrow();
   const [isExpanded, setIsExpanded] = useState(() => {
     try {
@@ -100,21 +103,34 @@ export default function SessionSummary({ summary, onUpdate }) {
       {/* Header - Always Visible */}
       <div className="flex items-center justify-between mb-3">
         <h1 className="text-xl font-bold">Session Summary</h1>
-        <button
-          type="button"
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200 transition-colors px-2 py-1 rounded hover:bg-slate-700/50"
-        >
-          {isExpanded ? 'Collapse' : 'Expand'}
-          <svg
-            className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              resetHelpPreferences();
+              toast('Tips reset - they will show again');
+            }}
+            className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            title="Reset all dismissed tips"
           >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
+            Show tips
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200 transition-colors px-2 py-1 rounded hover:bg-slate-700/50"
+          >
+            {isExpanded ? 'Collapse' : 'Expand'}
+            <svg
+              className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div className="space-y-3">
@@ -143,7 +159,27 @@ export default function SessionSummary({ summary, onUpdate }) {
 
         {/* Moment Selection - Always Visible (Compact Pills) */}
         <div>
-          <label className="label-text mb-1.5">Moment</label>
+          <div className="flex items-center gap-2 mb-1.5">
+            <label className="label-text">Moment</label>
+            <button
+              type="button"
+              onClick={() => setShowMomentsHelp(true)}
+              className="w-5 h-5 rounded-full bg-slate-700 hover:bg-slate-600 text-slate-400 hover:text-slate-200 text-xs flex items-center justify-center transition-colors"
+              title="What are moments?"
+            >
+              ?
+            </button>
+          </div>
+
+          {/* Moments Help */}
+          {showMomentsHelp && (
+            <ContextualHelp
+              type="moments"
+              forceShow={true}
+              onDismiss={() => setShowMomentsHelp(false)}
+            />
+          )}
+
           <div className="flex flex-wrap gap-2">
             {MOMENT_OPTIONS.map(option => (
               <button

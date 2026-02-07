@@ -93,7 +93,7 @@ export default function AIConfigModal({ isOpen, onClose, aiHook }) {
           <ul className="text-sm text-slate-300 space-y-1">
             <li>• Your API key is stored locally on your device only</li>
             <li>• API calls go directly to OpenAI (we never see your key)</li>
-            <li>• Uses gpt-4o-mini for cost-effective suggestions</li>
+            <li>• Uses gpt-4o for cost-effective suggestions</li>
             <li>• Typical cost: less than $0.01 per generation</li>
           </ul>
         </div>

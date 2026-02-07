@@ -11,7 +11,7 @@ import { EXPERT_SYSTEM_PROMPT, FIELD_PROMPTS } from '../constants/prompts';
  * - All API calls are made directly to OpenAI (client-side, BYOK model)
  */
 
-const DEFAULT_MODEL = 'gpt-4o-mini'; // Cost-effective model for suggestions
+const DEFAULT_MODEL = 'gpt-4o'; // Cost-effective model for suggestions
 
 // Simple encoding/decoding for API key storage (not encryption, just obfuscation)
 const encodeKey = (key) => btoa(key);
