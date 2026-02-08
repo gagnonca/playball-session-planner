@@ -3,13 +3,16 @@ import TeamCard from './TeamCard';
 import CreateTeamModal from './CreateTeamModal';
 import SyncStatus from '../SyncStatus';
 import AboutModal from '../AboutModal';
+import WelcomeModal from '../WelcomeModal';
 import { toast } from '../../utils/helpers';
+import { HAS_SEEN_WELCOME_KEY } from '../../constants/storage';
 import playballIcon from '../../assets/playball-icon.png';
 
 export default function TeamList({ teamsContext, syncContext, sharingContext, onShowLinkDevice }) {
   const { teamsData, navigateToTeamDetail, deleteTeam } = teamsContext;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem(HAS_SEEN_WELCOME_KEY));
   const [editingTeam, setEditingTeam] = useState(null);
 
   const teams = teamsData?.teams || [];
@@ -203,7 +206,26 @@ export default function TeamList({ teamsContext, syncContext, sharingContext, on
 
       {/* About Modal */}
       {showAboutModal && (
-        <AboutModal onClose={() => setShowAboutModal(false)} />
+        <AboutModal
+          onClose={() => setShowAboutModal(false)}
+          onRestartTutorial={() => {
+            setShowAboutModal(false);
+            localStorage.removeItem(HAS_SEEN_WELCOME_KEY);
+            setShowWelcome(true);
+          }}
+        />
+      )}
+
+      {/* Welcome Modal (first-time visitors) */}
+      {showWelcome && (
+        <WelcomeModal
+          onDismiss={() => setShowWelcome(false)}
+          onGetStarted={() => {
+            setShowWelcome(false);
+            setEditingTeam(null);
+            setShowCreateModal(true);
+          }}
+        />
       )}
     </div>
   );

@@ -2,7 +2,7 @@ import React from 'react';
 import appStoreBadge from '../assets/app-store-badge.svg';
 import playballIcon from '../assets/playball-icon.png';
 
-export default function AboutModal({ onClose }) {
+export default function AboutModal({ onClose, onRestartTutorial }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-slate-800 rounded-xl shadow-xl max-w-lg w-full p-6 border border-slate-700">
@@ -77,10 +77,18 @@ export default function AboutModal({ onClose }) {
           </div>
         </div>
 
-        <div className="mt-6 pt-4 border-t border-slate-700">
-          <p className="text-slate-500 text-xs text-center">
+        <div className="mt-6 pt-4 border-t border-slate-700 flex items-center justify-between">
+          <p className="text-slate-500 text-xs">
             Made with care for coaches everywhere.
           </p>
+          {onRestartTutorial && (
+            <button
+              onClick={onRestartTutorial}
+              className="text-slate-500 hover:text-blue-400 text-xs transition-colors"
+            >
+              Restart tutorial
+            </button>
+          )}
         </div>
       </div>
     </div>
