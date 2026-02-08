@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   uid,
   nowIso,
@@ -20,6 +20,18 @@ export default function useTeams() {
   const [selectedSectionId, setSelectedSectionId] = useState(null);
   const [selectedVariationId, setSelectedVariationId] = useState(null); // For editing variation diagrams
   const [editingDiagramId, setEditingDiagramId] = useState(null); // For editing library diagrams
+
+  // Ref to skip pushState when restoring from popstate
+  const skipNextPush = useRef(false);
+
+  // Helper to push view state to browser history
+  const pushViewState = (viewState) => {
+    if (skipNextPush.current) {
+      skipNextPush.current = false;
+      return;
+    }
+    window.history.pushState(viewState, '');
+  };
 
   // Initialize teams data with auto-migration
   useEffect(() => {
@@ -104,6 +116,35 @@ export default function useTeams() {
       console.error('Error saving view state:', error);
     }
   }, [currentView, selectedTeamId, selectedSessionId, selectedSectionId, selectedVariationId, editingDiagramId]);
+
+  // Replace initial history entry with current view state on mount
+  useEffect(() => {
+    const savedView = localStorage.getItem(CURRENT_VIEW_KEY);
+    if (savedView) {
+      try {
+        window.history.replaceState(JSON.parse(savedView), '');
+      } catch (e) { /* ignore */ }
+    }
+  }, []);
+
+  // Listen for browser back/forward buttons
+  useEffect(() => {
+    const handlePopState = (event) => {
+      const state = event.state;
+      if (state && state.currentView) {
+        skipNextPush.current = true;
+        setCurrentView(state.currentView);
+        setSelectedTeamId(state.selectedTeamId || null);
+        setSelectedSessionId(state.selectedSessionId || null);
+        setSelectedSectionId(state.selectedSectionId || null);
+        setSelectedVariationId(state.selectedVariationId || null);
+        setEditingDiagramId(state.editingDiagramId || null);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // ============ Team CRUD Operations ============
 
@@ -239,12 +280,14 @@ export default function useTeams() {
     setCurrentView(VIEWS.TEAMS);
     setSelectedTeamId(null);
     setSelectedSessionId(null);
+    pushViewState({ currentView: VIEWS.TEAMS });
   };
 
   const navigateToTeamDetail = (teamId) => {
     setCurrentView(VIEWS.TEAM_DETAIL);
     setSelectedTeamId(teamId);
     setSelectedSessionId(null);
+    pushViewState({ currentView: VIEWS.TEAM_DETAIL, selectedTeamId: teamId });
   };
 
   const navigateToSessionBuilder = (teamId, sessionId) => {
@@ -253,6 +296,7 @@ export default function useTeams() {
     setSelectedSessionId(sessionId);
     setSelectedSectionId(null);
     setEditingDiagramId(null);
+    pushViewState({ currentView: VIEWS.SESSION_BUILDER, selectedTeamId: teamId, selectedSessionId: sessionId });
   };
 
   const navigateToDiagramBuilder = (teamId, sessionId, sectionId) => {
@@ -262,6 +306,7 @@ export default function useTeams() {
     setSelectedSectionId(sectionId);
     setSelectedVariationId(null);
     setEditingDiagramId(null);
+    pushViewState({ currentView: VIEWS.DIAGRAM_BUILDER, selectedTeamId: teamId, selectedSessionId: sessionId, selectedSectionId: sectionId });
   };
 
   const navigateToVariationDiagramBuilder = (teamId, sessionId, sectionId, variationId, useParentAsBase = false) => {
@@ -270,13 +315,13 @@ export default function useTeams() {
     setSelectedSessionId(sessionId);
     setSelectedSectionId(sectionId);
     setSelectedVariationId(variationId);
-    setEditingDiagramId(useParentAsBase ? 'USE_PARENT' : null); // Special flag to use parent diagram as base
+    setEditingDiagramId(useParentAsBase ? 'USE_PARENT' : null);
+    pushViewState({ currentView: VIEWS.DIAGRAM_BUILDER, selectedTeamId: teamId, selectedSessionId: sessionId, selectedSectionId: sectionId, selectedVariationId: variationId, editingDiagramId: useParentAsBase ? 'USE_PARENT' : null });
   };
 
   const navigateToDiagramLibrary = (insertMode = false, teamId = null, sessionId = null, sectionId = null) => {
     setCurrentView(VIEWS.DIAGRAM_LIBRARY);
     if (insertMode) {
-      // Keep context for inserting back to section
       setSelectedTeamId(teamId);
       setSelectedSessionId(sessionId);
       setSelectedSectionId(sectionId);
@@ -286,25 +331,26 @@ export default function useTeams() {
       setSelectedSectionId(null);
     }
     setEditingDiagramId(null);
+    pushViewState({ currentView: VIEWS.DIAGRAM_LIBRARY, selectedTeamId: insertMode ? teamId : null, selectedSessionId: insertMode ? sessionId : null, selectedSectionId: insertMode ? sectionId : null });
   };
 
   const navigateToEditLibraryDiagram = (diagramId) => {
     setCurrentView(VIEWS.DIAGRAM_BUILDER);
     setEditingDiagramId(diagramId);
-    // Clear section context when editing library diagram
     setSelectedTeamId(null);
     setSelectedSessionId(null);
     setSelectedSectionId(null);
+    pushViewState({ currentView: VIEWS.DIAGRAM_BUILDER, editingDiagramId: diagramId });
   };
 
   const navigateBackFromDiagramBuilder = () => {
     if (selectedTeamId && selectedSessionId) {
-      // Return to session builder
       setCurrentView(VIEWS.SESSION_BUILDER);
       setSelectedSectionId(null);
+      pushViewState({ currentView: VIEWS.SESSION_BUILDER, selectedTeamId, selectedSessionId });
     } else {
-      // Return to diagram library
       setCurrentView(VIEWS.DIAGRAM_LIBRARY);
+      pushViewState({ currentView: VIEWS.DIAGRAM_LIBRARY });
     }
     setEditingDiagramId(null);
   };
