@@ -23,6 +23,7 @@ export default function AppShell() {
   const [sharedTeamData, setSharedTeamData] = useState(null);
   const [sharedTeamError, setSharedTeamError] = useState(null);
   const [selectedSharedSession, setSelectedSharedSession] = useState(null);
+  const pendingSessionId = useRef(null); // For deep-linking to a specific session
   const hasCheckedForUpdates = useRef(false);
   const sharedTeamsPushTimeouts = useRef({});
 
@@ -42,11 +43,17 @@ export default function AppShell() {
   } = teamsContext;
 
   // Check for shared team URL on mount
+  // Supports: /shared/{token} and /shared/{token}/{sessionId}
   useEffect(() => {
     const path = window.location.pathname;
     if (path.startsWith('/shared/')) {
-      const token = path.split('/shared/')[1];
+      const parts = path.replace('/shared/', '').split('/');
+      const token = parts[0];
+      const sessionId = parts[1] || null;
       if (token) {
+        if (sessionId) {
+          pendingSessionId.current = sessionId;
+        }
         setSharedTeamToken(token);
         loadSharedTeam(token);
       }
@@ -66,6 +73,15 @@ export default function AppShell() {
           name: team.teamName,
           ageGroup: team.ageGroup,
         });
+
+        // Deep-link: auto-select session if a session ID was in the URL
+        if (pendingSessionId.current && team.sessions) {
+          const session = team.sessions.find(s => s.id === pendingSessionId.current);
+          if (session) {
+            setSelectedSharedSession(session);
+          }
+          pendingSessionId.current = null;
+        }
       }
     } catch (err) {
       setSharedTeamError(err.message);
@@ -305,18 +321,11 @@ export default function AppShell() {
                             </div>
                           )}
 
-                          {/* Questions/Answers for Practice sections */}
-                          {section.type === 'Practice' && section.questions && (
-                            <div>
-                              <span className="text-slate-500 text-sm font-medium">Guided Questions</span>
-                              <p className="text-slate-300 mt-1 whitespace-pre-wrap">{section.questions}</p>
-                            </div>
-                          )}
-
-                          {section.type === 'Practice' && section.answers && (
-                            <div>
-                              <span className="text-slate-500 text-sm font-medium">Answers</span>
-                              <p className="text-slate-300 mt-1 whitespace-pre-wrap">{section.answers}</p>
+                          {/* Guided Q&A for Practice sections */}
+                          {section.type === 'Practice' && (section.guidedQA || section.questions) && (
+                            <div className="md:col-span-2">
+                              <span className="text-slate-500 text-sm font-medium">Guided Q&A</span>
+                              <p className="text-slate-300 mt-1 whitespace-pre-wrap font-mono text-sm">{section.guidedQA || section.questions}</p>
                             </div>
                           )}
 
@@ -371,17 +380,10 @@ export default function AppShell() {
                                       </div>
                                     )}
 
-                                    {variation.questions && (
-                                      <div>
-                                        <span className="text-slate-500 text-sm font-medium">Guided Questions</span>
-                                        <p className="text-slate-300 mt-1 text-sm whitespace-pre-wrap">{variation.questions}</p>
-                                      </div>
-                                    )}
-
-                                    {variation.answers && (
-                                      <div>
-                                        <span className="text-slate-500 text-sm font-medium">Answers</span>
-                                        <p className="text-slate-300 mt-1 text-sm whitespace-pre-wrap">{variation.answers}</p>
+                                    {(variation.guidedQA || variation.questions) && (
+                                      <div className="md:col-span-2">
+                                        <span className="text-slate-500 text-sm font-medium">Guided Q&A</span>
+                                        <p className="text-slate-300 mt-1 text-sm whitespace-pre-wrap font-mono">{variation.guidedQA || variation.questions}</p>
                                       </div>
                                     )}
 
