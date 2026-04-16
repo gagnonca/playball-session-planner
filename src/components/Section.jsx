@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Variation from './Variation';
 import ContextualHelp from './ContextualHelp';
+import RichTextEditor from './RichTextEditor';
+import GuidedQAEditor from './GuidedQAEditor';
 import { fileToDataUrl, defaultVariation, toast, migrateToGuidedQA } from '../utils/helpers';
 
 // Auto-grow textarea handler
@@ -73,8 +75,8 @@ export default function Section({
 
   const handleOpenDiagramLibrary = () => {
     if (teamsContext) {
-      const { selectedTeamId, selectedSessionId, navigateToDiagramLibrary } = teamsContext;
-      navigateToDiagramLibrary(true, selectedTeamId, selectedSessionId, section.id);
+      const { selectedTeamId, selectedSessionId, navigateToLibraryInsert } = teamsContext;
+      navigateToLibraryInsert('diagrams', selectedTeamId, selectedSessionId, section.id);
     }
   };
 
@@ -172,6 +174,34 @@ export default function Section({
       </div>
     </div>
   );
+
+  // Render rich text field with AI button
+  const renderRichField = (label, fieldName, value, placeholder) => {
+    const aiButton = aiContext && isAIConfigured ? (
+      <button
+        onClick={() => handleGenerateField(fieldName)}
+        disabled={generatingField === fieldName}
+        className="w-7 h-7 flex items-center justify-center rounded-md transition-all text-yellow-400/60 hover:text-yellow-400 hover:bg-slate-700/50"
+        title="Generate with AI"
+      >
+        {generatingField === fieldName
+          ? <span className="animate-spin text-xs">⟳</span>
+          : <span className="text-sm">✨</span>}
+      </button>
+    ) : null;
+
+    return (
+      <div>
+        <label className="label-text">{label}</label>
+        <RichTextEditor
+          value={value || ''}
+          onChange={(html) => handleChange(fieldName, html)}
+          placeholder={placeholder}
+          aiButton={aiButton}
+        />
+      </div>
+    );
+  };
 
   return (
     <div className="card p-6 my-4">
@@ -363,14 +393,14 @@ export default function Section({
             {/* Content */}
             <div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {renderAIField(
+                {renderRichField(
                   'Objective',
                   'objective',
                   section.objective,
                   'What will players learn or improve?'
                 )}
 
-                {renderAIField(
+                {renderRichField(
                   'Organization',
                   'organization',
                   section.organization,
@@ -380,23 +410,40 @@ export default function Section({
                 {/* Guided Q&A - Only for Practice sections */}
                 {section.type === 'Practice' && (
                   <div className="md:col-span-2">
-                    {renderAIField(
-                      'Guided Q&A',
-                      'guidedQA',
-                      section.guidedQA,
-                      'Q1: What do you see?\nA1: Look for teammates...',
-                      4,
-                      'font-mono text-sm'
-                    )}
+                    {(() => {
+                      const aiButton = aiContext && isAIConfigured ? (
+                        <button
+                          onClick={() => handleGenerateField('guidedQA')}
+                          disabled={generatingField === 'guidedQA'}
+                          className="w-7 h-7 flex items-center justify-center rounded-md transition-all text-yellow-400/60 hover:text-yellow-400 hover:bg-slate-700/50"
+                          title="Generate with AI"
+                        >
+                          {generatingField === 'guidedQA'
+                            ? <span className="animate-spin text-xs">⟳</span>
+                            : <span className="text-sm">✨</span>}
+                        </button>
+                      ) : null;
+
+                      return (
+                        <GuidedQAEditor
+                          value={section.guidedQA}
+                          onChange={(html) => handleChange('guidedQA', html)}
+                          placeholder="Q1: What do you see?\nA1: Look for teammates..."
+                          aiButton={aiButton}
+                        />
+                      );
+                    })()}
                   </div>
                 )}
 
-                {renderAIField(
-                  'Notes',
-                  'notes',
-                  section.notes,
-                  'Coaching tips, variations...'
-                )}
+                <div className="md:col-span-2">
+                  {renderRichField(
+                    'Notes',
+                    'notes',
+                    section.notes,
+                    'Coaching tips, variations...'
+                  )}
+                </div>
               </div>
 
               {/* Variations */}

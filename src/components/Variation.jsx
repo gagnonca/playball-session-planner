@@ -1,4 +1,6 @@
 import React, { useCallback, useState, useEffect } from 'react';
+import RichTextEditor from './RichTextEditor';
+import GuidedQAEditor from './GuidedQAEditor';
 import { fileToDataUrl, migrateToGuidedQA, toast } from '../utils/helpers';
 
 // Auto-grow textarea handler
@@ -124,6 +126,34 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
     </div>
   );
 
+  // Render rich text field with AI button
+  const renderRichField = (label, fieldName, value, placeholder) => {
+    const aiButton = aiContext && isAIConfigured ? (
+      <button
+        onClick={() => handleGenerateField(fieldName)}
+        disabled={generatingField === fieldName}
+        className="w-7 h-7 flex items-center justify-center rounded-md transition-all text-yellow-400/60 hover:text-yellow-400 hover:bg-slate-700/50"
+        title="Generate with AI"
+      >
+        {generatingField === fieldName
+          ? <span className="animate-spin text-xs">⟳</span>
+          : <span className="text-sm">✨</span>}
+      </button>
+    ) : null;
+
+    return (
+      <div>
+        <label className="label-text">{label}</label>
+        <RichTextEditor
+          value={value || ''}
+          onChange={(html) => handleChange(fieldName, html)}
+          placeholder={placeholder}
+          aiButton={aiButton}
+        />
+      </div>
+    );
+  };
+
   return (
     <div className="mt-4 p-4 bg-slate-900/30 border border-slate-700 rounded-lg">
       <div className="flex justify-between items-center mb-4">
@@ -200,14 +230,14 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
 
         {/* Text Fields */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {renderAIField(
+          {renderRichField(
             'Objective',
             'objective',
             variation.objective,
             'What will players learn or improve?'
           )}
 
-          {renderAIField(
+          {renderRichField(
             'Organization',
             'organization',
             variation.organization,
@@ -215,22 +245,39 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
           )}
 
           <div className="md:col-span-2">
-            {renderAIField(
-              'Guided Q&A',
-              'guidedQA',
-              variation.guidedQA,
-              'Q1: What do you see?\nA1: Look for teammates...',
-              4,
-              'font-mono text-sm'
-            )}
+            {(() => {
+              const aiButton = aiContext && isAIConfigured ? (
+                <button
+                  onClick={() => handleGenerateField('guidedQA')}
+                  disabled={generatingField === 'guidedQA'}
+                  className="w-7 h-7 flex items-center justify-center rounded-md transition-all text-yellow-400/60 hover:text-yellow-400 hover:bg-slate-700/50"
+                  title="Generate with AI"
+                >
+                  {generatingField === 'guidedQA'
+                    ? <span className="animate-spin text-xs">⟳</span>
+                    : <span className="text-sm">✨</span>}
+                </button>
+              ) : null;
+
+              return (
+                <GuidedQAEditor
+                  value={variation.guidedQA}
+                  onChange={(html) => handleChange('guidedQA', html)}
+                  placeholder="Q1: What do you see?\nA1: Look for teammates..."
+                  aiButton={aiButton}
+                />
+              );
+            })()}
           </div>
 
-          {renderAIField(
-            'Notes',
-            'notes',
-            variation.notes,
-            'Coaching tips, variations...'
-          )}
+          <div className="md:col-span-2">
+            {renderRichField(
+              'Notes',
+              'notes',
+              variation.notes,
+              'Coaching tips, variations...'
+            )}
+          </div>
         </div>
       </div>
     </div>
