@@ -11,8 +11,9 @@ export default function LinkDeviceModal({
   onConfirmCode,
   onInitialize,
   onReset,
+  defaultMode,
 }) {
-  const [mode, setMode] = useState(hasIdentity ? 'generate' : 'join');
+  const [mode, setMode] = useState(defaultMode || (hasIdentity ? 'generate' : 'join'));
   const [pairingCode, setPairingCode] = useState('');
   const [generatedCode, setGeneratedCode] = useState(null);
   const [expiresAt, setExpiresAt] = useState(null);
@@ -145,7 +146,7 @@ export default function LinkDeviceModal({
         {(mode === 'generate' && hasIdentity) && (
           <div className="space-y-4">
             <p className="text-slate-300 text-sm">
-              Generate a code on this device, then enter it on your other device to sync your teams.
+              Generate a code to sync your teams to another device. They'll enter this code to connect and get access to all your teams.
             </p>
 
             {generatedCode ? (
@@ -218,9 +219,26 @@ export default function LinkDeviceModal({
         {/* New/fresh start mode */}
         {mode === 'new' && (
           <div className="space-y-4">
-            <p className="text-slate-300 text-sm">
-              Start with a new account. Your local teams will be synced to the cloud and available on all your devices.
-            </p>
+            <div className="bg-blue-900/20 border border-blue-700/30 rounded-lg p-3 mb-2">
+              <p className="text-slate-300 text-sm leading-relaxed">
+                This will generate a <strong>pairing code</strong> that syncs all your teams to the cloud. Use the code on your other devices to keep everything in sync.
+              </p>
+            </div>
+
+            <div className="space-y-2 text-sm">
+              <div className="flex gap-2 items-start">
+                <span className="text-lg">✓</span>
+                <span className="text-slate-300">Sync all teams & diagrams to the cloud</span>
+              </div>
+              <div className="flex gap-2 items-start">
+                <span className="text-lg">✓</span>
+                <span className="text-slate-300">Access from any device using the pairing code</span>
+              </div>
+              <div className="flex gap-2 items-start">
+                <span className="text-lg">✓</span>
+                <span className="text-slate-300">Completely free — no account or personal info needed</span>
+              </div>
+            </div>
 
             <button
               onClick={handleStartFresh}
