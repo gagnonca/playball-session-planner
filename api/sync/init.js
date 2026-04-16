@@ -1,4 +1,5 @@
 import { redis } from '../_lib/redis.js';
+import { mirrorCoachInit } from '../_lib/dualWrite.js';
 
 /**
  * POST /api/sync/init
@@ -45,6 +46,9 @@ export default async function handler(req, res) {
     };
 
     await redis.set(`coach:${coachId}`, JSON.stringify(coachData));
+
+    // Dual-write: mirror coach identity into Postgres (best-effort).
+    await mirrorCoachInit({ coachId, deviceId });
 
     return res.status(200).json({
       success: true,

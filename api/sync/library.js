@@ -1,8 +1,8 @@
 import { verifyDevice } from '../_lib/auth.js';
-import { buildTeamsBlob } from '../_lib/pgToBlob.js';
+import { buildLibraryBlob } from '../_lib/pgToBlob.js';
 
 // Legacy blob endpoint, kept GET-only for iOS compatibility. Reads Postgres
-// directly; no Redis. POST is retired — web writes per-entity via /api/v2/*.
+// directly; no Redis. POST is retired — web writes per-entity.
 
 export default async function handler(req, res) {
   if (req.method === 'GET') return handleGet(req, res);
@@ -10,7 +10,7 @@ export default async function handler(req, res) {
     return res.status(410).json({
       success: false,
       error: 'gone',
-      message: 'Blob POST retired. Use per-entity PUT/DELETE under /api/v2/teams/* and /api/v2/sessions/*',
+      message: 'Blob POST retired. Use per-entity PUT/DELETE under /api/v2/library/*',
     });
   }
   return res.status(405).json({ success: false, error: 'method_not_allowed' });
@@ -21,23 +21,23 @@ async function handleGet(req, res) {
     const auth = await verifyDevice(req);
     if (!auth.ok) return res.status(auth.status).json(auth.body);
 
-    const pg = await buildTeamsBlob(auth.coachId);
+    const pg = await buildLibraryBlob(auth.coachId);
     if (!pg) {
-      return res.status(404).json({ success: false, error: 'not_found' });
+      return res.status(200).json({
+        success: true,
+        library: { exercises: { version: 1, items: [] }, sessions: { version: 1, items: [] } },
+        version: 0,
+      });
     }
 
     return res.status(200).json({
       success: true,
-      teams: {
-        version: 1,
-        teams: pg.teams,
-        defaultTeamId: pg.defaultTeamId,
-      },
+      library: pg.library,
       version: 1,
-      lastUpdatedAt: pg.lastUpdatedAt,
+      updatedAt: pg.lastUpdatedAt,
     });
   } catch (error) {
-    console.error('Error in GET /api/sync/teams:', error);
-    return res.status(500).json({ success: false, error: 'server_error', message: 'Failed to fetch teams' });
+    console.error('Error in GET /api/sync/library:', error);
+    return res.status(500).json({ success: false, error: 'server_error' });
   }
 }

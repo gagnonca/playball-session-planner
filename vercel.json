@@ -1,16 +1,18 @@
 {
-  "rewrites": [
+  "headers": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    },
-    {
-      "source": "/shared/(.*)",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/((?!assets|favicon|api).*)",
-      "destination": "/index.html"
+      "source": "/.well-known/apple-app-site-association",
+      "headers": [
+        { "key": "Content-Type", "value": "application/json" }
+      ]
     }
+  ],
+  "rewrites": [
+    { "source": "/api/v2/(.*)", "destination": "/api/v2?slug=$1" },
+    { "source": "/api/share/push", "destination": "/api/share/push" },
+    { "source": "/api/share/(.*)", "destination": "/api/share-router?slug=$1" },
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/shared/(.*)", "destination": "/index.html" },
+    { "source": "/((?!assets|favicon|api|\\.well-known).*)", "destination": "/index.html" }
   ]
 }
