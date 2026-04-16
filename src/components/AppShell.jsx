@@ -1,31 +1,110 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Component } from 'react';
 import useTeams from '../hooks/useTeams';
 import useDiagramLibrary from '../hooks/useDiagramLibrary';
+import useLibrary from '../hooks/useLibrary';
 import useSync from '../hooks/useSync';
 import useSharing from '../hooks/useSharing';
 import { VIEWS } from '../constants/navigation';
-import { SHARED_TEAMS_KEY, TEAMS_KEY } from '../constants/storage';
+import { TEAMS_KEY, HAS_SEEN_WELCOME_KEY } from '../constants/storage';
+import { uploadDiagramImage } from '../utils/uploadImage';
+import { getTeamsData } from '../utils/indexedDBHelper';
 import TeamList from './teams/TeamList';
 import TeamDetail from './teams/TeamDetail';
 import SessionBuilder from './session-builder/SessionBuilder';
-import DiagramLibrary from './DiagramLibrary';
 import DiagramBuilder from './DiagramBuilder';
+import Library from './Library';
 import LinkDeviceModal from './LinkDeviceModal';
+import StorageLimitModal from './StorageLimitModal';
+import ImportLanding from './ImportLanding';
+
+// Error boundary: catches rendering crashes and shows recovery UI
+class ViewErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error, info) {
+    console.error('View crashed:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
+          <div className="text-center max-w-md">
+            <svg className="w-16 h-16 mx-auto mb-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <h2 className="text-xl font-bold mb-2">Something went wrong</h2>
+            <p className="text-slate-400 mb-6">This page ran into an error. Your data is safe.</p>
+            <button
+              onClick={() => {
+                this.setState({ hasError: false });
+                this.props.onRecover();
+              }}
+              className="btn btn-primary"
+            >
+              Back to Teams
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// Capture the original URL before any hooks can rewrite it.
+// This must run at module level (or in a lazy initializer) so useTeams'
+// resolveUrl() + replaceState() doesn't clobber the path.
+function readInitialUrl() {
+  const path = window.location.pathname;
+  const params = new URLSearchParams(window.location.search);
+  return { path, params };
+}
+
 
 export default function AppShell() {
+  // Read URL synchronously before useTeams can rewrite it
+  const [initialUrl] = useState(readInitialUrl);
+
   const teamsContext = useTeams();
   const diagramLibrary = useDiagramLibrary();
-  const syncContext = useSync();
+  const libraryHook = useLibrary();
+  const loadTeamsFromServerRef = useRef(null);
+  const tabIdRef = useRef(Math.random().toString(36).slice(2));
+  const broadcastingRef = useRef(false);
+  const channelRef = useRef(null);
+  const syncContext = useSync({
+    // Called by useSync on version_conflict merges or cross-tab broadcasts.
+    // Using a ref so useSync doesn't rebind on every render of AppShell.
+    onRemoteUpdate: useCallback((teams) => {
+      if (loadTeamsFromServerRef.current) loadTeamsFromServerRef.current(teams);
+    }, []),
+  });
   const sharingContext = useSharing();
 
   const [showLinkDeviceModal, setShowLinkDeviceModal] = useState(false);
-  const [sharedTeamToken, setSharedTeamToken] = useState(null);
-  const [sharedTeamData, setSharedTeamData] = useState(null);
-  const [sharedTeamError, setSharedTeamError] = useState(null);
-  const [selectedSharedSession, setSelectedSharedSession] = useState(null);
-  const pendingSessionId = useRef(null); // For deep-linking to a specific session
+  const [linkDeviceDefaultMode, setLinkDeviceDefaultMode] = useState(null);
+  const [iosReferral, setIosReferral] = useState(false);
+  const [importCode, setImportCode] = useState(() => {
+    if (initialUrl.path === '/import') {
+      const code = initialUrl.params.get('code');
+      if (code) {
+        localStorage.setItem(HAS_SEEN_WELCOME_KEY, 'true');
+        return code.toUpperCase();
+      }
+    }
+    return null;
+  });
+  const [staticPage, setStaticPage] = useState(() => {
+    if (initialUrl.path === '/privacy') return 'privacy';
+    if (initialUrl.path === '/support') return 'support';
+    return null;
+  });
   const hasCheckedForUpdates = useRef(false);
-  const sharedTeamsPushTimeouts = useRef({});
 
   const {
     currentView,
@@ -35,67 +114,39 @@ export default function AppShell() {
     selectedSectionId,
     selectedVariationId,
     editingDiagramId,
+    showStorageLimitModal,
+    setShowStorageLimitModal,
     getTeam,
     getSession,
     updateSession,
+    navigateToTeams,
     navigateBackFromDiagramBuilder,
-    navigateToDiagramLibrary,
+    loadTeamsFromServer,
   } = teamsContext;
 
-  // Check for shared team URL on mount
-  // Supports: /shared/{token} and /shared/{token}/{sessionId}
+  // Expose test function for storage limit modal (development only)
   useEffect(() => {
-    const path = window.location.pathname;
-    if (path.startsWith('/shared/')) {
-      const parts = path.replace('/shared/', '').split('/');
-      const token = parts[0];
-      const sessionId = parts[1] || null;
-      if (token) {
-        if (sessionId) {
-          pendingSessionId.current = sessionId;
-        }
-        setSharedTeamToken(token);
-        loadSharedTeam(token);
-      }
-    }
+    window.testStorageLimit = () => {
+      setShowStorageLimitModal(true);
+      console.log('Storage limit modal triggered for testing. Call window.testStorageLimit(false) to close it.');
+    };
+    window.testStorageLimit.close = () => setShowStorageLimitModal(false);
+    return () => {
+      delete window.testStorageLimit;
+    };
   }, []);
 
-  // Load shared team data
-  const loadSharedTeam = async (token) => {
-    try {
-      const team = await sharingContext.fetchSharedTeam(token);
-      setSharedTeamData(team);
-      setSharedTeamError(null);
+  // Handle routes that need async work on mount (iOS referral).
+  // Shared routes are handled by SharedView component (never reaches AppShell).
+  // Import code, static pages are handled synchronously in useState initializers.
+  useEffect(() => {
+    const { path, params } = initialUrl;
 
-      // Auto-follow this shared team
-      if (team) {
-        sharingContext.followShare(token, {
-          name: team.teamName,
-          ageGroup: team.ageGroup,
-        });
-
-        // Deep-link: auto-select session if a session ID was in the URL
-        if (pendingSessionId.current && team.sessions) {
-          const session = team.sessions.find(s => s.id === pendingSessionId.current);
-          if (session) {
-            setSelectedSharedSession(session);
-          }
-          pendingSessionId.current = null;
-        }
-      }
-    } catch (err) {
-      setSharedTeamError(err.message);
-      setSharedTeamData(null);
+    if (path === '/share/new' && params.get('ref') === 'ios-app') {
+      setIosReferral(true);
+      window.history.replaceState({}, '', '/');
     }
-  };
-
-  // Exit shared team view
-  const exitSharedView = () => {
-    setSharedTeamToken(null);
-    setSharedTeamData(null);
-    setSharedTeamError(null);
-    window.history.pushState({}, '', '/');
-  };
+  }, []);
 
   // Initialize sync on first load (auto-create identity)
   useEffect(() => {
@@ -106,12 +157,12 @@ export default function AppShell() {
     }
   }, [teamsData, syncContext.identity, syncContext.isOnline]);
 
-  // Sync teams when they change (push to server)
-  useEffect(() => {
-    if (teamsData && syncContext.isSyncEnabled) {
-      syncContext.pushTeams(teamsData);
-    }
-  }, [teamsData, syncContext.isSyncEnabled]);
+  // Teams now write to Postgres via per-entity PUT/DELETE in useTeams.js.
+  // No blob push — the old path caused merge/version-conflict resurrections.
+
+  // Keep a live ref to loadTeamsFromServer so sync callbacks (conflict merges,
+  // BroadcastChannel messages, visibility pulls) always call the current one.
+  useEffect(() => { loadTeamsFromServerRef.current = teamsContext.loadTeamsFromServer; }, [teamsContext.loadTeamsFromServer]);
 
   // Auto-pull from server on app load when sync is enabled
   useEffect(() => {
@@ -123,12 +174,30 @@ export default function AppShell() {
 
       hasCheckedForUpdates.current = true;
 
+      // One-time migration: base64 imageDataUrl was previously stripped from
+      // IndexedDB. Force a full pull from Postgres to restore images.
+      const needsImageRestore = !localStorage.getItem('ppp_image_restore_v1');
+
       try {
         const result = await syncContext.pullTeams();
-        if (result && result.version > (syncContext.identity?.localVersion || 0)) {
-          // Server has newer data - update localStorage and reload
-          localStorage.setItem(TEAMS_KEY, JSON.stringify(result.teams));
-          window.location.reload();
+        if (needsImageRestore) {
+          console.log('[image-restore] pull result:', result ? 'ok' : 'null');
+        }
+        if (result && (needsImageRestore || result.version > (syncContext.identity?.localVersion || 0))) {
+          // Server has newer data (or we need to restore images) - hydrate and set state
+          if (needsImageRestore) {
+            // Log image status from server data to help debug
+            let total = 0, withImage = 0;
+            result.teams?.teams?.forEach(t => t.sessions?.forEach(s => s.sections?.forEach(sec => {
+              total++;
+              if (sec.imageDataUrl) withImage++;
+            })));
+            console.log(`[image-restore] server sections: ${total} total, ${withImage} with imageDataUrl`);
+          }
+          teamsContext.loadTeamsFromServer(result.teams);
+          if (needsImageRestore) {
+            localStorage.setItem('ppp_image_restore_v1', '1');
+          }
         }
       } catch (err) {
         console.error('Failed to check for server updates:', err);
@@ -138,362 +207,121 @@ export default function AppShell() {
     checkForServerUpdates();
   }, [teamsData, syncContext.isSyncEnabled, syncContext.isOnline]);
 
-  // Auto-push shared teams when teamsData changes
+  // Pull on visibility change / window focus so a tab that was in the background
+  // (or was left open from a prior session) reconciles with the server before the
+  // user edits anything. Without this, a stale tab's next write trips a
+  // version_conflict that can wipe newer work.
   useEffect(() => {
-    if (!teamsData?.teams) return;
+    if (!syncContext.isSyncEnabled) return;
 
-    // Find all shared teams
-    const sharedTeams = teamsData.teams.filter(t => t.sharing?.isShared && t.sharing?.shareToken);
-
-    sharedTeams.forEach(team => {
-      const token = team.sharing.shareToken;
-
-      // Clear existing timeout for this team
-      if (sharedTeamsPushTimeouts.current[token]) {
-        clearTimeout(sharedTeamsPushTimeouts.current[token]);
+    const refresh = async () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!syncContext.isOnline) return;
+      try {
+        const result = await syncContext.pullTeams();
+        if (result && result.version > (syncContext.identity?.localVersion || 0)) {
+          teamsContext.loadTeamsFromServer(result.teams);
+        }
+      } catch (err) {
+        console.error('Visibility pull failed:', err);
       }
-
-      // Debounce: wait 3 seconds before pushing to avoid rapid updates
-      sharedTeamsPushTimeouts.current[token] = setTimeout(() => {
-        sharingContext.pushUpdate(token, team)
-          .catch(err => console.error('Failed to auto-sync shared team:', err));
-      }, 3000);
-    });
-
-    // Cleanup function to clear timeouts
-    return () => {
-      Object.values(sharedTeamsPushTimeouts.current).forEach(timeout => {
-        clearTimeout(timeout);
-      });
     };
+
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [syncContext.isSyncEnabled, syncContext.isOnline, syncContext.identity?.localVersion]);
+
+  // Cross-tab mirror: notify other tabs when teamsData changes so they can
+  // reload from IndexedDB. Sends a lightweight signal (NO data payload) to
+  // avoid structured-cloning hundreds of MB of base64 images on every edit.
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return;
+    const ch = new BroadcastChannel('playball-teams');
+    channelRef.current = ch;
+    ch.onmessage = async (e) => {
+      if (!e.data || e.data.tabId === tabIdRef.current) return;
+      if (e.data.type === 'teams-changed') {
+        // Another tab edited data — reload from IndexedDB (the source of truth).
+        broadcastingRef.current = true;
+        try {
+          const fresh = await getTeamsData();
+          if (fresh && loadTeamsFromServerRef.current) {
+            loadTeamsFromServerRef.current(fresh);
+          }
+        } catch (err) {
+          console.warn('Cross-tab reload failed:', err);
+        } finally {
+          setTimeout(() => { broadcastingRef.current = false; }, 0);
+        }
+      }
+    };
+    return () => { ch.close(); channelRef.current = null; };
+  }, []); // stable — no deps needed since we use refs
+
+  useEffect(() => {
+    if (!channelRef.current || !teamsData) return;
+    if (broadcastingRef.current) return; // came from another tab, don't echo
+    // Lightweight signal — no data payload, other tabs read from IndexedDB
+    channelRef.current.postMessage({ type: 'teams-changed', tabId: tabIdRef.current });
   }, [teamsData]);
 
-  // Show shared team view if viewing a shared link (check BEFORE teamsData check)
-  if (sharedTeamToken) {
-    if (sharingContext.isLoading) {
-      return (
-        <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-            <p className="text-slate-400">Loading shared team...</p>
-          </div>
-        </div>
-      );
-    }
+  // Library now writes to Postgres via per-entity PUT/DELETE in useLibrary.js.
+  // No blob push.
 
-    if (sharedTeamError) {
-      return (
-        <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
-          <div className="text-center max-w-md">
-            <svg className="w-16 h-16 mx-auto mb-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            <h2 className="text-xl font-bold mb-2">Link Not Valid</h2>
-            <p className="text-slate-400 mb-6">{sharedTeamError}</p>
-            <button onClick={exitSharedView} className="btn btn-primary">
-              Go to My Teams
-            </button>
-          </div>
-        </div>
-      );
-    }
+  // Pull library from server once on load when sync is enabled
+  const libraryPulledRef = useRef(false);
+  useEffect(() => {
+    if (libraryPulledRef.current) return;
+    if (!syncContext.isSyncEnabled || !syncContext.isOnline || !teamsData) return;
+    libraryPulledRef.current = true;
 
-    if (sharedTeamData) {
-      // Show session detail view if a session is selected
-      if (selectedSharedSession) {
-        return (
-          <div className="min-h-screen bg-slate-900 text-slate-100">
-            {/* Session Header */}
-            <div className="bg-slate-800 border-b border-slate-700 p-6">
-              <div className="max-w-4xl mx-auto">
-                <button
-                  onClick={() => setSelectedSharedSession(null)}
-                  className="text-blue-400 hover:text-blue-300 mb-3 flex items-center gap-2"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
-                  Back to Sessions
-                </button>
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs font-medium rounded">
-                    Shared Team
-                  </span>
-                  <span className="text-slate-500 text-sm">View Only</span>
-                </div>
-                <h1 className="text-2xl font-bold">
-                  {selectedSharedSession.summary?.title || 'Untitled Session'}
-                </h1>
-                {selectedSharedSession.summary?.date && (
-                  <p className="text-slate-400 mt-1">{selectedSharedSession.summary.date}</p>
-                )}
-              </div>
-            </div>
-
-            {/* Session Content */}
-            <div className="max-w-4xl mx-auto p-6">
-              {/* Session Summary */}
-              <div className="card p-6 mb-6">
-                <h2 className="text-lg font-semibold mb-4">Session Info</h2>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  {selectedSharedSession.summary?.moment && (
-                    <div>
-                      <span className="text-slate-500">Moment:</span>
-                      <span className="ml-2 text-slate-300">{selectedSharedSession.summary.moment}</span>
-                    </div>
-                  )}
-                  {selectedSharedSession.summary?.theme && (
-                    <div>
-                      <span className="text-slate-500">Theme:</span>
-                      <span className="ml-2 text-slate-300">{selectedSharedSession.summary.theme}</span>
-                    </div>
-                  )}
-                  {selectedSharedSession.summary?.playerCount && (
-                    <div>
-                      <span className="text-slate-500">Players:</span>
-                      <span className="ml-2 text-slate-300">{selectedSharedSession.summary.playerCount}</span>
-                    </div>
-                  )}
-                  {selectedSharedSession.summary?.duration && (
-                    <div>
-                      <span className="text-slate-500">Duration:</span>
-                      <span className="ml-2 text-slate-300">{selectedSharedSession.summary.duration} min</span>
-                    </div>
-                  )}
-                </div>
-                {selectedSharedSession.summary?.notes && (
-                  <div className="mt-4 pt-4 border-t border-slate-700">
-                    <span className="text-slate-500 text-sm">Notes:</span>
-                    <p className="text-slate-300 mt-1 whitespace-pre-wrap">{selectedSharedSession.summary.notes}</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Sections */}
-              <h2 className="text-lg font-semibold mb-4">
-                Sections ({selectedSharedSession.sections?.length || 0})
-              </h2>
-              {selectedSharedSession.sections?.length === 0 ? (
-                <div className="card p-8 text-center text-slate-400">
-                  No sections in this session.
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {selectedSharedSession.sections.map((section, index) => (
-                    <div key={section.id} className="card p-6">
-                      <div className="flex items-start justify-between mb-4">
-                        <div>
-                          <span className="text-xs text-slate-500 uppercase tracking-wider">
-                            {section.type || 'Section'} • {section.duration || '?'} min
-                          </span>
-                          <h3 className="text-lg font-semibold mt-1">
-                            {section.name || `Section ${index + 1}`}
-                          </h3>
-                        </div>
-                      </div>
-
-                      {/* Two column layout like HC view */}
-                      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
-                        {/* Diagram */}
-                        {section.imageDataUrl && (
-                          <div>
-                            <img
-                              src={section.imageDataUrl}
-                              alt="Diagram"
-                              className="w-full rounded-lg border border-slate-700"
-                            />
-                          </div>
-                        )}
-
-                        {/* Content fields */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {section.objective && (
-                            <div>
-                              <span className="text-slate-500 text-sm font-medium">Objective</span>
-                              <p className="text-slate-300 mt-1 whitespace-pre-wrap">{section.objective}</p>
-                            </div>
-                          )}
-
-                          {section.organization && (
-                            <div>
-                              <span className="text-slate-500 text-sm font-medium">Organization</span>
-                              <p className="text-slate-300 mt-1 whitespace-pre-wrap">{section.organization}</p>
-                            </div>
-                          )}
-
-                          {/* Guided Q&A for Practice sections */}
-                          {section.type === 'Practice' && (section.guidedQA || section.questions) && (
-                            <div className="md:col-span-2">
-                              <span className="text-slate-500 text-sm font-medium">Guided Q&A</span>
-                              <p className="text-slate-300 mt-1 whitespace-pre-wrap font-mono text-sm">{section.guidedQA || section.questions}</p>
-                            </div>
-                          )}
-
-                          {section.notes && (
-                            <div>
-                              <span className="text-slate-500 text-sm font-medium">Notes</span>
-                              <p className="text-slate-300 mt-1 whitespace-pre-wrap">{section.notes}</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Variations */}
-                      {section.variations?.length > 0 && (
-                        <div className="mt-6 pt-6 border-t border-slate-700">
-                          <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-lg font-semibold">Variations</h3>
-                            <p className="text-sm text-slate-400">Less / Core / More challenging options</p>
-                          </div>
-                          <div className="space-y-4">
-                            {section.variations.map((variation, vIndex) => (
-                              <div key={variation.id || vIndex} className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-                                <h4 className="font-semibold text-slate-200 mb-4">
-                                  {variation.name || `Variation ${vIndex + 1}`}
-                                </h4>
-
-                                <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4">
-                                  {/* Variation Diagram */}
-                                  {variation.imageDataUrl && (
-                                    <div>
-                                      <img
-                                        src={variation.imageDataUrl}
-                                        alt="Variation diagram"
-                                        className="w-full rounded-lg border border-slate-600"
-                                      />
-                                    </div>
-                                  )}
-
-                                  {/* Variation Content */}
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {variation.objective && (
-                                      <div>
-                                        <span className="text-slate-500 text-sm font-medium">Objective</span>
-                                        <p className="text-slate-300 mt-1 text-sm whitespace-pre-wrap">{variation.objective}</p>
-                                      </div>
-                                    )}
-
-                                    {variation.organization && (
-                                      <div>
-                                        <span className="text-slate-500 text-sm font-medium">Organization</span>
-                                        <p className="text-slate-300 mt-1 text-sm whitespace-pre-wrap">{variation.organization}</p>
-                                      </div>
-                                    )}
-
-                                    {(variation.guidedQA || variation.questions) && (
-                                      <div className="md:col-span-2">
-                                        <span className="text-slate-500 text-sm font-medium">Guided Q&A</span>
-                                        <p className="text-slate-300 mt-1 text-sm whitespace-pre-wrap font-mono">{variation.guidedQA || variation.questions}</p>
-                                      </div>
-                                    )}
-
-                                    {variation.notes && (
-                                      <div>
-                                        <span className="text-slate-500 text-sm font-medium">Notes</span>
-                                        <p className="text-slate-300 mt-1 text-sm whitespace-pre-wrap">{variation.notes}</p>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        );
+    const pullLibraryFromServer = async () => {
+      try {
+        const result = await syncContext.pullLibrary();
+        if (result?.library) {
+          const { exercises, sessions } = result.library;
+          if (exercises?.items?.length > (libraryHook.exercises?.items?.length || 0)) {
+            libraryHook.setExercisesRaw(exercises);
+          }
+          if (sessions?.items?.length > (libraryHook.sessions?.items?.length || 0)) {
+            libraryHook.setSessionsRaw(sessions);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to pull library from server:', err);
       }
+    };
 
-      // Show session list
-      return (
-        <div className="min-h-screen bg-slate-900 text-slate-100">
-          {/* Shared Team Header */}
-          <div className="bg-slate-800 border-b border-slate-700 p-6">
-            <div className="max-w-6xl mx-auto">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs font-medium rounded">
-                  Shared Team
-                </span>
-                <span className="text-slate-500 text-sm">View Only</span>
-              </div>
-              <h1 className="text-3xl font-bold mb-2">{sharedTeamData.teamName}</h1>
-              {sharedTeamData.ageGroup && (
-                <p className="text-slate-400">{sharedTeamData.ageGroup}</p>
-              )}
-              <div className="flex items-center gap-4 mt-4">
-                <button
-                  onClick={() => loadSharedTeam(sharedTeamToken)}
-                  className="text-blue-400 hover:text-blue-300 text-sm flex items-center gap-1"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  Check for Updates
-                </button>
-                <button
-                  onClick={exitSharedView}
-                  className="text-slate-400 hover:text-slate-300 text-sm"
-                >
-                  Go to My Teams
-                </button>
-              </div>
-            </div>
-          </div>
+    pullLibraryFromServer();
+  }, [syncContext.isSyncEnabled, syncContext.isOnline, teamsData]);
 
-          {/* Shared Sessions */}
-          <div className="max-w-6xl mx-auto p-6">
-            <h2 className="text-xl font-bold mb-4">Sessions ({sharedTeamData.sessions?.length || 0})</h2>
-            {sharedTeamData.sessions?.length === 0 ? (
-              <div className="card p-8 text-center text-slate-400">
-                No sessions in this team yet.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {sharedTeamData.sessions.map((session) => (
-                  <button
-                    key={session.id}
-                    onClick={() => setSelectedSharedSession(session)}
-                    className="card p-4 w-full text-left hover:bg-slate-700/50 transition-colors"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-semibold text-lg">
-                          {session.summary?.title || 'Untitled Session'}
-                        </h3>
-                        {session.summary?.date && (
-                          <p className="text-slate-400 text-sm">{session.summary.date}</p>
-                        )}
-                        <div className="flex items-center gap-2 mt-2">
-                          {session.summary?.moment && (
-                            <span className="px-2 py-1 bg-slate-700 text-slate-300 text-xs rounded">
-                              {session.summary.moment}
-                            </span>
-                          )}
-                          <span className="text-slate-500 text-sm">
-                            {session.sections?.length || 0} section(s)
-                          </span>
-                        </div>
-                      </div>
-                      <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
+  // Track pending share pushes so we can flush them on pagehide / periodic max-age.
+  // lastPushedAt tracks the last *successful* push per token so continuously editing
+  // users still get a push at least every MAX_SHARE_PUSH_INTERVAL.
+  const pendingShareTeamsRef = useRef({}); // token -> team (latest snapshot)
+  const lastSharePushAtRef = useRef({}); // token -> epoch ms
+  const MAX_SHARE_PUSH_INTERVAL_MS = 15000;
+
+  // Shared team data is now served live from Postgres via /api/share/:token
+  // (reads teams.sharing->>shareToken). No client-side push is needed — the
+  // team is always up-to-date as soon as per-entity PUTs land. This kills the
+  // old sendBeacon pagehide flush that was blowing past the 64KB keepalive cap.
+
+  // Show PlayBall import landing page for /import?code=XXXXXX deep links
+  if (importCode) {
+    return <ImportLanding code={importCode} onDismiss={() => {
+      setImportCode(null);
+      window.history.replaceState({}, '', '/');
+    }} />;
   }
 
-  // Wait for teams data to load (for non-shared views)
+  // Shared views are handled by SharedView component (routed in App.jsx)
+
+  // Wait for teams data to load
   if (!teamsData) {
     return (
       <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
@@ -505,8 +333,23 @@ export default function AppShell() {
     );
   }
 
-  // Handle saving diagram from builder back to section/variation AND to library
-  const handleDiagramSave = (diagramData) => {
+  // Handle saving diagram from builder back to section/variation AND to library.
+  // Uploads the base64 image to CDN first, then stores a lightweight CDN URL
+  // instead of the massive base64 string (the #1 cause of memory bloat).
+  const handleDiagramSave = async (diagramData) => {
+    // Navigate back immediately so the user isn't blocked by the upload
+    navigateBackFromDiagramBuilder();
+
+    // Upload base64 to CDN — returns { imageUrl, diagramData (without dataUrl) }
+    const { imageUrl, diagramData: cleanDiagram } = await uploadDiagramImage(diagramData);
+
+    const libraryPayload = {
+      dataUrl: imageUrl, // CDN URL (or base64 fallback if upload failed)
+      elements: cleanDiagram.elements || [],
+      lines: cleanDiagram.lines || [],
+      fieldType: cleanDiagram.fieldType || 'full',
+    };
+
     if (selectedTeamId && selectedSessionId && selectedSectionId && selectedVariationId) {
       // Saving to a variation within a section
       const team = getTeam(selectedTeamId);
@@ -516,7 +359,7 @@ export default function AppShell() {
         if (section) {
           const updatedVariations = section.variations.map(v =>
             v.id === selectedVariationId
-              ? { ...v, diagramData, imageDataUrl: diagramData.dataUrl }
+              ? { ...v, diagramData: cleanDiagram, imageDataUrl: imageUrl }
               : v
           );
           const updatedSections = session.sections.map(s =>
@@ -526,15 +369,9 @@ export default function AppShell() {
           );
           updateSession(selectedTeamId, selectedSessionId, { sections: updatedSections });
 
-          // Also save to library with context
           const variation = section.variations.find(v => v.id === selectedVariationId);
           diagramLibrary.saveDiagram(
-            {
-              dataUrl: diagramData.dataUrl,
-              elements: diagramData.elements || [],
-              lines: diagramData.lines || [],
-              fieldType: diagramData.fieldType || 'full',
-            },
+            libraryPayload,
             diagramData.name || variation?.name || section?.name || 'Untitled Diagram',
             diagramData.description || '',
             {
@@ -545,7 +382,6 @@ export default function AppShell() {
           );
         }
       }
-      navigateBackFromDiagramBuilder();
     } else if (selectedTeamId && selectedSessionId && selectedSectionId) {
       // Saving to a section (not a variation)
       const team = getTeam(selectedTeamId);
@@ -554,19 +390,13 @@ export default function AppShell() {
         const section = session.sections.find(s => s.id === selectedSectionId);
         const updatedSections = session.sections.map(s =>
           s.id === selectedSectionId
-            ? { ...s, diagramData, imageDataUrl: diagramData.dataUrl }
+            ? { ...s, diagramData: cleanDiagram, imageDataUrl: imageUrl }
             : s
         );
         updateSession(selectedTeamId, selectedSessionId, { sections: updatedSections });
 
-        // Also save to library with context
         diagramLibrary.saveDiagram(
-          {
-            dataUrl: diagramData.dataUrl,
-            elements: diagramData.elements || [],
-            lines: diagramData.lines || [],
-            fieldType: diagramData.fieldType || 'full',
-          },
+          libraryPayload,
           diagramData.name || section?.name || 'Untitled Diagram',
           diagramData.description || '',
           {
@@ -576,33 +406,25 @@ export default function AppShell() {
           }
         );
       }
-      navigateBackFromDiagramBuilder();
     } else if (editingDiagramId && editingDiagramId !== 'USE_PARENT') {
       // Updating a library diagram
       diagramLibrary.updateDiagram(editingDiagramId, {
         name: diagramData.name,
         description: diagramData.description,
-        dataUrl: diagramData.dataUrl,
-        elements: diagramData.elements || [],
-        lines: diagramData.lines || [],
-        fieldType: diagramData.fieldType || 'full',
+        dataUrl: imageUrl,
+        elements: cleanDiagram.elements || [],
+        lines: cleanDiagram.lines || [],
+        fieldType: cleanDiagram.fieldType || 'full',
         tags: diagramData.tags || {},
       });
-      navigateBackFromDiagramBuilder();
     } else {
       // Creating new diagram from library (no section context, no existing diagram)
       diagramLibrary.saveDiagram(
-        {
-          dataUrl: diagramData.dataUrl,
-          elements: diagramData.elements || [],
-          lines: diagramData.lines || [],
-          fieldType: diagramData.fieldType || 'full',
-        },
+        libraryPayload,
         diagramData.name || 'Untitled Diagram',
         diagramData.description || '',
         diagramData.tags || {}
       );
-      navigateBackFromDiagramBuilder();
     }
   };
 
@@ -664,72 +486,181 @@ export default function AppShell() {
     };
   };
 
-  // Full-page diagram builder view
-  if (currentView === VIEWS.DIAGRAM_BUILDER) {
-    const context = getDiagramContext();
+  // Static pages (privacy, support)
+  if (staticPage) {
     return (
-      <div className="min-h-screen bg-slate-900">
-        <DiagramBuilder
-          initialDiagram={context.initialDiagram}
-          defaultName={context.defaultName}
-          defaultDescription={context.defaultDescription}
-          ageGroup={context.ageGroup}
-          moment={context.moment}
-          sectionType={context.sectionType}
-          onSave={handleDiagramSave}
-          onClose={navigateBackFromDiagramBuilder}
-        />
+      <div className="min-h-screen bg-slate-900 text-slate-100">
+        <div className="max-w-2xl mx-auto px-6 py-12">
+          <a
+            href="/"
+            className="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm mb-8 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            Back to PlayBall
+          </a>
+
+          {staticPage === 'privacy' && (
+            <div className="prose prose-invert max-w-none">
+              <h1 className="text-3xl font-bold mb-2">Privacy Policy</h1>
+              <p className="text-slate-400 text-sm mb-8">Effective date: August 27, 2025</p>
+
+              <p className="text-slate-300 leading-relaxed mb-6">
+                PlayBall does not collect, store, or share any personal data. We do not use analytics, tracking, advertising identifiers, or third-party SDKs that gather user information.
+              </p>
+
+              <h2 className="text-xl font-semibold mt-8 mb-4">Information We Do Not Collect</h2>
+              <ul className="text-slate-300 space-y-2 list-disc list-inside">
+                <li>No names, emails, phone numbers, or contact info</li>
+                <li>No location data</li>
+                <li>No device or usage analytics</li>
+                <li>No cookies or tracking technologies</li>
+                <li>No third-party ad or analytics SDKs</li>
+              </ul>
+
+              <h2 className="text-xl font-semibold mt-8 mb-4">On-Device Data</h2>
+              <p className="text-slate-300 leading-relaxed mb-6">
+                If PlayBall stores data (e.g., team rosters, game setups, preferences), it remains <strong className="text-white">on your device</strong> and is not transmitted to us.
+              </p>
+
+              <h2 className="text-xl font-semibold mt-8 mb-4">Optional Sync & Sharing</h2>
+              <p className="text-slate-300 leading-relaxed mb-6">
+                If you choose to enable <strong className="text-white">device sync</strong> or <strong className="text-white">team sharing</strong>, the session data you choose to share is transmitted to our servers solely to make those features work. This data is stored anonymously — no personal information, accounts, or identifiers are collected. We do not use this data for any purpose other than delivering it back to you or your shared recipients.
+              </p>
+
+              <h2 className="text-xl font-semibold mt-8 mb-4">Changes to This Policy</h2>
+              <p className="text-slate-300 leading-relaxed">
+                If our practices change (for example, if we add optional features that require network services), we will update this policy and the effective date above.
+              </p>
+
+              <div className="mt-10 pt-6 border-t border-slate-700">
+                <p className="text-slate-500 text-sm">
+                  Contact: <a href="mailto:support@getplayball.app" className="text-blue-400 hover:text-blue-300">support@getplayball.app</a>
+                </p>
+              </div>
+            </div>
+          )}
+
+          {staticPage === 'support' && (
+            <div className="prose prose-invert max-w-none">
+              <h1 className="text-3xl font-bold mb-6">Support</h1>
+
+              <p className="text-slate-300 leading-relaxed mb-6">
+                Need help? Email <a href="mailto:support@getplayball.app" className="text-blue-400 hover:text-blue-300 font-medium">support@getplayball.app</a> — we typically reply within 1–2 business days.
+              </p>
+
+              <div className="space-y-4">
+                <div className="p-4 bg-slate-800 rounded-xl border border-slate-700">
+                  <h3 className="font-semibold text-white mb-1">Report a Bug</h3>
+                  <p className="text-slate-400 text-sm">Please include your device model, OS version, and steps to reproduce.</p>
+                </div>
+
+                <div className="p-4 bg-slate-800 rounded-xl border border-slate-700">
+                  <h3 className="font-semibold text-white mb-1">Feature Requests</h3>
+                  <p className="text-slate-400 text-sm">We love ideas! Email us with your suggestions.</p>
+                </div>
+
+                <div className="p-4 bg-slate-800 rounded-xl border border-slate-700">
+                  <h3 className="font-semibold text-white mb-1">Privacy</h3>
+                  <p className="text-slate-400 text-sm">
+                    PlayBall does not collect personal data. Read our <a href="/privacy" className="text-blue-400 hover:text-blue-300">Privacy Policy</a>.
+                  </p>
+                </div>
+
+                <div className="p-4 bg-slate-800 rounded-xl border border-slate-700">
+                  <h3 className="font-semibold text-white mb-1">Data & Deletion</h3>
+                  <p className="text-slate-400 text-sm">PlayBall stores data on your device. If you've enabled sync or sharing, that data is stored anonymously on our servers solely to deliver those features. Delete the app to remove local data, or revoke sharing to remove shared data.</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
-  // Diagram library view
-  if (currentView === VIEWS.DIAGRAM_LIBRARY) {
+  // Full-page diagram builder view
+  if (currentView === VIEWS.DIAGRAM_BUILDER) {
+    const context = getDiagramContext();
     return (
-      <DiagramLibrary
-        teamsContext={teamsContext}
-        diagramLibrary={diagramLibrary}
-      />
+      <ViewErrorBoundary onRecover={navigateToTeams}>
+        <div className="min-h-screen bg-slate-900">
+          <DiagramBuilder
+            initialDiagram={context.initialDiagram}
+            defaultName={context.defaultName}
+            defaultDescription={context.defaultDescription}
+            ageGroup={context.ageGroup}
+            moment={context.moment}
+            sectionType={context.sectionType}
+            onSave={handleDiagramSave}
+            onClose={navigateBackFromDiagramBuilder}
+          />
+        </div>
+      </ViewErrorBoundary>
+    );
+  }
+
+  // Library view (Sessions, Exercises, Diagrams tabs)
+  if (currentView === VIEWS.LIBRARY) {
+    return (
+      <ViewErrorBoundary onRecover={navigateToTeams}>
+        <Library
+          teamsContext={teamsContext}
+          libraryHook={libraryHook}
+          diagramLibrary={diagramLibrary}
+        />
+      </ViewErrorBoundary>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100">
-      {currentView === VIEWS.TEAMS && (
-        <TeamList
-          teamsContext={teamsContext}
-          syncContext={syncContext}
-          sharingContext={sharingContext}
-          onShowLinkDevice={() => setShowLinkDeviceModal(true)}
-        />
-      )}
-      {currentView === VIEWS.TEAM_DETAIL && (
-        <TeamDetail
-          teamsContext={teamsContext}
-          sharingContext={sharingContext}
-          diagramLibrary={diagramLibrary}
-        />
-      )}
-      {currentView === VIEWS.SESSION_BUILDER && (
-        <SessionBuilder
-          teamsContext={teamsContext}
-          diagramLibrary={diagramLibrary}
-        />
-      )}
+    <ViewErrorBoundary onRecover={navigateToTeams}>
+      <div className="min-h-screen bg-slate-900 text-slate-100">
+        {currentView === VIEWS.TEAMS && (
+          <TeamList
+            teamsContext={teamsContext}
+            syncContext={syncContext}
+            sharingContext={sharingContext}
+            onShowLinkDevice={() => setShowLinkDeviceModal(true)}
+            iosReferral={iosReferral}
+            onDismissIosReferral={() => setIosReferral(false)}
+          />
+        )}
+        {currentView === VIEWS.TEAM_DETAIL && (
+          <TeamDetail
+            teamsContext={teamsContext}
+            sharingContext={sharingContext}
+            libraryHook={libraryHook}
+          />
+        )}
+        {currentView === VIEWS.SESSION_BUILDER && (
+          <SessionBuilder
+            teamsContext={teamsContext}
+            diagramLibrary={diagramLibrary}
+            libraryHook={libraryHook}
+            syncContext={syncContext}
+            onShowLinkDevice={() => setShowLinkDeviceModal(true)}
+          />
+        )}
 
       {/* Link Device Modal */}
       {showLinkDeviceModal && (
         <LinkDeviceModal
-          onClose={() => setShowLinkDeviceModal(false)}
+          onClose={() => {
+            setShowLinkDeviceModal(false);
+            setLinkDeviceDefaultMode(null);
+          }}
           hasIdentity={syncContext.isSyncEnabled}
+          defaultMode={linkDeviceDefaultMode}
           onRequestCode={syncContext.requestPairingCode}
           onConfirmCode={async (code) => {
             const teams = await syncContext.confirmPairingCode(code);
             if (teams) {
-              // Save teams to localStorage before reloading
-              localStorage.setItem(TEAMS_KEY, JSON.stringify(teams));
-              // Reload page to pick up synced teams
-              window.location.reload();
+              // Hydrate and set teams data
+              teamsContext.loadTeamsFromServer(teams);
+              setShowLinkDeviceModal(false);
+              setLinkDeviceDefaultMode(null);
             }
           }}
           onInitialize={async () => {
@@ -742,9 +673,22 @@ export default function AppShell() {
           onReset={() => {
             syncContext.resetSync();
             setShowLinkDeviceModal(false);
+            setLinkDeviceDefaultMode(null);
           }}
         />
       )}
-    </div>
+
+      {/* Storage Limit Modal */}
+      {showStorageLimitModal && (
+        <StorageLimitModal
+          onEnableSync={() => {
+            setShowStorageLimitModal(false);
+            setLinkDeviceDefaultMode('new');
+            setShowLinkDeviceModal(true);
+          }}
+        />
+      )}
+      </div>
+    </ViewErrorBoundary>
   );
 }

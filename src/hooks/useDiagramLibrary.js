@@ -23,39 +23,71 @@ export default function useDiagramLibrary() {
     setIsLoaded(true);
   }, []);
 
-  // Save diagrams to localStorage whenever they change
+  // Save diagrams to localStorage whenever they change.
+  // Strip inline base64 dataUrls (they can be 5-20MB each) — only persist
+  // CDN URLs. The diagram can be regenerated from elements/lines if needed.
   useEffect(() => {
     if (isLoaded) {
       try {
-        localStorage.setItem(DIAGRAMS_KEY, JSON.stringify({ diagrams }));
+        const compact = diagrams.map(d => {
+          // Keep CDN URLs (https://...), strip base64 data URLs
+          if (d.dataUrl && d.dataUrl.startsWith('data:')) {
+            const { dataUrl: _strip, ...rest } = d;
+            return rest;
+          }
+          return d;
+        });
+        localStorage.setItem(DIAGRAMS_KEY, JSON.stringify({ diagrams: compact }));
       } catch (error) {
         console.error('Error saving diagram library:', error);
       }
     }
   }, [diagrams, isLoaded]);
 
-  // Save a new diagram to the library
+  // Save or update a diagram in the library (upserts by name)
   // tags: { ageGroup?: string, moments?: string[], type?: string }
   const saveDiagram = (diagramData, name, description = '', tags = {}) => {
-    const newDiagram = {
-      id: generateId('diagram'),
-      name: name || 'Untitled Diagram',
-      description,
-      dataUrl: diagramData.dataUrl,
-      elements: diagramData.elements || [],
-      lines: diagramData.lines || [],
-      fieldType: diagramData.fieldType || 'full',
-      tags: {
-        ageGroup: tags.ageGroup || '',
-        moments: Array.isArray(tags.moments) ? tags.moments : (tags.moment ? [tags.moment] : []),
-        type: tags.type || '',
-      },
-      createdAt: nowIso(),
-      updatedAt: nowIso(),
+    const resolvedName = name || 'Untitled Diagram';
+    const normalizedTags = {
+      ageGroup: tags.ageGroup || '',
+      moments: Array.isArray(tags.moments) ? tags.moments : (tags.moment ? [tags.moment] : []),
+      type: tags.type || '',
     };
 
-    setDiagrams(prev => [newDiagram, ...prev]);
-    return newDiagram;
+    let result;
+    setDiagrams(prev => {
+      const existing = prev.find(d => (d.name || '').toLowerCase() === resolvedName.toLowerCase());
+      if (existing) {
+        const updated = {
+          ...existing,
+          name: resolvedName,
+          description,
+          dataUrl: diagramData.dataUrl,
+          elements: diagramData.elements || [],
+          lines: diagramData.lines || [],
+          fieldType: diagramData.fieldType || 'full',
+          tags: normalizedTags,
+          updatedAt: nowIso(),
+        };
+        result = updated;
+        return prev.map(d => d.id === existing.id ? updated : d);
+      }
+      const newDiagram = {
+        id: generateId('diagram'),
+        name: resolvedName,
+        description,
+        dataUrl: diagramData.dataUrl,
+        elements: diagramData.elements || [],
+        lines: diagramData.lines || [],
+        fieldType: diagramData.fieldType || 'full',
+        tags: normalizedTags,
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+      };
+      result = newDiagram;
+      return [newDiagram, ...prev];
+    });
+    return result;
   };
 
   // Update an existing diagram

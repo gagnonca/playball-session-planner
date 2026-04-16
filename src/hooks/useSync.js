@@ -1,12 +1,19 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { COACH_IDENTITY_KEY } from '../constants/storage';
 import { generateCoachId, generateDeviceId } from '../utils/tokens';
+import { mergeTeamsData } from '../utils/helpers';
 
 /**
  * Hook for managing device sync across multiple devices.
  * Handles coach identity, device pairing, and two-way sync.
+ *
+ * @param {object} options
+ * @param {(teams) => void} [options.onRemoteUpdate] - called when server (or conflict
+ *   resolution) produces a newer teamsData that the caller should adopt locally.
  */
-export default function useSync() {
+export default function useSync(options = {}) {
+  const onRemoteUpdateRef = useRef(options.onRemoteUpdate);
+  useEffect(() => { onRemoteUpdateRef.current = options.onRemoteUpdate; }, [options.onRemoteUpdate]);
   const [identity, setIdentity] = useState(null);
   const [syncStatus, setSyncStatus] = useState('idle'); // idle | syncing | synced | error | offline
   const [lastSyncAt, setLastSyncAt] = useState(null);
@@ -92,10 +99,10 @@ export default function useSync() {
       throw new Error('No coach identity');
     }
 
-    const response = await fetch('/api/sync/pair/request', {
+    const response = await fetch('/api/sync/pair', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ coachId: identity.coachId }),
+      body: JSON.stringify({ action: 'request', coachId: identity.coachId }),
     });
 
     const data = await response.json();
@@ -113,10 +120,10 @@ export default function useSync() {
   const confirmPairingCode = useCallback(async (code) => {
     const deviceId = generateDeviceId();
 
-    const response = await fetch('/api/sync/pair/confirm', {
+    const response = await fetch('/api/sync/pair', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, deviceId }),
+      body: JSON.stringify({ action: 'confirm', code, deviceId }),
     });
 
     const data = await response.json();
@@ -237,12 +244,51 @@ export default function useSync() {
         const data = await response.json();
 
         if (!data.success) {
-          if (data.error === 'version_conflict') {
-            // Server has newer data, need to merge
-            console.warn('Version conflict, server has newer data');
-            // Return the server teams for the caller to handle
+          if (data.error === 'version_conflict' && data.serverTeams) {
+            // Server has newer data. Merge locally-staged changes with server truth,
+            // hydrate the UI, and retry the push. Retry a few times because racing
+            // pushes from multiple tabs can cause successive conflicts.
+            let workingTeams = teamsToSync;
+            let workingData = data;
+            let attempts = 0;
+            const MAX_ATTEMPTS = 4;
+            while (workingData && workingData.error === 'version_conflict' && workingData.serverTeams && attempts < MAX_ATTEMPTS) {
+              attempts += 1;
+              const merged = mergeTeamsData(workingTeams, workingData.serverTeams);
+              const serverVersion = workingData.serverVersion || workingData.version || 0;
+              const patchedIdentity = { ...identity, localVersion: serverVersion };
+              localStorage.setItem(COACH_IDENTITY_KEY, JSON.stringify(patchedIdentity));
+              setIdentity(patchedIdentity);
+              if (onRemoteUpdateRef.current) onRemoteUpdateRef.current(merged);
+
+              const retry = await fetch('/api/sync/teams', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  coachId: identity.coachId,
+                  deviceId: identity.deviceId,
+                  teams: merged,
+                  localVersion: serverVersion,
+                }),
+              });
+              workingData = await retry.json();
+              workingTeams = merged;
+              if (workingData.success) {
+                const now = new Date().toISOString();
+                const updatedIdentity = { ...patchedIdentity, lastSyncAt: now, localVersion: workingData.version };
+                localStorage.setItem(COACH_IDENTITY_KEY, JSON.stringify(updatedIdentity));
+                setIdentity(updatedIdentity);
+                setLastSyncAt(now);
+                setSyncStatus('synced');
+                pendingPushRef.current = null;
+                return { success: true, merged: true };
+              }
+            }
+            // Ran out of retries — leave status at 'syncing' and let the next
+            // push cycle try again. Do NOT surface as error; the data is safe locally.
+            console.warn('Version conflict exhausted retries; will retry on next edit');
             setSyncStatus('synced');
-            return { conflict: true, serverTeams: data.serverTeams };
+            return { conflict: true };
           }
           throw new Error(data.message || 'Failed to push teams');
         }
@@ -296,7 +342,27 @@ export default function useSync() {
         }),
       });
 
-      const data = await response.json();
+      let data = await response.json();
+      let pushedTeams = teams;
+
+      if (!data.success && data.error === 'version_conflict' && data.serverTeams) {
+        const merged = mergeTeamsData(teams, data.serverTeams);
+        const serverVersion = data.serverVersion || data.version || 0;
+        if (onRemoteUpdateRef.current) onRemoteUpdateRef.current(merged);
+        const retry = await fetch('/api/sync/teams', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            coachId: identity.coachId,
+            deviceId: identity.deviceId,
+            teams: merged,
+            localVersion: serverVersion,
+          }),
+        });
+        data = await retry.json();
+        pushedTeams = merged;
+      }
+
       if (!data.success) {
         throw new Error(data.message || 'Failed to push');
       }
@@ -312,11 +378,51 @@ export default function useSync() {
       setLastSyncAt(now);
       setSyncStatus('synced');
 
-      return { success: true };
+      return { success: true, teams: pushedTeams };
     } catch (error) {
       console.error('Force push failed:', error);
       setSyncStatus('error');
       throw error;
+    }
+  }, [identity, isOnline]);
+
+  /**
+   * Fetch latest library from server.
+   */
+  const pullLibrary = useCallback(async () => {
+    if (!identity?.coachId || !identity?.deviceId || !isOnline) return null;
+
+    try {
+      const response = await fetch(
+        `/api/sync/library?coachId=${identity.coachId}&deviceId=${identity.deviceId}`
+      );
+      const data = await response.json();
+      if (!data.success) return null;
+      return { library: data.library, version: data.version };
+    } catch (error) {
+      console.error('Failed to pull library:', error);
+      return null;
+    }
+  }, [identity, isOnline]);
+
+  /**
+   * Push library to server. Debounced to avoid too many requests.
+   */
+  const pushLibrary = useCallback(async (library) => {
+    if (!identity?.coachId || !identity?.deviceId || !isOnline) return;
+
+    try {
+      await fetch('/api/sync/library', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          coachId: identity.coachId,
+          deviceId: identity.deviceId,
+          library,
+        }),
+      });
+    } catch (error) {
+      console.error('Failed to push library:', error);
     }
   }, [identity, isOnline]);
 
@@ -378,5 +484,7 @@ export default function useSync() {
     pushTeams,
     forcePush,
     resetSync,
+    pullLibrary,
+    pushLibrary,
   };
 }

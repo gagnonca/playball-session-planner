@@ -18,6 +18,16 @@ export const CURRENT_VIEW_KEY = 'ppp_current_view_v1';
 // Diagram library
 export const DIAGRAMS_KEY = 'ppp_diagram_library_v1';
 
+// Section (exercise) library - also used as LIB_KEY in SessionBuilder
+export const SECTION_LIBRARY_KEY = 'ppp_section_library_v1';
+
+// Session library
+export const SESSION_LIBRARY_KEY = 'ppp_session_library_v1';
+
+// Ids of auto-populated library items the coach has hidden from view.
+// Source data (the section/session) is NOT deleted — just filtered out of the library.
+export const LIBRARY_HIDDEN_KEY = 'ppp_library_hidden_v1';
+
 // UI preferences
 export const HELP_PREFS_KEY = 'ppp_help_preferences_v1';
 export const SUMMARY_COLLAPSED_KEY = 'ppp_summary_collapsed_v1';
@@ -32,3 +42,6 @@ export const AI_CONFIG_KEY = 'ppp_ai_config_v1';
 
 // Onboarding
 export const HAS_SEEN_WELCOME_KEY = 'ppp_has_seen_welcome';
+
+// Promotions
+export const IOS_PROMO_DISMISSED_KEY = 'ppp_ios_promo_dismissed';

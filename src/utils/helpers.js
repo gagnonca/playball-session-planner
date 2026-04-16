@@ -8,6 +8,11 @@ export function nowIso() {
   return new Date().toISOString();
 }
 
+// Slugify a string for URL paths
+export function slugify(str) {
+  return (str || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'untitled';
+}
+
 // Download JSON file
 export function downloadJson(filename, obj) {
   const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
@@ -18,11 +23,25 @@ export function downloadJson(filename, obj) {
   URL.revokeObjectURL(a.href);
 }
 
+// Parse date string (YYYY-MM-DD) as local date, not UTC
+// Prevents timezone shifts that move dates to previous/next day
+export function parseLocalDate(dateString) {
+  if (!dateString) return null;
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
 // Show toast notification
-export function toast(msg, duration = 1200) {
+export function toast(msg, duration = 1200, type = 'default') {
   const t = document.createElement("div");
   t.textContent = msg;
-  t.className = "fixed bottom-4 right-4 px-4 py-3 bg-slate-800 text-white border border-slate-700 rounded-lg shadow-lg z-50 animate-fade-in";
+
+  const baseClasses = "fixed bottom-4 right-4 px-4 py-3 text-white border rounded-lg shadow-lg z-50 animate-fade-in max-w-xs";
+  const typeClasses = type === 'error'
+    ? 'bg-red-900 border-red-700'
+    : 'bg-slate-800 border-slate-700';
+
+  t.className = `${baseClasses} ${typeClasses}`;
   document.body.appendChild(t);
   setTimeout(() => {
     t.classList.add("opacity-0", "transition-opacity", "duration-300");
@@ -48,6 +67,7 @@ export function defaultSection() {
     type: "Play",
     time: "",
     imageDataUrl: "",
+    diagramData: null,
     objective: "",
     organization: "",
     guidedQA: "", // Merged questions/answers in Q1:/A1: format
@@ -111,11 +131,14 @@ export function sectionToLibraryPayload(section) {
   return s;
 }
 
-// Library payload to section (add fresh IDs)
-export function libraryPayloadToSection(payload) {
+// Library payload to section.
+// If the caller passes the library item's id, the produced section adopts it —
+// edits to the section then flow back to the same library entry by id.
+// Variations are sub-entities and always get fresh uids.
+export function libraryPayloadToSection(payload, id = null) {
   const s = defaultSection();
   Object.assign(s, structuredClone(payload));
-  s.id = uid();
+  s.id = id || uid();
   s.variations = (payload.variations || []).map(vp => {
     const v = defaultVariation();
     Object.assign(v, structuredClone(vp));
@@ -123,6 +146,55 @@ export function libraryPayloadToSection(payload) {
     return v;
   });
   return s;
+}
+
+// Session to library payload.
+// Strips session-level id + ephemeral fields, but preserves section/variation ids
+// so loading this session back from the library keeps each section tied to its
+// library exercise entry (section.id = library exercise id).
+export function sessionToLibraryPayload(session) {
+  const s = structuredClone(session);
+  delete s.id;
+  delete s.selectedSectionId;
+  delete s.createdAt;
+  delete s.updatedAt;
+  if (s.summary) {
+    s.summary.date = '';
+    s.summary.reflectionNotes = '';
+  }
+  return s;
+}
+
+// Library payload to session.
+// If the caller passes the library item's id, the produced session adopts it.
+// Sections carry their own ids; if the stored payload has section ids (new format)
+// preserve them, otherwise mint fresh uids (legacy payloads where ids were stripped).
+export function libraryPayloadToSession(payload, teamDefaults = null, id = null) {
+  const session = defaultSession(teamDefaults);
+  if (id) session.id = id;
+  const p = structuredClone(payload);
+  // Overlay summary (keep team defaults for ageGroup/duration if not in payload)
+  if (p.summary) {
+    session.summary = {
+      ...session.summary,
+      ...p.summary,
+      date: '', // Always clear date
+    };
+  }
+  // Rebuild sections; preserve ids present in payload, else mint fresh
+  session.sections = (p.sections || []).map(sec => {
+    const s = defaultSection();
+    Object.assign(s, sec);
+    s.id = sec.id || uid();
+    s.variations = (sec.variations || []).map(vp => {
+      const v = defaultVariation();
+      Object.assign(v, vp);
+      v.id = vp.id || uid();
+      return v;
+    });
+    return s;
+  });
+  return session;
 }
 
 // Default team structure
@@ -203,6 +275,35 @@ export function aggregateSectionKeywords(sections) {
   });
 
   return Array.from(keywordSet).join(", ");
+}
+
+// Merge two teamsData snapshots for conflict resolution.
+// Per-session last-write-wins by updatedAt; sessions only present on one side are kept.
+// Used when the server rejects a push with version_conflict, and when multiple tabs
+// race on the same coach identity.
+export function mergeTeamsData(local, remote) {
+  const localTeams = (local && local.teams) || [];
+  const remoteTeams = (remote && remote.teams) || [];
+  const byId = new Map();
+  for (const rt of remoteTeams) byId.set(rt.id, rt);
+  for (const lt of localTeams) {
+    const rt = byId.get(lt.id);
+    if (!rt) { byId.set(lt.id, lt); continue; }
+    const sessionsById = new Map();
+    for (const rs of rt.sessions || []) sessionsById.set(rs.id, rs);
+    for (const ls of lt.sessions || []) {
+      const rs = sessionsById.get(ls.id);
+      if (!rs) { sessionsById.set(ls.id, ls); continue; }
+      sessionsById.set(ls.id, (ls.updatedAt || '') >= (rs.updatedAt || '') ? ls : rs);
+    }
+    const teamPick = (lt.updatedAt || '') >= (rt.updatedAt || '') ? lt : rt;
+    byId.set(lt.id, { ...teamPick, sessions: Array.from(sessionsById.values()) });
+  }
+  return {
+    ...remote,
+    ...local,
+    teams: Array.from(byId.values()),
+  };
 }
 
 // Migrate legacy session structure to team-based structure
