@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["K4665LK4MM.com.cgagnon.playball"],
+        "components": [
+          {
+            "/": "/import",
+            "?": { "code": "?*" }
+          }
+        ]
+      }
+    ]
+  }
+}

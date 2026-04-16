@@ -23,8 +23,10 @@ export default async function handler(req, res) {
       });
     }
 
-    // Validate token format
-    if (!shareToken.startsWith('t_') || shareToken.length < 20) {
+    // Validate token format (accept legacy t_ tokens and new 6-char codes)
+    const isLegacy = shareToken.startsWith('t_') && shareToken.length >= 20;
+    const isShortCode = /^[A-Z2-9]{6}$/.test(shareToken);
+    if (!isLegacy && !isShortCode) {
       return res.status(400).json({
         success: false,
         error: 'invalid_token',

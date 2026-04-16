@@ -30,68 +30,22 @@ export default function useSharing() {
     localStorage.setItem(FOLLOWED_SHARES_KEY, JSON.stringify(shares));
   }, []);
 
-  /**
-   * Generate a share link for a team.
-   * Returns the share token (caller should save it to the team object).
-   */
-  const generateShareLink = useCallback(async (team) => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const shareToken = generateShareToken();
-
-      // Push initial team data
-      const response = await fetch('/api/share/push', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shareToken, team }),
-      });
-
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.message || 'Failed to create share link');
-      }
-
-      setIsLoading(false);
-      return {
-        shareToken,
-        sharedAt: data.pushedAt,
-        shareUrl: `${window.location.origin}/shared/${shareToken}`,
-      };
-    } catch (err) {
-      setError(err.message);
-      setIsLoading(false);
-      throw err;
-    }
+  // Share links now read live from Postgres via teams.sharing->>shareToken
+  // (api/share-router.js). Creating a link just mints a token; saving it onto
+  // the team (via updateTeam → per-entity PUT) is what makes it discoverable.
+  const generateShareLink = useCallback(async (_team) => {
+    const shareToken = generateShareToken();
+    const sharedAt = new Date().toISOString();
+    return {
+      shareToken,
+      sharedAt,
+      shareUrl: `${window.location.origin}/shared/${shareToken}`,
+    };
   }, []);
 
-  /**
-   * Push updated team data to an existing share.
-   */
-  const pushUpdate = useCallback(async (shareToken, team) => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch('/api/share/push', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shareToken, team }),
-      });
-
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.message || 'Failed to push update');
-      }
-
-      setIsLoading(false);
-      return { pushedAt: data.pushedAt };
-    } catch (err) {
-      setError(err.message);
-      setIsLoading(false);
-      throw err;
-    }
+  // No-op: the team is live in Postgres, the share endpoint reads it directly.
+  const pushUpdate = useCallback(async () => {
+    return { pushedAt: new Date().toISOString() };
   }, []);
 
   /**
@@ -165,6 +119,74 @@ export default function useSharing() {
   }, []);
 
   /**
+   * Copy just the share code to clipboard (for iOS app paste).
+   */
+  const copyShareCode = useCallback(async (shareToken) => {
+    try {
+      await navigator.clipboard.writeText(shareToken);
+      return true;
+    } catch (err) {
+      const textArea = document.createElement('textarea');
+      textArea.value = shareToken;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      return true;
+    }
+  }, []);
+
+  /**
+   * Fetch lightweight session list for a shared team.
+   * Uses the new /api/share/{token}/sessions endpoint.
+   */
+  const fetchSharedSessions = useCallback(async (shareToken) => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/share/${shareToken}/sessions`);
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.message || 'Share code is not valid');
+      }
+
+      setIsLoading(false);
+      return data;
+    } catch (err) {
+      setError(err.message);
+      setIsLoading(false);
+      throw err;
+    }
+  }, []);
+
+  /**
+   * Fetch full session detail for a specific session in a shared team.
+   * Uses the new /api/share/{token}/sessions/{sessionId} endpoint.
+   */
+  const fetchSharedSessionDetail = useCallback(async (shareToken, sessionId) => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/share/${shareToken}/sessions/${sessionId}`);
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.message || 'Session not found');
+      }
+
+      setIsLoading(false);
+      return data.session;
+    } catch (err) {
+      setError(err.message);
+      setIsLoading(false);
+      throw err;
+    }
+  }, []);
+
+  /**
    * Follow a shared team (for ACs to track teams they've accessed).
    * Stores basic info so we can fetch updates later.
    */
@@ -215,7 +237,10 @@ export default function useSharing() {
     pushUpdate,
     revokeShare,
     fetchSharedTeam,
+    fetchSharedSessions,
+    fetchSharedSessionDetail,
     copyShareUrl,
+    copyShareCode,
     // AC following features
     followedShares,
     followShare,

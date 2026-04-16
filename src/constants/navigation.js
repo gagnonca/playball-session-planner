@@ -9,4 +9,5 @@ export const VIEWS = {
   SESSION_BUILDER: 'session-builder',
   DIAGRAM_BUILDER: 'diagram-builder',
   DIAGRAM_LIBRARY: 'diagram-library',
+  LIBRARY: 'library',
 };

@@ -4,17 +4,18 @@
  */
 
 /**
- * Generate a secure share token for AC sharing.
- * Format: t_[24 chars of base64url]
- * Entropy: 144 bits (practically unguessable)
+ * Generate a 6-character alphanumeric share code.
+ * Uses uppercase letters + digits, excluding ambiguous chars (I/1/O/0).
+ * ~729M combinations (30^6).
  */
 export function generateShareToken() {
-  const bytes = crypto.getRandomValues(new Uint8Array(18));
-  const base64 = btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '');
-  return `t_${base64}`;
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars[bytes[i] % chars.length];
+  }
+  return code;
 }
 
 /**
