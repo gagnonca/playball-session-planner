@@ -2,24 +2,36 @@ import React, { useState } from 'react';
 import SessionCard from './SessionCard';
 import ScheduleSessionModal from './ScheduleSessionModal';
 import ShareModal from './ShareModal';
-import { toast } from '../../utils/helpers';
+import SessionLibraryModal from './SessionLibraryModal';
+import { toast, sessionToLibraryPayload, libraryPayloadToSession, uid, nowIso, downloadJson } from '../../utils/helpers';
+import { SESSION_LIBRARY_KEY } from '../../constants/storage';
 
-export default function TeamDetail({ teamsContext, sharingContext, diagramLibrary }) {
+export default function TeamDetail({ teamsContext, sharingContext, libraryHook }) {
   const {
     selectedTeamId,
     getTeam,
     updateTeam,
     navigateToTeams,
     navigateToSessionBuilder,
-    navigateToDiagramLibrary,
+    navigateToLibrary,
     deleteSession,
     duplicateSession,
   } = teamsContext;
 
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showSessionLibrary, setShowSessionLibrary] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [filterType, setFilterType] = useState('all'); // 'all', 'scheduled'
+  const [sessionLibrary, setSessionLibrary] = useState(() => {
+    try {
+      const lib = JSON.parse(localStorage.getItem(SESSION_LIBRARY_KEY)) || { version: 1, items: [] };
+      // Note: we no longer strip base64 data URLs from old library items here.
+      // Clearing imageDataUrl would destroy the only image reference for pre-CDN
+      // library items. The CDN upload flow handles new saves going forward.
+      return lib;
+    } catch { return { version: 1, items: [] }; }
+  });
 
   const team = getTeam(selectedTeamId);
 
@@ -79,6 +91,141 @@ export default function TeamDetail({ teamsContext, sharingContext, diagramLibrar
     if (session && window.confirm(`Delete "${session.summary.title || 'Untitled Session'}"?`)) {
       deleteSession(selectedTeamId, sessionId);
       toast('Session deleted');
+    }
+  };
+
+  const saveSessionLibrary = (lib) => {
+    setSessionLibrary(lib);
+    try {
+      localStorage.setItem(SESSION_LIBRARY_KEY, JSON.stringify(lib));
+    } catch (e) {
+      toast('Storage full — could not save library');
+      console.error('localStorage save failed:', e);
+    }
+  };
+
+  const handleSaveSessionToLibrary = async (sessionId) => {
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session) return;
+    const payload = sessionToLibraryPayload(session);
+
+    // Upload diagram images to CDN to keep localStorage compact
+    const itemId = uid();
+    try {
+      const uploadImage = async (base64, suffix) => {
+        const res = await fetch('/api/session-library/upload-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base64, key: `${itemId}-${suffix}` }),
+        });
+        const data = await res.json();
+        return data.success ? data.url : null;
+      };
+
+      const sections = payload.sections || [];
+      for (let i = 0; i < sections.length; i++) {
+        const sec = sections[i];
+        // Upload section diagram image
+        if (sec.imageDataUrl && sec.imageDataUrl.startsWith('data:')) {
+          const cdnUrl = await uploadImage(sec.imageDataUrl, `s${i}`);
+          if (cdnUrl) {
+            sec.imageDataUrl = cdnUrl;
+            // Strip the large dataUrl from diagramData but keep elements/lines
+            if (sec.diagramData) {
+              delete sec.diagramData.dataUrl;
+            }
+          }
+        }
+        // Upload variation diagram images
+        if (Array.isArray(sec.variations)) {
+          for (let j = 0; j < sec.variations.length; j++) {
+            const v = sec.variations[j];
+            if (v.imageDataUrl && v.imageDataUrl.startsWith('data:')) {
+              const cdnUrl = await uploadImage(v.imageDataUrl, `s${i}v${j}`);
+              if (cdnUrl) {
+                v.imageDataUrl = cdnUrl;
+                if (v.diagramData) {
+                  delete v.diagramData.dataUrl;
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      // CDN upload failed — save with data URLs as fallback
+      console.warn('CDN upload failed, saving with data URLs:', err);
+    }
+
+    const item = {
+      id: itemId,
+      name: session.summary.title || 'Untitled Session',
+      ageGroup: session.summary.ageGroup || '',
+      moment: session.summary.moment || '',
+      sectionCount: session.sections?.length || 0,
+      playerActions: session.summary.playerActions || [],
+      keyQualities: session.summary.keyQualities || [],
+      payload,
+      updatedAt: nowIso(),
+    };
+    const lib = { ...sessionLibrary, items: [...sessionLibrary.items, item] };
+    saveSessionLibrary(lib);
+
+    // Also save to unified library hook for cross-team browsing
+    if (libraryHook) {
+      libraryHook.saveSession(session, session.summary.title || 'Untitled Session');
+    }
+
+    toast('Session saved to library');
+  };
+
+  const handleInsertSessionFromLibrary = (itemId) => {
+    const item = sessionLibrary.items.find(i => i.id === itemId);
+    if (!item) return;
+    const teamDefaults = { ageGroup: team.ageGroup, defaultDuration: team.defaultDuration };
+    const newSession = libraryPayloadToSession(item.payload, teamDefaults);
+    teamsContext.createSession(selectedTeamId, newSession);
+    setShowSessionLibrary(false);
+    toast('Session loaded from library');
+    navigateToSessionBuilder(selectedTeamId, newSession.id);
+  };
+
+  const handleDeleteSessionLibraryItem = (itemId) => {
+    const lib = { ...sessionLibrary, items: sessionLibrary.items.filter(i => i.id !== itemId) };
+    saveSessionLibrary(lib);
+    toast('Removed from library');
+  };
+
+  const handleExportSessionLibrary = () => {
+    downloadJson('session-library.json', sessionLibrary);
+  };
+
+  const handleImportSessionLibrary = (file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (!data.items || !Array.isArray(data.items)) {
+          toast('Invalid library file');
+          return;
+        }
+        const merged = {
+          ...sessionLibrary,
+          items: [...sessionLibrary.items, ...data.items],
+        };
+        saveSessionLibrary(merged);
+        toast(`Imported ${data.items.length} session(s)`);
+      } catch {
+        toast('Failed to import');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleClearSessionLibrary = () => {
+    if (window.confirm('Clear your entire session library? This cannot be undone.')) {
+      saveSessionLibrary({ version: 1, items: [] });
+      toast('Session library cleared');
     }
   };
 
@@ -159,20 +306,17 @@ export default function TeamDetail({ teamsContext, sharingContext, diagramLibrar
               )}
             </div>
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => navigateToDiagramLibrary()}
-                className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-lg transition-colors"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <span className="hidden sm:inline">Diagrams</span>
-                {diagramLibrary?.diagrams?.length > 0 && (
-                  <span className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">
-                    {diagramLibrary.diagrams.length}
-                  </span>
-                )}
-              </button>
+              {navigateToLibrary && (
+                <button
+                  onClick={() => navigateToLibrary('sessions')}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-lg transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                  </svg>
+                  <span className="hidden sm:inline">Library</span>
+                </button>
+              )}
               {sharingContext && (
                 <button
                   onClick={() => setShowShareModal(true)}
@@ -272,6 +416,7 @@ export default function TeamDetail({ teamsContext, sharingContext, diagramLibrar
                 onSelect={handleSelectSession}
                 onDuplicate={handleDuplicateSession}
                 onDelete={handleDeleteSession}
+                onSaveToLibrary={handleSaveSessionToLibrary}
               />
             ))}
           </div>
@@ -284,6 +429,11 @@ export default function TeamDetail({ teamsContext, sharingContext, diagramLibrar
           teamsContext={teamsContext}
           teamId={selectedTeamId}
           onClose={() => setShowScheduleModal(false)}
+          hasLibraryItems={sessionLibrary.items.length > 0}
+          onFromLibrary={() => {
+            setShowScheduleModal(false);
+            setShowSessionLibrary(true);
+          }}
         />
       )}
 
@@ -296,6 +446,18 @@ export default function TeamDetail({ teamsContext, sharingContext, diagramLibrar
           sharingHook={sharingContext}
         />
       )}
+
+      {/* Session Library Modal */}
+      <SessionLibraryModal
+        isOpen={showSessionLibrary}
+        onClose={() => setShowSessionLibrary(false)}
+        library={sessionLibrary}
+        onInsert={handleInsertSessionFromLibrary}
+        onDelete={handleDeleteSessionLibraryItem}
+        onExport={handleExportSessionLibrary}
+        onImport={handleImportSessionLibrary}
+        onClear={handleClearSessionLibrary}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-export default function DiagramLibrary({ teamsContext, diagramLibrary }) {
+export default function DiagramLibrary({ teamsContext, diagramLibrary, embedded = false }) {
   const {
     selectedTeamId,
     selectedSessionId,
@@ -125,37 +125,39 @@ export default function DiagramLibrary({ teamsContext, diagramLibrary }) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100">
-      {/* Header */}
-      <div className="bg-slate-800 border-b border-slate-700 px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={handleBack}
-              className="text-slate-400 hover:text-slate-200 transition-colors"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <div>
-              <h1 className="text-xl font-bold">Diagram Library</h1>
-              {isInsertMode && (
-                <p className="text-sm text-slate-400">Select a diagram to insert</p>
-              )}
+    <div className={embedded ? '' : 'min-h-screen bg-slate-900 text-slate-100'}>
+      {/* Standalone header — hidden when embedded in Library */}
+      {!embedded && (
+        <div className="bg-slate-800 border-b border-slate-700 px-6 py-4">
+          <div className="max-w-6xl mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleBack}
+                className="text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <div>
+                <h1 className="text-xl font-bold">Diagram Library</h1>
+                {isInsertMode && (
+                  <p className="text-sm text-slate-400">Select a diagram to insert</p>
+                )}
+              </div>
             </div>
+            <button
+              onClick={handleCreateNew}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg transition-colors"
+            >
+              + New Diagram
+            </button>
           </div>
-          <button
-            onClick={handleCreateNew}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg transition-colors"
-          >
-            + New Diagram
-          </button>
         </div>
-      </div>
+      )}
 
       {/* Search and Filters */}
-      <div className="max-w-6xl mx-auto px-6 py-4">
+      <div className={embedded ? 'px-0 py-4' : 'max-w-6xl mx-auto px-6 py-4'}>
         <div className="flex flex-wrap gap-3 items-center">
           <input
             type="text"
@@ -212,7 +214,7 @@ export default function DiagramLibrary({ teamsContext, diagramLibrary }) {
       </div>
 
       {/* Diagram Grid */}
-      <div className="max-w-6xl mx-auto px-6 pb-8">
+      <div className={embedded ? 'pb-8' : 'max-w-6xl mx-auto px-6 pb-8'}>
         {filteredDiagrams.length === 0 ? (
           <div className="text-center py-16">
             <div className="text-slate-500 text-lg mb-4">

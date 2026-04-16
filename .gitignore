@@ -27,3 +27,4 @@ dist-ssr
 # Local documentation (not tracked)
 CODEBASE_AUDIT.md
 DEPLOY.md
+.env*.local

@@ -1,17 +1,17 @@
 import React from 'react';
 import playballIcon from '../assets/playball-icon.png';
+import SyncStatus from './SyncStatus';
 
 export default function Header({
-  onSave,
   onDownloadPDF,
   onOpenAISettings,
   isAIConfigured = false,
+  onNavigateToLibrary,
+  onSaveAs,
+  syncStatus,
+  lastSyncAt,
+  onLinkDevice,
 }) {
-  const handleDownloadPDF = () => {
-    onSave(); // Auto-save before downloading
-    onDownloadPDF();
-  };
-
   return (
     <header className="sticky top-0 z-10 backdrop-blur-md bg-slate-900/80 border-b border-slate-700 px-4 py-3">
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
@@ -30,6 +30,18 @@ export default function Header({
 
         {/* Actions */}
         <div className="flex items-center gap-3 flex-wrap no-print">
+          {syncStatus && (
+            <SyncStatus status={syncStatus} lastSyncAt={lastSyncAt} onLinkDevice={onLinkDevice} />
+          )}
+          {onNavigateToLibrary && (
+            <button
+              onClick={onNavigateToLibrary}
+              className="btn btn-subtle text-sm"
+              title="Open Library"
+            >
+              Library
+            </button>
+          )}
           {onOpenAISettings && (
             <button
               onClick={onOpenAISettings}
@@ -39,10 +51,16 @@ export default function Header({
               ✨ {isAIConfigured ? 'AI On' : 'AI'}
             </button>
           )}
-          <button onClick={onSave} className="btn btn-secondary text-sm">
-            Save
-          </button>
-          <button onClick={handleDownloadPDF} className="btn btn-primary text-sm">
+          {onSaveAs && (
+            <button
+              onClick={onSaveAs}
+              className="btn btn-subtle text-sm"
+              title="Save a renamed copy of this session to your library"
+            >
+              Save As…
+            </button>
+          )}
+          <button onClick={onDownloadPDF} className="btn btn-primary text-sm">
             📄 Download PDF
           </button>
         </div>

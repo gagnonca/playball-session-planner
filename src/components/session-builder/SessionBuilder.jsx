@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { pdf } from '@react-pdf/renderer';
 import {
   DndContext,
@@ -23,21 +23,14 @@ import AddSectionModal from '../AddSectionModal';
 import LibraryModal from '../LibraryModal';
 import AIConfigModal from '../AIConfigModal';
 import SessionPlanPDF from '../SessionPlanPDF';
-import { useLocalStorage } from '../../hooks/useLocalStorage';
 import useAI from '../../hooks/useAI';
 import {
   defaultSection,
   libraryPayloadToSection,
-  sectionToLibraryPayload,
-  getStarterLibraryItems,
   toast,
   downloadJson,
-  uid,
-  nowIso,
 } from '../../utils/helpers';
 import { PPP_TEMPLATES } from '../../constants/coaching';
-
-const LIB_KEY = "ppp_section_library_v1";
 
 // Sortable wrapper component for sections
 function SortableSection({ section, teamsContext, diagramLibrary, aiContext, ...props }) {
@@ -78,25 +71,22 @@ function SortableSection({ section, teamsContext, diagramLibrary, aiContext, ...
   );
 }
 
-export default function SessionBuilder({ teamsContext, diagramLibrary }) {
+export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHook, syncContext, onShowLinkDevice }) {
   const {
     selectedTeamId,
     selectedSessionId,
     getTeam,
     getSession,
     updateSession,
+    navigateToTeams,
     navigateToTeamDetail,
+    navigateToLibrary,
+    navigateToLibraryInsert,
   } = teamsContext;
 
   // Get the current session from team context
   const team = getTeam(selectedTeamId);
   const session = getSession(selectedTeamId, selectedSessionId);
-
-  // Library state (global, shared across teams)
-  const [library, setLibrary] = useLocalStorage(LIB_KEY, {
-    version: 1,
-    items: [],
-  });
 
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -104,6 +94,7 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
   const [libraryOpenedFromSectionId, setLibraryOpenedFromSectionId] = useState(null);
   const [isAIConfigOpen, setIsAIConfigOpen] = useState(false);
   const [libraryInsertMode, setLibraryInsertMode] = useState('append');
+  const [saveAsState, setSaveAsState] = useState(null); // { name, description } when open
 
   // AI Hook
   const aiHook = useAI();
@@ -116,28 +107,28 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
     })
   );
 
-  // Initialize starter library items if empty
-  useEffect(() => {
-    if (library.items.length === 0) {
-      setLibrary({
-        ...library,
-        items: getStarterLibraryItems(),
-      });
-    }
-  }, []); // Only run once on mount
-
-  // Handle missing team or session
-  if (!team || !session) {
+  // Handle missing team or session (corrupt data, stale URL, etc.)
+  if (!team || !session || !session.summary) {
     return (
       <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
         <div className="text-center">
           <p className="text-xl text-slate-400 mb-4">Session not found</p>
-          <button
-            onClick={() => navigateToTeamDetail(selectedTeamId)}
-            className="btn btn-primary"
-          >
-            Back to Team
-          </button>
+          <div className="flex gap-3 justify-center">
+            {team && (
+              <button
+                onClick={() => navigateToTeamDetail(selectedTeamId)}
+                className="btn btn-primary"
+              >
+                Back to {team.name}
+              </button>
+            )}
+            <button
+              onClick={navigateToTeams}
+              className={team ? "btn btn-subtle" : "btn btn-primary"}
+            >
+              All Teams
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -208,36 +199,14 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
   }, [setSession]);
 
   const handleSaveToLibrary = useCallback((section, name) => {
-    const payload = sectionToLibraryPayload(section);
     const entryName = (name || section.name || 'Untitled section').trim() || 'Untitled section';
-
-    // Check if item with same name exists
-    const existing = library.items.find(x => (x.name || '').toLowerCase() === entryName.toLowerCase());
-
-    const item = {
-      id: existing?.id || uid(),
-      name: entryName,
-      type: section.type || payload.type || 'Other',
-      payload,
-      updatedAt: nowIso(),
+    const sessionContext = {
+      ageGroup: session.summary?.ageGroup || '',
+      moment: session.summary?.moment || '',
     };
-
-    if (existing) {
-      // Update existing
-      setLibrary(prev => ({
-        ...prev,
-        items: prev.items.map(x => x.id === existing.id ? item : x)
-      }));
-    } else {
-      // Add new
-      setLibrary(prev => ({
-        ...prev,
-        items: [item, ...prev.items]
-      }));
-    }
-
+    libraryHook.saveExercise(section, entryName, sessionContext);
     toast('Saved to Library ✅');
-  }, [library.items, setLibrary]);
+  }, [libraryHook, session.summary]);
 
   // Add section handlers
   const handleAddSection = useCallback(() => {
@@ -254,8 +223,8 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
 
   const handleChooseFromLibrary = useCallback(() => {
     setIsAddModalOpen(false);
-    setIsLibraryModalOpen(true);
-  }, []);
+    navigateToLibraryInsert('exercises', selectedTeamId, selectedSessionId);
+  }, [navigateToLibraryInsert, selectedTeamId, selectedSessionId]);
 
   // PPP button - create Play/Practice/Play structure with moment-based templates
   const handlePPP = useCallback(() => {
@@ -333,10 +302,10 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
 
   // Library handlers
   const handleInsertLibraryItem = useCallback((itemId) => {
-    const item = library.items.find(x => x.id === itemId);
+    const item = libraryHook.exercises.items.find(x => x.id === itemId);
     if (!item) return;
 
-    const newSection = libraryPayloadToSection(item.payload);
+    const newSection = libraryPayloadToSection(item.payload, item.id);
 
     if (libraryInsertMode === 'after-selected' && session.selectedSectionId) {
       const idx = session.sections.findIndex(s => s.id === session.selectedSectionId);
@@ -363,17 +332,16 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
     }
 
     toast('Section inserted ✅');
-  }, [library.items, libraryInsertMode, session.selectedSectionId, session.sections, setSession]);
+  }, [libraryHook.exercises.items, libraryInsertMode, session.selectedSectionId, session.sections, setSession]);
 
   const handleReplaceWithLibraryItem = useCallback((itemId) => {
     if (!libraryOpenedFromSectionId) return;
 
-    const item = library.items.find(x => x.id === itemId);
+    const item = libraryHook.exercises.items.find(x => x.id === itemId);
     if (!item) return;
 
-    // Create new section from library item but keep the original section ID
-    const newSection = libraryPayloadToSection(item.payload);
-    newSection.id = libraryOpenedFromSectionId;
+    // Replace: section now carries the library item's id, so edits flow to that library entry.
+    const newSection = libraryPayloadToSection(item.payload, item.id);
 
     setSession(prev => ({
       ...prev,
@@ -382,43 +350,29 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
 
     setIsLibraryModalOpen(false);
     toast('Section replaced ✅');
-  }, [libraryOpenedFromSectionId, library.items, setSession]);
+  }, [libraryOpenedFromSectionId, libraryHook.exercises.items, setSession]);
 
   const handleDeleteLibraryItem = useCallback((itemId) => {
-    setLibrary(prev => ({
-      ...prev,
-      items: prev.items.filter(x => x.id !== itemId)
-    }));
+    libraryHook.deleteExercise(itemId);
     toast('Library item deleted ✅');
-  }, [setLibrary]);
+  }, [libraryHook]);
 
   const handleExportLibrary = useCallback(() => {
-    downloadJson('ppp-library.json', library);
+    libraryHook.exportLibrary();
     toast('Library exported ✅');
-  }, [library]);
+  }, [libraryHook]);
 
   const handleImportLibrary = useCallback((file) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const imported = JSON.parse(reader.result);
-        if (!imported.items || !Array.isArray(imported.items)) {
-          throw new Error('Invalid library format');
-        }
-        setLibrary(imported);
-        toast('Library imported ✅');
-      } catch (error) {
-        alert('That library JSON didn\'t parse correctly.');
-      }
-    };
-    reader.readAsText(file);
-  }, [setLibrary]);
+    libraryHook.importLibrary(file)
+      .then(() => toast('Library imported ✅'))
+      .catch(() => alert('That library JSON didn\'t parse correctly.'));
+  }, [libraryHook]);
 
   const handleClearLibrary = useCallback(() => {
     if (!confirm('Clear your saved section library?')) return;
-    setLibrary({ version: 1, items: getStarterLibraryItems() });
+    libraryHook.clearExercises();
     toast('Library cleared ✅');
-  }, [setLibrary]);
+  }, [libraryHook]);
 
   // Session import/export/clear
   const handleExportSession = useCallback(() => {
@@ -451,10 +405,26 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
     toast('Session cleared ✅');
   }, [setSession, session]);
 
-  const handleSave = useCallback(() => {
-    // Auto-saving is handled by team context updates, but provide feedback
-    toast('Saved ✅');
-  }, []);
+  const handleOpenSaveAs = useCallback(() => {
+    setSaveAsState({
+      name: `${session.summary?.title || 'Untitled session'} (copy)`,
+      description: '',
+    });
+  }, [session.summary?.title]);
+
+  const handleConfirmSaveAs = useCallback(() => {
+    const name = (saveAsState?.name || '').trim();
+    if (!name) return;
+    const description = (saveAsState?.description || '').trim();
+    // Snapshot into the manual library. New id because saveSession dedupes by name
+    // against existing manual items — if the name is unique, this creates a new entry.
+    const sessionToSave = description
+      ? { ...session, summary: { ...session.summary, notes: description } }
+      : session;
+    libraryHook.saveSession(sessionToSave, name);
+    setSaveAsState(null);
+    toast('Saved to Library ✅');
+  }, [saveAsState, session, libraryHook]);
 
   const handleDownloadPDF = useCallback(async () => {
     try {
@@ -521,10 +491,14 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
       </div>
 
       <Header
-        onSave={handleSave}
         onDownloadPDF={handleDownloadPDF}
         onOpenAISettings={() => setIsAIConfigOpen(true)}
         isAIConfigured={aiHook.isConfigured()}
+        onNavigateToLibrary={() => navigateToLibraryInsert('exercises', selectedTeamId, selectedSessionId)}
+        onSaveAs={handleOpenSaveAs}
+        syncStatus={syncContext?.isSyncEnabled ? syncContext.syncStatus : 'idle'}
+        lastSyncAt={syncContext?.lastSyncAt}
+        onLinkDevice={onShowLinkDevice}
       />
 
       <main className="max-w-7xl mx-auto px-4 py-6">
@@ -628,7 +602,7 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
           setIsLibraryModalOpen(false);
           setLibraryOpenedFromSectionId(null);
         }}
-        library={library}
+        library={libraryHook.exercises}
         openedFromSectionId={libraryOpenedFromSectionId}
         insertMode={libraryInsertMode}
         onInsert={handleInsertLibraryItem}
@@ -645,6 +619,46 @@ export default function SessionBuilder({ teamsContext, diagramLibrary }) {
         onClose={() => setIsAIConfigOpen(false)}
         aiHook={aiHook}
       />
+
+      {saveAsState && (
+        <>
+          <div className="fixed inset-0 bg-black/60 z-40" onClick={() => setSaveAsState(null)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
+              <h2 className="text-lg font-bold mb-1">Save a copy to Library</h2>
+              <p className="text-sm text-slate-400 mb-4">
+                Your work autosaves automatically. Use Save As to snapshot this session under a new name so you can find it as a reusable template. Pick a unique name.
+              </p>
+              <label className="block text-xs text-slate-400 mb-1">Name</label>
+              <input
+                type="text"
+                autoFocus
+                value={saveAsState.name}
+                onChange={e => setSaveAsState(s => ({ ...s, name: e.target.value }))}
+                className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500 mb-3"
+              />
+              <label className="block text-xs text-slate-400 mb-1">Description (optional)</label>
+              <textarea
+                rows={3}
+                value={saveAsState.description}
+                onChange={e => setSaveAsState(s => ({ ...s, description: e.target.value }))}
+                placeholder="What makes this session unique? Age group, focus, etc."
+                className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500 mb-4 resize-none"
+              />
+              <div className="flex gap-3">
+                <button onClick={() => setSaveAsState(null)} className="flex-1 btn btn-subtle">Cancel</button>
+                <button
+                  onClick={handleConfirmSaveAs}
+                  disabled={!saveAsState.name.trim()}
+                  className="flex-1 btn btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Save Copy
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

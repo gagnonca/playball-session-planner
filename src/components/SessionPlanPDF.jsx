@@ -1,6 +1,33 @@
 import React from 'react';
 import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
 
+// Convert HTML to plain text with list markers
+function htmlToPlainText(html) {
+  if (!html || !html.includes('<')) return html || '';
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    function nodeToText(node) {
+      if (node.nodeType === 3) return node.textContent;
+      const name = node.nodeName;
+      const children = Array.from(node.childNodes);
+      if (name === 'OL') {
+        let n = 0;
+        return children.map(c => c.nodeName === 'LI' ? `${++n}. ${nodeToText(c)}\n` : nodeToText(c)).join('');
+      }
+      if (name === 'UL') {
+        return children.map(c => c.nodeName === 'LI' ? `• ${nodeToText(c)}\n` : nodeToText(c)).join('');
+      }
+      if (name === 'P') return children.map(nodeToText).join('') + '\n';
+      if (name === 'BR') return '\n';
+      return children.map(nodeToText).join('');
+    }
+    return nodeToText(doc.body).trim();
+  } catch {
+    return html.replace(/<[^>]+>/g, '').trim();
+  }
+}
+
 // Create styles
 const styles = StyleSheet.create({
   page: {
@@ -262,13 +289,13 @@ export default function SessionPlanPDF({ session }) {
                 {section.objective && (
                   <View style={styles.contentItem}>
                     <Text style={styles.contentLabel}>Objective</Text>
-                    <Text style={styles.contentText}>{section.objective}</Text>
+                    <Text style={styles.contentText}>{htmlToPlainText(section.objective)}</Text>
                   </View>
                 )}
                 {section.organization && (
                   <View style={styles.contentItem}>
                     <Text style={styles.contentLabel}>Organization</Text>
-                    <Text style={styles.contentText}>{section.organization}</Text>
+                    <Text style={styles.contentText}>{htmlToPlainText(section.organization)}</Text>
                   </View>
                 )}
               </View>
@@ -298,7 +325,7 @@ export default function SessionPlanPDF({ session }) {
               {section.notes && (
                 <View style={{ marginTop: 6 }}>
                   <Text style={styles.contentLabel}>Notes</Text>
-                  <Text style={styles.contentText}>{section.notes}</Text>
+                  <Text style={styles.contentText}>{htmlToPlainText(section.notes)}</Text>
                 </View>
               )}
             </View>
@@ -313,13 +340,13 @@ export default function SessionPlanPDF({ session }) {
                     {variation?.objective && (
                       <View style={{ marginTop: 3 }}>
                         <Text style={{ ...styles.variationText, fontWeight: 'bold' }}>Objective:</Text>
-                        <Text style={styles.variationText}>{variation.objective}</Text>
+                        <Text style={styles.variationText}>{htmlToPlainText(variation.objective)}</Text>
                       </View>
                     )}
                     {variation?.organization && (
                       <View style={{ marginTop: 3 }}>
                         <Text style={{ ...styles.variationText, fontWeight: 'bold' }}>Organization:</Text>
-                        <Text style={styles.variationText}>{variation.organization}</Text>
+                        <Text style={styles.variationText}>{htmlToPlainText(variation.organization)}</Text>
                       </View>
                     )}
                     {(variation?.guidedQA || variation?.questions || variation?.answers) && (
@@ -336,7 +363,7 @@ export default function SessionPlanPDF({ session }) {
                     {variation?.notes && (
                       <View style={{ marginTop: 3 }}>
                         <Text style={{ ...styles.variationText, fontWeight: 'bold' }}>Notes:</Text>
-                        <Text style={styles.variationText}>{variation.notes}</Text>
+                        <Text style={styles.variationText}>{htmlToPlainText(variation.notes)}</Text>
                       </View>
                     )}
                   </View>

@@ -1,21 +1,19 @@
 import React from 'react';
 
-export default function SessionCard({ session, onSelect, onDuplicate, onDelete }) {
+export default function SessionCard({ session, onSelect, onDuplicate, onDelete, onSaveToLibrary }) {
   const { summary } = session;
   const isScheduled = summary.date && summary.date.length > 0;
   const exerciseCount = session.sections?.length || 0;
 
   const formatDate = (dateStr) => {
     if (!dateStr) return null;
-    try {
-      return new Date(dateStr).toLocaleDateString('en-US', {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-      });
-    } catch {
-      return dateStr;
-    }
+    // If already a display string (e.g. "April 8, 2026"), use as-is
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+    // Legacy YYYY-MM-DD: parse as local date (no UTC shift)
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+      weekday: 'short', month: 'short', day: 'numeric',
+    });
   };
 
   const getMomentEmoji = (moment) => {
@@ -55,6 +53,18 @@ export default function SessionCard({ session, onSelect, onDuplicate, onDelete }
           )}
         </div>
         <div className="flex gap-1">
+          {onSaveToLibrary && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSaveToLibrary(session.id);
+              }}
+              className="btn btn-subtle text-xs px-2 py-1"
+              title="Save to session library"
+            >
+              Save
+            </button>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation();

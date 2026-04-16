@@ -2,7 +2,9 @@ import React from 'react';
 
 export default function TeamCard({ team, onSelect, onEdit, onDelete }) {
   const sessionCount = team.sessions?.length || 0;
-  const upcomingSessions = team.sessions?.filter(s => s.summary.date && new Date(s.summary.date) >= new Date()).length || 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const upcomingSessions = team.sessions?.filter(s => s.summary.date && new Date(s.summary.date) >= today).length || 0;
 
   return (
     <div

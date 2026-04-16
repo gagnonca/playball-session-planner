@@ -9,7 +9,7 @@ const STEPS = [
   { id: 'about' },
 ];
 
-export default function WelcomeModal({ onDismiss, onGetStarted }) {
+export default function WelcomeModal({ onDismiss, onGetStarted, iosReferral = false }) {
   const [step, setStep] = useState(0);
 
   const dismiss = () => {
@@ -82,6 +82,18 @@ export default function WelcomeModal({ onDismiss, onGetStarted }) {
           {/* Step 3: About & Get Started */}
           {current.id === 'about' && (
             <div>
+              {/* iOS referral banner */}
+              {iosReferral && (
+                <div className="mb-5 p-4 bg-blue-600/10 border border-blue-500/30 rounded-xl">
+                  <div className="flex items-start gap-3">
+                    <span className="text-xl mt-0.5">📱</span>
+                    <p className="text-blue-200 text-sm leading-relaxed">
+                      You're coming from the <span className="font-semibold">PlayBall iOS app</span>! After creating a team and planning sessions here, you can share them back to your iOS app with a share code.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <h2 className="text-2xl font-bold text-white text-center mb-5">The PlayBall Family</h2>
 
               <div className="space-y-3 mb-5">
@@ -91,7 +103,7 @@ export default function WelcomeModal({ onDismiss, onGetStarted }) {
                     <h3 className="font-semibold text-blue-300">Session Planner</h3>
                     <span className="px-2 py-0.5 bg-blue-600/30 text-blue-300 text-xs rounded-full">You are here</span>
                   </div>
-                  <p className="text-slate-400 text-sm">Plan training sessions, create diagrams, and export PDFs for game day.</p>
+                  <p className="text-slate-400 text-sm">Plan training sessions, create diagrams, and sync them to the iOS app with a share code.</p>
                 </div>
 
                 <div className="bg-slate-700/40 rounded-xl p-4">
@@ -145,14 +157,14 @@ export default function WelcomeModal({ onDismiss, onGetStarted }) {
           </div>
 
           {/* Navigation buttons */}
-          {current.id !== 'about' && (
-            <div className="flex justify-between items-center">
-              <button
-                onClick={dismiss}
-                className="text-slate-500 hover:text-slate-300 text-sm transition-colors"
-              >
-                Skip
-              </button>
+          <div className="flex justify-between items-center">
+            <button
+              onClick={dismiss}
+              className="text-slate-500 hover:text-slate-300 text-sm transition-colors"
+            >
+              Skip
+            </button>
+            {current.id !== 'about' && (
               <div className="flex gap-2">
                 {step > 0 && (
                   <button
@@ -169,8 +181,8 @@ export default function WelcomeModal({ onDismiss, onGetStarted }) {
                   Next
                 </button>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>

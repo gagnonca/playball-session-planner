@@ -5,18 +5,25 @@ import SyncStatus from '../SyncStatus';
 import AboutModal from '../AboutModal';
 import WelcomeModal from '../WelcomeModal';
 import { toast } from '../../utils/helpers';
-import { HAS_SEEN_WELCOME_KEY } from '../../constants/storage';
+import { HAS_SEEN_WELCOME_KEY, IOS_PROMO_DISMISSED_KEY } from '../../constants/storage';
 import playballIcon from '../../assets/playball-icon.png';
+import appStoreBadge from '../../assets/app-store-badge.svg';
 
-export default function TeamList({ teamsContext, syncContext, sharingContext, onShowLinkDevice }) {
-  const { teamsData, navigateToTeamDetail, deleteTeam } = teamsContext;
+export default function TeamList({ teamsContext, syncContext, sharingContext, onShowLinkDevice, iosReferral, onDismissIosReferral }) {
+  const { teamsData, navigateToTeamDetail, deleteTeam, navigateToLibrary } = teamsContext;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem(HAS_SEEN_WELCOME_KEY));
   const [editingTeam, setEditingTeam] = useState(null);
+  const [iosPromoDismissed, setIosPromoDismissed] = useState(() => !!localStorage.getItem(IOS_PROMO_DISMISSED_KEY));
 
   const teams = teamsData?.teams || [];
   const followedShares = sharingContext?.followedShares || [];
+
+  const handleDismissIosPromo = () => {
+    setIosPromoDismissed(true);
+    localStorage.setItem(IOS_PROMO_DISMISSED_KEY, 'true');
+  };
 
   const handleSelectTeam = (teamId) => {
     navigateToTeamDetail(teamId);
@@ -71,6 +78,17 @@ export default function TeamList({ teamsContext, syncContext, sharingContext, on
                 onLinkDevice={onShowLinkDevice}
               />
             )}
+            {/* Library Button */}
+            <button
+              onClick={() => navigateToLibrary('exercises')}
+              className="flex items-center gap-2 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors text-sm"
+              title="Library"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              </svg>
+              <span className="hidden sm:inline">Library</span>
+            </button>
             {/* About Button */}
             <button
               onClick={() => setShowAboutModal(true)}
@@ -88,6 +106,37 @@ export default function TeamList({ teamsContext, syncContext, sharingContext, on
 
       {/* Main Content */}
       <div className="max-w-6xl mx-auto p-6">
+        {/* iOS Referral Banner - shown when arriving from iOS app with existing teams */}
+        {iosReferral && teams.length > 0 && (
+          <div className="mb-6 p-5 bg-blue-600/10 border border-blue-500/30 rounded-xl relative">
+            <button
+              onClick={onDismissIosReferral}
+              className="absolute top-3 right-3 text-slate-400 hover:text-slate-200 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 bg-blue-600/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+                <span className="text-xl">📱</span>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-blue-300 mb-2">Link Your iOS App</h3>
+                <p className="text-slate-300 text-sm mb-3">
+                  To link training sessions from the PlayBall iOS app:
+                </p>
+                <ol className="text-slate-400 text-sm space-y-1 list-decimal list-inside">
+                  <li>Select a team below</li>
+                  <li>Tap <span className="text-slate-300 font-medium">Share</span></li>
+                  <li>Copy the share code</li>
+                  <li>Paste it in your iOS app</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold">My Teams</h2>
           <button onClick={handleCreateTeam} className="btn btn-primary">
@@ -133,6 +182,41 @@ export default function TeamList({ teamsContext, syncContext, sharingContext, on
                 onDelete={handleDeleteTeam}
               />
             ))}
+          </div>
+        )}
+
+        {/* iOS App Promo - shown to all users (unless dismissed or arrived from iOS) */}
+        {!iosReferral && !iosPromoDismissed && teams.length > 0 && (
+          <div className="mt-8 p-5 bg-slate-800/60 border border-slate-700 rounded-xl relative">
+            <button
+              onClick={handleDismissIosPromo}
+              className="absolute top-3 right-3 text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <div className="flex items-center gap-4">
+              <img
+                src={playballIcon}
+                alt="PlayBall"
+                className="w-12 h-12 rounded-xl shadow-md flex-shrink-0"
+              />
+              <div className="flex-1">
+                <h3 className="text-base font-semibold text-slate-200 mb-1">Sync to the PlayBall iOS App</h3>
+                <p className="text-slate-400 text-sm">
+                  Share your sessions directly to the PlayBall iOS app — which also handles game day substitution management.
+                </p>
+              </div>
+              <a
+                href="https://apps.apple.com/us/app/playball-equal-playing-time/id6744836650"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-shrink-0 opacity-90 hover:opacity-100 transition-opacity"
+              >
+                <img src={appStoreBadge} alt="Download on the App Store" className="h-10" />
+              </a>
+            </div>
           </div>
         )}
 
@@ -219,6 +303,7 @@ export default function TeamList({ teamsContext, syncContext, sharingContext, on
       {/* Welcome Modal (first-time visitors) */}
       {showWelcome && (
         <WelcomeModal
+          iosReferral={iosReferral}
           onDismiss={() => setShowWelcome(false)}
           onGetStarted={() => {
             setShowWelcome(false);
