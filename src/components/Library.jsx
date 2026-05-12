@@ -361,60 +361,72 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary }) {
     : 'Exercises';
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100">
-      {/* Header */}
-      <div className="bg-slate-800 border-b border-slate-700 px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button onClick={handleBack} className="text-slate-400 hover:text-slate-200 transition-colors">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <div>
-              <h1 className="text-xl font-bold">Library</h1>
-              {isInsertMode && (
-                <p className="text-sm text-slate-400">Select an item to insert</p>
-              )}
-            </div>
-          </div>
-
-          {/* Export / Import */}
+    <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+      <header
+        className="sticky top-0 z-10"
+        style={{ background: 'rgb(var(--bg-rgb) / 0.85)', backdropFilter: 'blur(8px)', borderBottom: '1px solid var(--line)' }}
+      >
+        <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
+          <button onClick={handleBack} className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: 13 }}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 19l-7-7 7-7" />
+            </svg>
+            {isInsertMode ? 'Back to session' : 'Back'}
+          </button>
           <div className="flex items-center gap-2">
-            <button onClick={exportLibrary} className="btn btn-subtle text-sm">Export</button>
-            <label className="btn btn-subtle text-sm cursor-pointer">
+            <button onClick={exportLibrary} className="btn btn-ghost">Export</button>
+            <label className="btn btn-ghost cursor-pointer">
               Import
               <input type="file" accept="application/json" onChange={handleImport} className="hidden" />
             </label>
           </div>
         </div>
+      </header>
 
-        {/* Tab Bar */}
-        <div className="max-w-6xl mx-auto mt-3 flex items-center justify-between gap-2">
-          <div className="flex gap-1">
-            {TABS.map(tab => (
+      <div className="max-w-6xl mx-auto px-6 pt-10 pb-4">
+        <div className="text-[11px] font-mono uppercase mb-2" style={{ color: 'var(--ink-3)', letterSpacing: '0.1em' }}>LIBRARY</div>
+        <h1 className="text-[36px] font-semibold leading-[1.04]" style={{ letterSpacing: '-0.02em' }}>
+          Everything you&rsquo;ve made.
+        </h1>
+        <p className="mt-2 text-[14px]" style={{ color: 'var(--ink-2)' }}>
+          {isInsertMode ? 'Select an item to insert into your session.' : 'Sections auto-save here as you build sessions. Pin what you reuse most.'}
+        </p>
+      </div>
+
+      <div className="max-w-6xl mx-auto px-6 pb-3 flex flex-wrap items-center justify-between gap-3">
+        <div
+          role="tablist"
+          aria-label="Library tabs"
+          className="inline-flex p-1 rounded-[10px]"
+          style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)' }}
+        >
+          {TABS.map(tab => {
+            const active = tab.toLowerCase() === activeTabLabel.toLowerCase();
+            return (
               <button
                 key={tab}
+                role="tab"
+                aria-selected={active}
                 onClick={() => handleTabChange(tab)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  tab.toLowerCase() === activeTabLabel.toLowerCase()
-                    ? 'bg-blue-600 text-white'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
-                }`}
+                className="px-3.5 py-1.5 text-[13px] rounded-[7px] transition-colors"
+                style={{
+                  background: active ? 'var(--bg-elev)' : 'transparent',
+                  color: active ? 'var(--ink)' : 'var(--ink-2)',
+                  border: active ? '1px solid var(--line-2)' : '1px solid transparent',
+                  boxShadow: active ? 'var(--shadow-sm)' : 'none',
+                  fontWeight: active ? 500 : 400,
+                }}
               >
                 {tab}
               </button>
-            ))}
-          </div>
-          {activeTabLabel === 'Diagrams' && (
-            <button
-              onClick={() => teamsContext.navigateToEditLibraryDiagram(null)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
-            >
-              + New Diagram
-            </button>
-          )}
+            );
+          })}
         </div>
+        {activeTabLabel === 'Diagrams' && (
+          <button onClick={() => teamsContext.navigateToEditLibraryDiagram(null)} className="btn btn-primary">
+            + New diagram
+          </button>
+        )}
       </div>
 
       <div className="max-w-6xl mx-auto px-6 py-6">
@@ -429,25 +441,25 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary }) {
                 placeholder="Search exercises..."
                 value={exerciseSearch}
                 onChange={e => setExerciseSearch(e.target.value)}
-                className="flex-1 min-w-[180px] max-w-xs px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                className="flex-1 min-w-[180px] max-w-xs px-4 py-2 input-field"
               />
               {uniqueExerciseTypes.length > 0 && (
                 <select value={exerciseTypeFilter} onChange={e => setExerciseTypeFilter(e.target.value)}
-                  className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500">
+                  className="px-3 py-2 input-field">
                   <option value="">All Types</option>
                   {uniqueExerciseTypes.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               )}
               {uniqueExerciseAgeGroups.length > 0 && (
                 <select value={exerciseAgeFilter} onChange={e => setExerciseAgeFilter(e.target.value)}
-                  className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500">
+                  className="px-3 py-2 input-field">
                   <option value="">All Ages</option>
                   {uniqueExerciseAgeGroups.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
               )}
               {uniqueExerciseMoments.length > 0 && (
                 <select value={exerciseMomentFilter} onChange={e => setExerciseMomentFilter(e.target.value)}
-                  className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500">
+                  className="px-3 py-2 input-field">
                   <option value="">All Moments</option>
                   {uniqueExerciseMoments.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
@@ -474,7 +486,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary }) {
                   const isMulti = group.versions.length > 1;
                   const isOpen = expandedGroups.has(group.key);
                   return (
-                    <div key={group.key} className={`bg-slate-800 rounded-xl border border-slate-700 p-4 flex flex-col gap-3 ${isMulti && isOpen ? 'sm:col-span-2 lg:col-span-3' : ''}`}>
+                    <div key={group.key} className={`card card-hover p-4 flex flex-col gap-3 ${isMulti && isOpen ? 'sm:col-span-2 lg:col-span-3' : ''}`}>
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <div className="font-semibold truncate">{group.name}</div>
@@ -657,18 +669,18 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary }) {
                 placeholder="Search sessions..."
                 value={sessionSearch}
                 onChange={e => setSessionSearch(e.target.value)}
-                className="flex-1 min-w-[180px] max-w-xs px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                className="flex-1 min-w-[180px] max-w-xs px-4 py-2 input-field"
               />
               {uniqueSessionAgeGroups.length > 0 && (
                 <select value={sessionAgeFilter} onChange={e => setSessionAgeFilter(e.target.value)}
-                  className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500">
+                  className="px-3 py-2 input-field">
                   <option value="">All Ages</option>
                   {uniqueSessionAgeGroups.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
               )}
               {uniqueSessionMoments.length > 0 && (
                 <select value={sessionMomentFilter} onChange={e => setSessionMomentFilter(e.target.value)}
-                  className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500">
+                  className="px-3 py-2 input-field">
                   <option value="">All Moments</option>
                   {uniqueSessionMoments.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
@@ -696,7 +708,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary }) {
                   const groupKey = `sess:${group.key}`;
                   const isOpen = expandedGroups.has(groupKey);
                   return (
-                    <div key={groupKey} className={`bg-slate-800 rounded-xl border border-slate-700 p-4 flex flex-col gap-3 ${isMulti && isOpen ? 'sm:col-span-2 lg:col-span-3' : ''}`}>
+                    <div key={groupKey} className={`card card-hover p-4 flex flex-col gap-3 ${isMulti && isOpen ? 'sm:col-span-2 lg:col-span-3' : ''}`}>
                       <div className="flex items-start justify-between gap-2">
                         <div className="font-semibold truncate">{group.name}</div>
                         {isMulti && (
