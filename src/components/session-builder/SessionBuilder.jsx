@@ -56,11 +56,14 @@ function SortableSection({ section, teamsContext, diagramLibrary, aiContext, ...
         <button
           {...attributes}
           {...listeners}
-          className="cursor-grab active:cursor-grabbing mt-6 p-2 hover:bg-slate-700 rounded transition-colors no-print"
+          className="cursor-grab active:cursor-grabbing mt-6 p-2 rounded-md transition-colors no-print"
+          style={{ color: 'var(--ink-3)' }}
           title="Drag to reorder"
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-sunken)'; e.currentTarget.style.color = 'var(--ink-2)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ink-3)'; }}
         >
-          <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M4 8h16M4 16h16" />
           </svg>
         </button>
         <div className="flex-1">
@@ -110,9 +113,9 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
   // Handle missing team or session (corrupt data, stale URL, etc.)
   if (!team || !session || !session.summary) {
     return (
-      <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
         <div className="text-center">
-          <p className="text-xl text-slate-400 mb-4">Session not found</p>
+          <p className="text-xl mb-4" style={{ color: 'var(--ink-2)' }}>Session not found</p>
           <div className="flex gap-3 justify-center">
             {team && (
               <button
@@ -124,9 +127,9 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
             )}
             <button
               onClick={navigateToTeams}
-              className={team ? "btn btn-subtle" : "btn btn-primary"}
+              className={team ? 'btn btn-secondary' : 'btn btn-primary'}
             >
-              All Teams
+              All teams
             </button>
           </div>
         </div>
@@ -474,16 +477,17 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
   }, [navigateToTeamDetail, selectedTeamId]);
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100">
-      {/* Breadcrumb Navigation */}
-      <div className="bg-slate-800 border-b border-slate-700 px-4 py-3">
-        <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+      {/* Breadcrumb */}
+      <div style={{ background: 'var(--bg)', borderBottom: '1px solid var(--line)' }}>
+        <div className="max-w-7xl mx-auto px-4 py-2.5">
           <button
             onClick={handleBackToTeam}
-            className="text-blue-400 hover:text-blue-300 flex items-center gap-2"
+            className="btn btn-ghost"
+            style={{ padding: '4px 8px', fontSize: 13 }}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 19l-7-7 7-7" />
             </svg>
             <span>Back to {team.name}</span>
           </button>
@@ -508,10 +512,13 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
         />
 
         {session.sections.length > 0 && (
-          <div className="mt-8">
-            <h2 className="text-2xl font-bold mb-2">Sections</h2>
-            <p className="text-slate-400 text-sm mb-4">
-              Always start and end with Play. Add as many Practice blocks as you want (drills or variations). Drag to reorder.
+          <div className="mt-10 mb-4">
+            <div className="text-[11px] font-mono uppercase" style={{ color: 'var(--ink-3)', letterSpacing: '0.1em' }}>
+              PLAN ({session.sections.length})
+            </div>
+            <h2 className="text-[22px] font-semibold mt-1 mb-1" style={{ letterSpacing: '-0.02em' }}>Sections</h2>
+            <p className="text-[13px]" style={{ color: 'var(--ink-2)' }}>
+              Always start and end with Play. Add as many Practice blocks as you want — drag to reorder.
             </p>
           </div>
         )}
@@ -548,22 +555,26 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
           </SortableContext>
         </DndContext>
 
-        <div className="flex justify-center my-8">
-          <button onClick={handleAddSection} className="btn btn-primary text-lg px-6 py-3">
-            + Add Exercise
+        <div className="flex justify-center my-10">
+          <button
+            onClick={handleAddSection}
+            className="btn btn-primary"
+            style={{ padding: '11px 22px', fontSize: 14.5 }}
+          >
+            + Add section
           </button>
         </div>
 
-        <footer className="text-slate-400 text-sm text-center my-4">
-          Tip: Click <strong>Download PDF</strong> to export your session plan as a formatted PDF document.
+        <footer className="text-[13px] text-center my-4" style={{ color: 'var(--ink-2)' }}>
+          Tip: use <strong style={{ color: 'var(--ink)' }}>Download PDF</strong> to export this session as a printable plan.
         </footer>
 
         <div className="no-print flex flex-wrap gap-3 justify-center my-6">
-          <button onClick={handleExportSession} className="btn btn-subtle text-sm">
-            Export Session JSON
+          <button onClick={handleExportSession} className="btn btn-subtle">
+            Export JSON
           </button>
-          <label className="btn btn-subtle text-sm cursor-pointer">
-            Import Session JSON
+          <label className="btn btn-subtle cursor-pointer">
+            Import JSON
             <input
               type="file"
               accept="application/json"
@@ -577,7 +588,7 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
               className="hidden"
             />
           </label>
-          <button onClick={handleClearSession} className="btn btn-danger text-sm">
+          <button onClick={handleClearSession} className="btn btn-ghost" style={{ color: 'var(--danger)' }}>
             Clear session
           </button>
         </div>
@@ -622,37 +633,37 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
 
       {saveAsState && (
         <>
-          <div className="fixed inset-0 bg-black/60 z-40" onClick={() => setSaveAsState(null)} />
+          <div className="modal-backdrop" onClick={() => setSaveAsState(null)} />
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
-              <h2 className="text-lg font-bold mb-1">Save a copy to Library</h2>
-              <p className="text-sm text-slate-400 mb-4">
-                Your work autosaves automatically. Use Save As to snapshot this session under a new name so you can find it as a reusable template. Pick a unique name.
+            <div className="card p-6 w-full max-w-md animate-fade-in" style={{ boxShadow: 'var(--shadow-lg)' }}>
+              <h2 className="text-[18px] font-semibold mb-1" style={{ letterSpacing: '-0.015em' }}>Save a copy to Library</h2>
+              <p className="text-[13px] mb-4" style={{ color: 'var(--ink-2)' }}>
+                Your work autosaves. Save As snapshots this session under a new name so you can reuse it as a template — pick something unique.
               </p>
-              <label className="block text-xs text-slate-400 mb-1">Name</label>
+              <label className="label-text">Name</label>
               <input
                 type="text"
                 autoFocus
                 value={saveAsState.name}
                 onChange={e => setSaveAsState(s => ({ ...s, name: e.target.value }))}
-                className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500 mb-3"
+                className="input-field mb-3"
               />
-              <label className="block text-xs text-slate-400 mb-1">Description (optional)</label>
+              <label className="label-text">Description (optional)</label>
               <textarea
                 rows={3}
                 value={saveAsState.description}
                 onChange={e => setSaveAsState(s => ({ ...s, description: e.target.value }))}
                 placeholder="What makes this session unique? Age group, focus, etc."
-                className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500 mb-4 resize-none"
+                className="input-field mb-4 resize-none"
               />
               <div className="flex gap-3">
-                <button onClick={() => setSaveAsState(null)} className="flex-1 btn btn-subtle">Cancel</button>
+                <button onClick={() => setSaveAsState(null)} className="flex-1 btn btn-secondary">Cancel</button>
                 <button
                   onClick={handleConfirmSaveAs}
                   disabled={!saveAsState.name.trim()}
                   className="flex-1 btn btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Save Copy
+                  Save copy
                 </button>
               </div>
             </div>
