@@ -25,8 +25,9 @@ export default function WelcomeModal({ onDismiss, onGetStarted, iosReferral = fa
   const current = STEPS[step];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-slate-800 rounded-2xl shadow-2xl max-w-lg w-full border border-slate-700 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="modal-backdrop" onClick={dismiss} />
+      <div className="relative card animate-fade-in max-w-lg w-full overflow-hidden" style={{ boxShadow: 'var(--shadow-lg)' }}>
         {/* Content */}
         <div className="p-8">
           {/* Step 1: Welcome */}
