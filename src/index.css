@@ -2,163 +2,261 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Dark theme base styles */
-@layer base {
-  :root {
-    --bg-primary: #0f172a;
-    --bg-secondary: #1e293b;
-    --bg-tertiary: #334155;
-    --text-primary: #f1f5f9;
-    --text-secondary: #cbd5e1;
-    --text-muted: #94a3b8;
-    --border: #334155;
-    --accent: #3b82f6;
-    --accent-hover: #2563eb;
-    --success: #10b981;
-    --danger: #ef4444;
-  }
+/* -----------------------------------------------------------------------------
+   Design tokens (default = light/terracotta). theme.js overrides these
+   imperatively via documentElement.style.setProperty when the user switches
+   theme or accent. Tokens are declared in two forms: hex (for direct CSS use)
+   and "r g b" triplet (for Tailwind's rgb(var(--*) / <alpha-value>) mapping).
+   ---------------------------------------------------------------------------- */
+:root {
+  --bg:         #faf7f2;  --bg-rgb:         250 247 242;
+  --bg-elev:    #ffffff;  --bg-elev-rgb:    255 255 255;
+  --bg-sunken:  #f1ece3;  --bg-sunken-rgb:  241 236 227;
+  --ink:        #1a1814;  --ink-rgb:        26 24 20;
+  --ink-2:      #4a4640;  --ink-2-rgb:      74 70 64;
+  --ink-3:      #8a8378;  --ink-3-rgb:      138 131 120;
+  --line:       #e8e1d3;  --line-rgb:       232 225 211;
+  --line-2:     #d8cfbb;  --line-2-rgb:     216 207 187;
 
-  body {
-    @apply bg-slate-900 text-slate-100 antialiased;
-    background: linear-gradient(to bottom right, #1e293b 0%, #0f172a 50%, #020617 100%);
-    min-height: 100vh;
-  }
+  --accent:      #c8553d; --accent-rgb:      200 85 61;
+  --accent-ink:  #ffffff; --accent-ink-rgb:  255 255 255;
+  --accent-soft: #f4ddd5; --accent-soft-rgb: 244 221 213;
+
+  --good:   #4a7c59; --good-rgb:   74 124 89;
+  --warn:   #c8853d; --warn-rgb:   200 133 61;
+  --danger: #b14b3d; --danger-rgb: 177 75 61;
+
+  --shadow-sm: 0 1px 2px rgba(26, 24, 20, 0.04);
+  --shadow-md: 0 4px 12px rgba(26, 24, 20, 0.06), 0 1px 2px rgba(26, 24, 20, 0.04);
+  --shadow-lg: 0 20px 50px rgba(26, 24, 20, 0.12), 0 4px 10px rgba(26, 24, 20, 0.04);
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+
+  --font-sans: 'Helvetica Neue', Helvetica, 'Arial Nova', Arial, system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
-/* Custom components */
+@layer base {
+  html, body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-feature-settings: 'ss01', 'cv11';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -0.005em;
+  }
+  body {
+    min-height: 100vh;
+    background: var(--bg);
+  }
+
+  /* Typographic defaults */
+  h1, h2, h3, h4 {
+    color: var(--ink);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  /* Form element resets — they inherit the page font but native UAs override */
+  input, textarea, select, button {
+    font-family: inherit;
+    color: inherit;
+  }
+  ::placeholder { color: var(--ink-3); opacity: 1; }
+
+  /* Selection */
+  ::selection { background: rgb(var(--accent-rgb) / 0.25); color: var(--ink); }
+}
+
+/* -----------------------------------------------------------------------------
+   Component utilities — Helvetica button family, cards, inputs.
+   These deliberately mirror the legacy class names (.btn, .card, .input-field)
+   so we don't have to rewrite every component for Phase 1.
+   ---------------------------------------------------------------------------- */
 @layer components {
   .btn {
-    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200
-           focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.95rem;
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+    font-size: 14px;
+    letter-spacing: -0.005em;
+    line-height: 1.15;
+    transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease, transform 80ms ease, box-shadow 160ms ease;
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+  .btn:active { transform: translateY(0.5px); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.22);
   }
 
   .btn-primary {
-    @apply bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500;
+    background: var(--accent);
+    color: var(--accent-ink);
   }
+  .btn-primary:hover { background: color-mix(in srgb, var(--accent) 92%, black); }
 
   .btn-secondary {
-    @apply bg-slate-700 hover:bg-slate-600 text-slate-100 focus:ring-slate-500;
+    background: var(--bg-elev);
+    color: var(--ink);
+    border-color: var(--line);
+    box-shadow: var(--shadow-sm);
   }
-
-  .btn-danger {
-    @apply bg-red-600 hover:bg-red-700 text-white focus:ring-red-500;
-  }
+  .btn-secondary:hover { border-color: var(--line-2); }
 
   .btn-subtle {
-    @apply bg-slate-800 hover:bg-slate-700 text-slate-300 focus:ring-slate-500;
+    background: var(--bg-sunken);
+    color: var(--ink-2);
   }
+  .btn-subtle:hover { color: var(--ink); background: color-mix(in srgb, var(--bg-sunken) 80%, var(--line)); }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--ink-2);
+  }
+  .btn-ghost:hover { color: var(--ink); background: rgb(var(--ink-rgb) / 0.05); }
+
+  .btn-danger {
+    background: var(--danger);
+    color: #ffffff;
+  }
+  .btn-danger:hover { background: color-mix(in srgb, var(--danger) 90%, black); }
+
+  .btn-soft {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent-soft) 80%, var(--accent));
+  }
+  .btn-soft:hover { background: color-mix(in srgb, var(--accent-soft) 86%, var(--accent)); }
 
   .card {
-    @apply bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-xl shadow-lg;
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+  }
+  .card-hover {
+    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  }
+  .card-hover:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+    border-color: var(--line-2);
   }
 
   .input-field {
-    @apply w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2
-           text-slate-100 placeholder-slate-500
-           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
-           transition-all duration-200;
+    width: 100%;
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    padding: 0.55rem 0.75rem;
+    color: var(--ink);
+    font-size: 14px;
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+  }
+  .input-field::placeholder { color: var(--ink-3); }
+  .input-field:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.18);
   }
 
   .label-text {
-    @apply text-sm font-medium text-slate-400 mb-1.5 block;
+    display: block;
+    margin-bottom: 0.35rem;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--ink-2);
   }
 
   .modal-backdrop {
-    @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-40;
+    position: fixed; inset: 0;
+    background: rgb(var(--ink-rgb) / 0.45);
+    backdrop-filter: blur(4px);
+    z-index: 40;
   }
-
   .modal-content {
-    @apply fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
-           w-full max-w-4xl max-h-[90vh] overflow-auto
-           bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 p-6;
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 100%;
+    max-width: 56rem;
+    max-height: 90vh;
+    overflow: auto;
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-lg);
+    padding: 1.5rem;
+    z-index: 50;
   }
 
-  /* Print styles */
-  @media print {
-    body {
-      @apply bg-white text-black;
-      background: white;
-    }
+  /* Subtle hairline */
+  .hairline {
+    border-top: 1px solid var(--line);
+  }
 
-    .no-print {
-      display: none !important;
-    }
-
-    .card {
-      @apply bg-white border-gray-300;
-    }
-
-    .input-field {
-      @apply bg-white border-gray-300 text-black;
-    }
-
-    .btn {
-      @apply hidden;
-    }
+  /* Mono-styled overline label */
+  .overline {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
   }
 }
 
-/* Utilities */
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: theme('colors.slate.700') theme('colors.slate.900');
+    scrollbar-color: var(--line-2) var(--bg);
   }
+  .scrollbar-thin::-webkit-scrollbar { width: 8px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: var(--bg); }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 9999px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: var(--ink-3); }
 
-  .scrollbar-thin::-webkit-scrollbar {
-    width: 8px;
-  }
-
-  .scrollbar-thin::-webkit-scrollbar-track {
-    @apply bg-slate-900;
-  }
-
-  .scrollbar-thin::-webkit-scrollbar-thumb {
-    @apply bg-slate-700 rounded-full;
-  }
-
-  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    @apply bg-slate-600;
-  }
+  .font-mono { font-family: var(--font-mono); }
 }
 
-/* Tldraw custom styles for dark theme integration */
-.tldraw__editor {
-  --color-background: #0f172a !important;
-  --color-panel: #1e293b !important;
-  --color-panel-contrast: #334155 !important;
-}
-
-.tldraw {
-  --color-background: #0f172a !important;
-}
-
-/* Make tldraw canvas have a soccer field green background */
-.tl-canvas {
-  background-color: #4CAF50 !important;
-}
-
-/* Animations */
+/* -----------------------------------------------------------------------------
+   Animations
+   ---------------------------------------------------------------------------- */
 @keyframes fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
+.animate-fade-in { animation: fade-in 0.22s ease-out; }
 
-.animate-fade-in {
-  animation: fade-in 0.3s ease-out;
+/* -----------------------------------------------------------------------------
+   Third-party overrides — keep Konva/tldraw legible on the new surfaces.
+   ---------------------------------------------------------------------------- */
+.tldraw__editor {
+  --color-background: var(--bg) !important;
+  --color-panel: var(--bg-elev) !important;
+  --color-panel-contrast: var(--bg-sunken) !important;
 }
+.tldraw { --color-background: var(--bg) !important; }
+.tl-canvas { background-color: #6aa365 !important; }
 
-/* TipTap Rich Text Editor */
+/* -----------------------------------------------------------------------------
+   TipTap rich text — rebuilt against the token system. Mirrors the old shape
+   so existing RichTextEditor markup keeps working.
+   ---------------------------------------------------------------------------- */
 .rich-text-editor {
-  border: 1px solid #334155;
-  border-radius: 0.5rem;
-  background: #1e293b;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg-elev);
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -166,83 +264,41 @@
   height: 150px;
   min-width: 200px;
 }
-
 .rich-text-editor:focus-within {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.18);
 }
-
-.tiptap-content {
-  overflow: auto;
-  flex-shrink: 1;
-}
-
+.tiptap-content { overflow: auto; flex-shrink: 1; }
 .tiptap-content .tiptap {
   padding: 0.5rem 0.75rem;
   outline: none;
   font-size: 0.875rem;
-  color: #e2e8f0;
-  line-height: 1.6;
+  color: var(--ink);
+  line-height: 1.55;
 }
-
-.tiptap-content .tiptap p {
-  margin: 0 0 0.5rem;
-}
-
-.tiptap-content .tiptap p:last-child {
-  margin-bottom: 0;
-}
-
-.tiptap-content .tiptap ul {
-  list-style-type: disc;
-  padding-left: 1.5rem;
-  margin: 0.5rem 0;
-}
-
-.tiptap-content .tiptap ol {
-  list-style-type: decimal;
-  padding-left: 1.5rem;
-  margin: 0.5rem 0;
-}
-
-.tiptap-content .tiptap ul ul {
-  list-style-type: circle;
-  margin: 0;
-}
-
-.tiptap-content .tiptap ol ol {
-  list-style-type: lower-alpha;
-  margin: 0;
-}
-
-.tiptap-content .tiptap li {
-  margin-bottom: 0.25rem;
-}
-
-.tiptap-content .tiptap strong {
-  font-weight: 600;
-}
-
-.tiptap-content .tiptap em {
-  font-style: italic;
-}
-
+.tiptap-content .tiptap p { margin: 0 0 0.5rem; }
+.tiptap-content .tiptap p:last-child { margin-bottom: 0; }
+.tiptap-content .tiptap ul { list-style-type: disc; padding-left: 1.5rem; margin: 0.5rem 0; }
+.tiptap-content .tiptap ol { list-style-type: decimal; padding-left: 1.5rem; margin: 0.5rem 0; }
+.tiptap-content .tiptap ul ul { list-style-type: circle; margin: 0; }
+.tiptap-content .tiptap ol ol { list-style-type: lower-alpha; margin: 0; }
+.tiptap-content .tiptap li { margin-bottom: 0.25rem; }
+.tiptap-content .tiptap strong { font-weight: 600; }
+.tiptap-content .tiptap em { font-style: italic; }
 .tiptap-content .tiptap p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
-  color: #475569;
+  color: var(--ink-3);
   float: left;
   height: 0;
   pointer-events: none;
 }
 
 @media print {
-  .rich-text-editor > div:first-child {
-    display: none;
-  }
-
-  .rich-text-editor {
-    resize: none;
-    border: none;
-    background: white;
-  }
+  body { background: white; color: black; }
+  .no-print { display: none !important; }
+  .card { background: white; border-color: #cbd5e1; box-shadow: none; }
+  .btn { display: none; }
+  .input-field { background: white; border-color: #cbd5e1; color: black; }
+  .rich-text-editor > div:first-child { display: none; }
+  .rich-text-editor { resize: none; border: none; background: white; }
 }
