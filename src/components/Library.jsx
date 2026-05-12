@@ -483,39 +483,52 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
-      <header
-        className="sticky top-0 z-10"
-        style={{ background: 'rgb(var(--bg-rgb) / 0.85)', backdropFilter: 'blur(8px)', borderBottom: '1px solid var(--line)' }}
-      >
-        <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
-          <button onClick={handleBack} className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: 13 }}>
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 19l-7-7 7-7" />
-            </svg>
-            {isInsertMode ? 'Back to session' : 'Back'}
-          </button>
-          <div className="flex items-center gap-2">
-            <button onClick={exportLibrary} className="btn btn-ghost">Export</button>
-            <label className="btn btn-ghost cursor-pointer">
+      {isInsertMode && (
+        <header
+          className="sticky top-0 z-10"
+          style={{ background: 'rgb(var(--bg-rgb) / 0.85)', backdropFilter: 'blur(8px)', borderBottom: '1px solid var(--line)' }}
+        >
+          <div className="max-w-6xl mx-auto px-10 py-3 flex items-center justify-between gap-4">
+            <button onClick={handleBack} className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: 13 }}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 19l-7-7 7-7" />
+              </svg>
+              Back to session
+            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={exportLibrary} className="btn btn-ghost">Export</button>
+              <label className="btn btn-ghost cursor-pointer">
+                Import
+                <input type="file" accept="application/json" onChange={handleImport} className="hidden" />
+              </label>
+            </div>
+          </div>
+        </header>
+      )}
+
+      <div className="max-w-6xl mx-auto px-10 pt-12 pb-4 flex items-start justify-between gap-6">
+        <div>
+          <div className="text-[11px] font-mono uppercase mb-2" style={{ color: 'var(--ink-3)', letterSpacing: '0.1em' }}>LIBRARY</div>
+          <h1 className="text-[36px] font-semibold leading-[1.04]" style={{ letterSpacing: '-0.02em' }}>
+            Everything you&rsquo;ve made.
+          </h1>
+          <p className="mt-2 text-[14px]" style={{ color: 'var(--ink-2)' }}>
+            {isInsertMode ? 'Select an item to insert into your session.' : 'Sessions auto-save here as you build them. Pin what you reuse, share what’s worth sharing.'}
+          </p>
+        </div>
+        {!isInsertMode && (
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button onClick={exportLibrary} className="btn btn-ghost" title="Export library JSON">Export</button>
+            <label className="btn btn-ghost cursor-pointer" title="Import library JSON">
               Import
               <input type="file" accept="application/json" onChange={handleImport} className="hidden" />
             </label>
           </div>
-        </div>
-      </header>
-
-      <div className="max-w-6xl mx-auto px-6 pt-10 pb-4">
-        <div className="text-[11px] font-mono uppercase mb-2" style={{ color: 'var(--ink-3)', letterSpacing: '0.1em' }}>LIBRARY</div>
-        <h1 className="text-[36px] font-semibold leading-[1.04]" style={{ letterSpacing: '-0.02em' }}>
-          Everything you&rsquo;ve made.
-        </h1>
-        <p className="mt-2 text-[14px]" style={{ color: 'var(--ink-2)' }}>
-          {isInsertMode ? 'Select an item to insert into your session.' : 'Sessions auto-save here as you build them. Pin what you reuse, share what’s worth sharing.'}
-        </p>
+        )}
       </div>
 
       {!isInsertMode && (
-        <div className="max-w-6xl mx-auto px-6 pb-5">
+        <div className="max-w-6xl mx-auto px-10 pb-5">
           <div
             className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-[10px]"
             style={{ background: 'var(--bg-elev)', border: '1px solid var(--line)', fontSize: 12.5, color: 'var(--ink-2)' }}
@@ -534,7 +547,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
         </div>
       )}
 
-      <div className="max-w-6xl mx-auto px-6 pb-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="max-w-6xl mx-auto px-10 pb-3 flex flex-wrap items-center justify-between gap-3">
         <div
           role="tablist"
           aria-label="Library tabs"
@@ -588,7 +601,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
         )}
       </div>
 
-      <div className="max-w-6xl mx-auto px-6 py-6">
+      <div className="max-w-6xl mx-auto px-10 py-6">
 
         {/* ===== EXERCISES TAB ===== */}
         {activeTabLabel === 'Exercises' && (

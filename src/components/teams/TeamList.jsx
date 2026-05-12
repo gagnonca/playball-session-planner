@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
 import TeamCard from './TeamCard';
 import CreateTeamModal from './CreateTeamModal';
-import SyncStatus from '../SyncStatus';
-import AboutModal from '../AboutModal';
 import WelcomeModal from '../WelcomeModal';
 import { toast } from '../../utils/helpers';
 import { HAS_SEEN_WELCOME_KEY, IOS_PROMO_DISMISSED_KEY } from '../../constants/storage';
@@ -25,10 +23,9 @@ function greeting() {
   return 'Good evening';
 }
 
-export default function TeamList({ teamsContext, syncContext, sharingContext, onShowLinkDevice, iosReferral, onDismissIosReferral }) {
-  const { teamsData, navigateToTeamDetail, deleteTeam, navigateToLibrary, navigateToSchedule } = teamsContext;
+export default function TeamList({ teamsContext, sharingContext, iosReferral, onDismissIosReferral }) {
+  const { teamsData, navigateToTeamDetail, deleteTeam } = teamsContext;
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showAboutModal, setShowAboutModal] = useState(false);
   const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem(HAS_SEEN_WELCOME_KEY));
   const [editingTeam, setEditingTeam] = useState(null);
   const [iosPromoDismissed, setIosPromoDismissed] = useState(() => !!localStorage.getItem(IOS_PROMO_DISMISSED_KEY));
@@ -71,65 +68,7 @@ export default function TeamList({ teamsContext, syncContext, sharingContext, on
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
-      {/* Top bar — light hairline, not a heavy filled banner */}
-      <header
-        className="sticky top-0 z-10"
-        style={{ background: 'rgb(var(--bg-rgb) / 0.85)', backdropFilter: 'blur(8px)', borderBottom: '1px solid var(--line)' }}
-      >
-        <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <img src={playballIcon} alt="PlayBall" className="w-9 h-9 rounded-xl shadow-sm" />
-            <div>
-              <div className="text-[15px] font-semibold leading-tight" style={{ letterSpacing: '-0.015em' }}>PlayBall</div>
-              <div className="text-[11px] font-mono uppercase" style={{ color: 'var(--ink-3)', letterSpacing: '0.08em' }}>Session planner</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {syncContext && (
-              <SyncStatus
-                status={syncContext.syncStatus}
-                lastSyncAt={syncContext.lastSyncAt}
-                onLinkDevice={onShowLinkDevice}
-              />
-            )}
-            {navigateToSchedule && (
-              <button
-                onClick={() => navigateToSchedule()}
-                className="btn btn-ghost"
-                title="Schedule"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                Schedule
-              </button>
-            )}
-            <button
-              onClick={() => navigateToLibrary('exercises')}
-              className="btn btn-ghost"
-              title="Library"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-              </svg>
-              Library
-            </button>
-            <button
-              onClick={() => setShowAboutModal(true)}
-              className="btn btn-ghost"
-              title="About & settings"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M10.325 4.317a1 1 0 011.35 0l1.318 1.218a1 1 0 00.92.244l1.74-.412a1 1 0 011.214.738l.412 1.74a1 1 0 00.244.92l1.218 1.318a1 1 0 010 1.35l-1.218 1.318a1 1 0 00-.244.92l.412 1.74a1 1 0 01-.738 1.214l-1.74.412a1 1 0 00-.92.244l-1.318 1.218a1 1 0 01-1.35 0l-1.318-1.218a1 1 0 00-.92-.244l-1.74.412a1 1 0 01-1.214-.738l-.412-1.74a1 1 0 00-.244-.92L4.317 12.675a1 1 0 010-1.35l1.218-1.318a1 1 0 00.244-.92l-.412-1.74a1 1 0 01.738-1.214l1.74-.412a1 1 0 00.92-.244l1.318-1.218z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              About
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-6xl mx-auto px-6 pt-10 pb-16">
+      <main className="max-w-6xl mx-auto px-10 pt-12 pb-16">
         {/* Greeting */}
         <div className="mb-10">
           <div className="text-[11px] font-mono uppercase mb-2" style={{ color: 'var(--ink-3)', letterSpacing: '0.1em' }}>{dayLabel()}</div>
@@ -324,17 +263,6 @@ export default function TeamList({ teamsContext, syncContext, sharingContext, on
           onClose={() => {
             setShowCreateModal(false);
             setEditingTeam(null);
-          }}
-        />
-      )}
-
-      {showAboutModal && (
-        <AboutModal
-          onClose={() => setShowAboutModal(false)}
-          onRestartTutorial={() => {
-            setShowAboutModal(false);
-            localStorage.removeItem(HAS_SEEN_WELCOME_KEY);
-            setShowWelcome(true);
           }}
         />
       )}

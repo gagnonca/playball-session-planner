@@ -11,4 +11,5 @@ export const VIEWS = {
   DIAGRAM_LIBRARY: 'diagram-library',
   LIBRARY: 'library',
   SCHEDULE: 'schedule',
+  SETTINGS: 'settings',
 };

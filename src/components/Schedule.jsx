@@ -46,7 +46,7 @@ function monthLabel(d) {
 }
 
 export default function Schedule({ teamsContext }) {
-  const { teamsData, navigateToTeams, navigateToSessionBuilder, navigateToLibrary, navigateToTeamDetail } = teamsContext;
+  const { teamsData, navigateToSessionBuilder, navigateToTeamDetail } = teamsContext;
   const teams = teamsData?.teams || [];
 
   // Visible month — defaults to today. Caller can move +/- a month.
@@ -87,24 +87,7 @@ export default function Schedule({ teamsContext }) {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
-      <header
-        className="sticky top-0 z-10"
-        style={{ background: 'rgb(var(--bg-rgb) / 0.85)', backdropFilter: 'blur(8px)', borderBottom: '1px solid var(--line)' }}
-      >
-        <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
-          <button onClick={navigateToTeams} className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: 13 }}>
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 19l-7-7 7-7" />
-            </svg>
-            Back
-          </button>
-          <div className="flex items-center gap-2">
-            <button onClick={() => navigateToLibrary && navigateToLibrary('sessions')} className="btn btn-ghost">Library</button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-6xl mx-auto px-6 pt-10 pb-16">
+      <main className="max-w-6xl mx-auto px-10 pt-12 pb-16">
         <div className="flex items-end justify-between flex-wrap gap-4 mb-6">
           <div>
             <div className="overline mb-2">SCHEDULE · {monthLabel(cursor).toUpperCase()}</div>

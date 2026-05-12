@@ -14,6 +14,8 @@ import SessionBuilder from './session-builder/SessionBuilder';
 import DiagramBuilder from './DiagramBuilder';
 import Library from './Library';
 import Schedule from './Schedule';
+import Settings from './Settings';
+import NavRail from './NavRail';
 import LinkDeviceModal from './LinkDeviceModal';
 import StorageLimitModal from './StorageLimitModal';
 import ImportLanding from './ImportLanding';
@@ -606,33 +608,70 @@ export default function AppShell() {
     );
   }
 
-  // Schedule view
-  if (currentView === VIEWS.SCHEDULE) {
+  // SessionBuilder is fullscreen — no nav rail.
+  if (currentView === VIEWS.SESSION_BUILDER) {
     return (
       <ViewErrorBoundary onRecover={navigateToTeams}>
-        <Schedule teamsContext={teamsContext} />
+        <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+          <SessionBuilder
+            teamsContext={teamsContext}
+            diagramLibrary={diagramLibrary}
+            libraryHook={libraryHook}
+            syncContext={syncContext}
+            onShowLinkDevice={() => setShowLinkDeviceModal(true)}
+          />
+          {showLinkDeviceModal && (
+            <LinkDeviceModal
+              onClose={() => {
+                setShowLinkDeviceModal(false);
+                setLinkDeviceDefaultMode(null);
+              }}
+              hasIdentity={syncContext.isSyncEnabled}
+              defaultMode={linkDeviceDefaultMode}
+              onRequestCode={syncContext.requestPairingCode}
+              onConfirmCode={async (code) => {
+                const teams = await syncContext.confirmPairingCode(code);
+                if (teams) {
+                  teamsContext.loadTeamsFromServer(teams);
+                  setShowLinkDeviceModal(false);
+                  setLinkDeviceDefaultMode(null);
+                }
+              }}
+              onInitialize={async () => {
+                await syncContext.initializeIdentity();
+                if (teamsData) {
+                  await syncContext.forcePush(teamsData);
+                }
+              }}
+              onReset={() => {
+                syncContext.resetSync();
+                setShowLinkDeviceModal(false);
+                setLinkDeviceDefaultMode(null);
+              }}
+            />
+          )}
+          {showStorageLimitModal && (
+            <StorageLimitModal
+              onEnableSync={() => {
+                setShowStorageLimitModal(false);
+                setLinkDeviceDefaultMode('new');
+                setShowLinkDeviceModal(true);
+              }}
+            />
+          )}
+        </div>
       </ViewErrorBoundary>
     );
   }
 
-  // Library view (Sessions, Exercises, Diagrams, Community tabs)
-  if (currentView === VIEWS.LIBRARY) {
-    return (
-      <ViewErrorBoundary onRecover={navigateToTeams}>
-        <Library
-          teamsContext={teamsContext}
-          libraryHook={libraryHook}
-          diagramLibrary={diagramLibrary}
-          syncContext={syncContext}
-          isSignedIn={Boolean(syncContext?.isSyncEnabled)}
-        />
-      </ViewErrorBoundary>
-    );
-  }
-
+  // Shared surfaces (Home, TeamDetail, Schedule, Library, Settings) live inside
+  // the nav-rail layout. Session Builder + Diagram Builder are fullscreen and
+  // bypass this block above.
   return (
     <ViewErrorBoundary onRecover={navigateToTeams}>
-      <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+      <div className="min-h-screen flex" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+        <NavRail teamsContext={teamsContext} syncContext={syncContext} />
+        <div className="flex-1 min-w-0">
         {currentView === VIEWS.TEAMS && (
           <TeamList
             teamsContext={teamsContext}
@@ -650,15 +689,26 @@ export default function AppShell() {
             libraryHook={libraryHook}
           />
         )}
-        {currentView === VIEWS.SESSION_BUILDER && (
-          <SessionBuilder
+        {currentView === VIEWS.SCHEDULE && (
+          <Schedule teamsContext={teamsContext} />
+        )}
+        {currentView === VIEWS.LIBRARY && (
+          <Library
             teamsContext={teamsContext}
-            diagramLibrary={diagramLibrary}
             libraryHook={libraryHook}
+            diagramLibrary={diagramLibrary}
+            syncContext={syncContext}
+            isSignedIn={Boolean(syncContext?.isSyncEnabled)}
+          />
+        )}
+        {currentView === VIEWS.SETTINGS && (
+          <Settings
+            teamsContext={teamsContext}
             syncContext={syncContext}
             onShowLinkDevice={() => setShowLinkDeviceModal(true)}
           />
         )}
+        </div>
 
       {/* Link Device Modal */}
       {showLinkDeviceModal && (
