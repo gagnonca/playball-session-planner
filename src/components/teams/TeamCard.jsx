@@ -1,58 +1,75 @@
 import React from 'react';
 
-export default function TeamCard({ team, onSelect, onEdit, onDelete }) {
-  const sessionCount = team.sessions?.length || 0;
+// Hash team name -> one of a fixed palette of warm tones for the age-group tile.
+const TEAM_TONES = ['#c8553d', '#3d7a4a', '#3d5a8a', '#9a5a3a', '#6a4a8a', '#3a6a7a'];
+function teamTone(team) {
+  if (team.color) return team.color;
+  const key = team.id || team.name || '';
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return TEAM_TONES[h % TEAM_TONES.length];
+}
+
+function nextSessionLabel(team) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const upcomingSessions = team.sessions?.filter(s => s.summary.date && new Date(s.summary.date) >= today).length || 0;
+  const upcoming = (team.sessions || [])
+    .filter(s => s.summary?.date && new Date(s.summary.date) >= today)
+    .sort((a, b) => new Date(a.summary.date) - new Date(b.summary.date))[0];
+  if (!upcoming?.summary?.date) return null;
+  const d = new Date(upcoming.summary.date);
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+export default function TeamCard({ team, onSelect, onEdit, onDelete }) {
+  const sessionCount = team.sessions?.length || 0;
+  const tone = teamTone(team);
+  const next = nextSessionLabel(team);
+  const playerCount = team.roster?.length || 0;
 
   return (
     <div
-      className="card p-6 cursor-pointer hover:border-blue-500 transition-all"
+      className="card card-hover p-5 cursor-pointer"
       onClick={() => onSelect(team.id)}
     >
-      <div className="flex justify-between items-start mb-3">
-        <div>
-          <h3 className="text-xl font-bold text-slate-100">{team.name}</h3>
-          {team.ageGroup && (
-            <p className="text-sm text-slate-400 mt-1">{team.ageGroup}</p>
-          )}
+      <div className="flex items-start gap-4">
+        <div
+          className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center font-semibold text-[13px]"
+          style={{ background: tone, color: '#fff', letterSpacing: '-0.01em' }}
+        >
+          {team.ageGroup || (team.name ? team.name.slice(0, 2).toUpperCase() : '·')}
         </div>
-        <div className="flex gap-2">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[19px] font-semibold leading-tight" style={{ color: 'var(--ink)', letterSpacing: '-0.015em' }}>
+            {team.name}
+          </h3>
+          <p className="text-[13px] mt-1" style={{ color: 'var(--ink-2)' }}>
+            {playerCount > 0 ? `${playerCount} players · ` : ''}
+            {sessionCount} session{sessionCount === 1 ? '' : 's'}
+            {next ? ` · next ${next}` : ''}
+          </p>
+        </div>
+        <div className="flex items-center gap-1 -mr-1 -mt-1">
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit(team);
-            }}
-            className="btn btn-subtle text-sm px-3 py-1"
+            onClick={(e) => { e.stopPropagation(); onEdit(team); }}
+            className="btn btn-ghost"
+            style={{ padding: '6px 10px', fontSize: 12.5 }}
+            aria-label={`Edit ${team.name}`}
           >
             Edit
           </button>
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(team.id);
-            }}
-            className="btn btn-danger text-sm px-3 py-1"
+            onClick={(e) => { e.stopPropagation(); onDelete(team.id); }}
+            className="btn btn-ghost"
+            style={{ padding: '6px 8px', fontSize: 12.5, color: 'var(--danger)' }}
+            aria-label={`Delete ${team.name}`}
+            title="Delete team"
           >
-            Delete
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+            </svg>
           </button>
         </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4 mt-4 text-sm">
-        <div className="bg-slate-800/50 p-3 rounded-lg">
-          <p className="text-slate-400 mb-1">Total Sessions</p>
-          <p className="text-2xl font-bold text-blue-400">{sessionCount}</p>
-        </div>
-        <div className="bg-slate-800/50 p-3 rounded-lg">
-          <p className="text-slate-400 mb-1">Upcoming</p>
-          <p className="text-2xl font-bold text-green-400">{upcomingSessions}</p>
-        </div>
-      </div>
-
-      <div className="mt-4 text-xs text-slate-500">
-        Last updated: {new Date(team.updatedAt).toLocaleDateString()}
       </div>
     </div>
   );
