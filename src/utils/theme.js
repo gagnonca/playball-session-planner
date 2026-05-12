@@ -129,7 +129,7 @@ function loadThemePrefs() {
     const a = localStorage.getItem(ACCENT_KEY);
     if (t && THEMES[t]) theme = t;
     if (a && ACCENTS[a]) accent = a;
-  } catch (e) {
+  } catch {
     // localStorage may be unavailable (private mode); fall through to defaults.
   }
   return { theme, accent };
@@ -139,7 +139,7 @@ function saveThemePrefs(theme, accent) {
   try {
     if (theme) localStorage.setItem(THEME_KEY, theme);
     if (accent) localStorage.setItem(ACCENT_KEY, accent);
-  } catch (e) {
+  } catch {
     // ignore
   }
 }
