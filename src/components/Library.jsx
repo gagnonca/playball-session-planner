@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   libraryPayloadToSection,
   libraryPayloadToSession,
@@ -6,12 +6,99 @@ import {
   sessionToLibraryPayload,
 } from '../utils/helpers';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { LIBRARY_HIDDEN_KEY } from '../constants/storage';
+import { LIBRARY_HIDDEN_KEY, LIBRARY_PINS_KEY } from '../constants/storage';
 import DiagramLibrary from './DiagramLibrary';
 
-const TABS = ['Sessions', 'Exercises', 'Diagrams'];
+const TABS = ['Sessions', 'Exercises', 'Diagrams', 'Community'];
 
-export default function Library({ teamsContext, libraryHook, diagramLibrary }) {
+// --- Shared visual widgets ---------------------------------------------------
+
+function SyncDot({ synced }) {
+  return (
+    <span
+      title={synced ? 'Synced to your devices' : 'On this device only'}
+      style={{
+        width: 8,
+        height: 8,
+        borderRadius: '50%',
+        background: synced ? 'var(--good)' : 'var(--ink-3)',
+        opacity: synced ? 1 : 0.45,
+        flexShrink: 0,
+        display: 'inline-block',
+      }}
+    />
+  );
+}
+
+function PinButton({ pinned, onToggle, size = 'md' }) {
+  const dim = size === 'sm' ? 26 : 30;
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onToggle(); }}
+      title={pinned ? 'Pinned to top' : 'Pin to top'}
+      aria-pressed={pinned}
+      style={{
+        width: dim,
+        height: dim,
+        borderRadius: 7,
+        border: '1px solid',
+        borderColor: pinned ? 'var(--accent)' : 'var(--line)',
+        background: pinned ? 'var(--accent-soft)' : 'var(--bg-elev)',
+        color: pinned ? 'var(--accent)' : 'var(--ink-3)',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        flexShrink: 0,
+        transition: 'background-color 150ms, border-color 150ms, color 150ms',
+      }}
+    >
+      <svg width={size === 'sm' ? 12 : 14} height={size === 'sm' ? 12 : 14} viewBox="0 0 24 24" fill={pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 4h6v6l3 3v2H6v-2l3-3z" />
+        <path d="M12 15v6" />
+      </svg>
+    </button>
+  );
+}
+
+const SHARE_META = {
+  private:  { label: 'Private',     color: 'var(--ink-3)', icon: 'lock' },
+  coaches:  { label: 'Co-coaches',  color: 'var(--accent)', icon: 'users' },
+  public:   { label: 'Public',      color: 'var(--good)', icon: 'globe' },
+};
+
+function ShareTag({ share = 'private', compact }) {
+  const meta = SHARE_META[share] || SHARE_META.private;
+  return (
+    <span
+      title={meta.label}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: meta.color }}
+    >
+      {meta.icon === 'lock' && (
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="4" y="11" width="16" height="10" rx="2" />
+          <path d="M8 11V7a4 4 0 018 0v4" />
+        </svg>
+      )}
+      {meta.icon === 'users' && (
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M17 21v-2a4 4 0 00-3-3.87M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M16 3.13a4 4 0 010 7.75" />
+        </svg>
+      )}
+      {meta.icon === 'globe' && (
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M3 12h18M12 3a13 13 0 010 18M12 3a13 13 0 000 18" />
+        </svg>
+      )}
+      {!compact && meta.label}
+    </span>
+  );
+}
+
+export default function Library({ teamsContext, libraryHook, diagramLibrary, syncContext, isSignedIn = false }) {
   const {
     teamsData,
     selectedTeamId,
@@ -73,6 +160,23 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary }) {
   const hiddenSessionSet = useMemo(() => new Set(hiddenIds.sessions || []), [hiddenIds.sessions]);
   const hideExerciseId = (id) => setHiddenIds(prev => ({ ...prev, exercises: Array.from(new Set([...(prev.exercises || []), id])) }));
   const hideSessionId = (id) => setHiddenIds(prev => ({ ...prev, sessions: Array.from(new Set([...(prev.sessions || []), id])) }));
+
+  // Pinned items — keyed by group key (lowercased name) for sessions/exercises
+  // and by raw item id for diagrams. Persists across sessions in localStorage.
+  const [pins, setPins] = useLocalStorage(LIBRARY_PINS_KEY, { sessions: [], exercises: [], diagrams: [] });
+  const exercisePinSet = useMemo(() => new Set(pins.exercises || []), [pins.exercises]);
+  const sessionPinSet = useMemo(() => new Set(pins.sessions || []), [pins.sessions]);
+  const togglePin = useCallback((kind, key) => {
+    setPins(prev => {
+      const list = prev[kind] || [];
+      const has = list.includes(key);
+      const next = has ? list.filter(k => k !== key) : [...list, key];
+      return { ...prev, [kind]: next };
+    });
+  }, [setPins]);
+
+  // Sync awareness — drives the per-item green/gray dot and the auto-save copy.
+  const syncOn = Boolean(syncContext?.isSyncEnabled);
   const unhideAllExercises = () => setHiddenIds(prev => ({ ...prev, exercises: [] }));
   const unhideAllSessions = () => setHiddenIds(prev => ({ ...prev, sessions: [] }));
 
@@ -201,8 +305,12 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary }) {
         const matchMoment = !exerciseMomentFilter || g.versions.some(v => (v.tags?.moment || '') === exerciseMomentFilter);
         return matchSearch && matchType && matchAge && matchMoment;
       })
-      .sort((a, b) => (b.latestUpdatedAt || '').localeCompare(a.latestUpdatedAt || ''));
-  }, [exerciseItems, exerciseSearch, exerciseTypeFilter, exerciseAgeFilter, exerciseMomentFilter]);
+      .map(g => ({ ...g, pinned: exercisePinSet.has(g.key) }))
+      .sort((a, b) => {
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+        return (b.latestUpdatedAt || '').localeCompare(a.latestUpdatedAt || '');
+      });
+  }, [exerciseItems, exerciseSearch, exerciseTypeFilter, exerciseAgeFilter, exerciseMomentFilter, exercisePinSet]);
 
   const filteredSessionGroups = useMemo(() => {
     const q = sessionSearch.toLowerCase();
@@ -213,8 +321,20 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary }) {
         const matchMoment = !sessionMomentFilter || g.versions.some(v => (v.tags?.moment || '') === sessionMomentFilter);
         return matchSearch && matchAge && matchMoment;
       })
-      .sort((a, b) => (b.latestUpdatedAt || '').localeCompare(a.latestUpdatedAt || ''));
-  }, [sessionItems, sessionSearch, sessionAgeFilter, sessionMomentFilter]);
+      .map(g => ({ ...g, pinned: sessionPinSet.has(g.key) }))
+      .sort((a, b) => {
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+        return (b.latestUpdatedAt || '').localeCompare(a.latestUpdatedAt || '');
+      });
+  }, [sessionItems, sessionSearch, sessionAgeFilter, sessionMomentFilter, sessionPinSet]);
+
+  // Counts shown in the tab bar pills
+  const tabCounts = useMemo(() => ({
+    sessions: filteredSessionGroups.length,
+    exercises: filteredExerciseGroups.length,
+    diagrams: diagramLibrary?.diagrams?.length || 0,
+    community: 0,
+  }), [filteredSessionGroups.length, filteredExerciseGroups.length, diagramLibrary?.diagrams?.length]);
 
   const [expandedGroups, setExpandedGroups] = useState(() => new Set());
   const toggleGroup = (key) => {
@@ -358,6 +478,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary }) {
   // Map tab key → display label
   const activeTabLabel = activeTab === 'sessions' ? 'Sessions'
     : activeTab === 'diagrams' ? 'Diagrams'
+    : activeTab === 'community' ? 'Community'
     : 'Exercises';
 
   return (
@@ -389,36 +510,74 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary }) {
           Everything you&rsquo;ve made.
         </h1>
         <p className="mt-2 text-[14px]" style={{ color: 'var(--ink-2)' }}>
-          {isInsertMode ? 'Select an item to insert into your session.' : 'Sections auto-save here as you build sessions. Pin what you reuse most.'}
+          {isInsertMode ? 'Select an item to insert into your session.' : 'Sessions auto-save here as you build them. Pin what you reuse, share what’s worth sharing.'}
         </p>
       </div>
+
+      {!isInsertMode && (
+        <div className="max-w-6xl mx-auto px-6 pb-5">
+          <div
+            className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-[10px]"
+            style={{ background: 'var(--bg-elev)', border: '1px solid var(--line)', fontSize: 12.5, color: 'var(--ink-2)' }}
+          >
+            <span style={{ color: 'var(--good)', display: 'inline-flex' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 6L9 17l-5-5" />
+              </svg>
+            </span>
+            <span>
+              <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>Everything auto-saves</strong>
+              {' '}&mdash; no Save button anywhere.{' '}
+              {syncOn ? 'On all your devices.' : 'On this device until you turn on sync.'}
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-6xl mx-auto px-6 pb-3 flex flex-wrap items-center justify-between gap-3">
         <div
           role="tablist"
           aria-label="Library tabs"
-          className="inline-flex p-1 rounded-[10px]"
-          style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)' }}
+          className="inline-flex items-center gap-1"
         >
-          {TABS.map(tab => {
+          {TABS.map((tab, idx) => {
             const active = tab.toLowerCase() === activeTabLabel.toLowerCase();
+            const showDivider = tab === 'Community';
+            const countKey = tab.toLowerCase();
+            const count = tabCounts[countKey] || 0;
             return (
-              <button
-                key={tab}
-                role="tab"
-                aria-selected={active}
-                onClick={() => handleTabChange(tab)}
-                className="px-3.5 py-1.5 text-[13px] rounded-[7px] transition-colors"
-                style={{
-                  background: active ? 'var(--bg-elev)' : 'transparent',
-                  color: active ? 'var(--ink)' : 'var(--ink-2)',
-                  border: active ? '1px solid var(--line-2)' : '1px solid transparent',
-                  boxShadow: active ? 'var(--shadow-sm)' : 'none',
-                  fontWeight: active ? 500 : 400,
-                }}
-              >
-                {tab}
-              </button>
+              <React.Fragment key={tab}>
+                {showDivider && <span style={{ width: 1, height: 22, background: 'var(--line)', margin: '0 6px' }} />}
+                <button
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => handleTabChange(tab)}
+                  className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[9px] transition-colors"
+                  style={{
+                    background: active ? 'var(--bg-elev)' : 'transparent',
+                    color: active ? 'var(--ink)' : 'var(--ink-2)',
+                    border: active ? '1px solid var(--line-2)' : '1px solid transparent',
+                    boxShadow: active ? 'var(--shadow-sm)' : 'none',
+                    fontWeight: active ? 500 : 400,
+                    fontSize: 13.5,
+                  }}
+                >
+                  {tab}
+                  <span
+                    className="font-mono"
+                    style={{
+                      fontSize: 11,
+                      color: active ? 'var(--ink-2)' : 'var(--ink-3)',
+                      padding: '1px 6px',
+                      background: 'var(--bg-sunken)',
+                      borderRadius: 999,
+                      fontWeight: 400,
+                    }}
+                  >
+                    {count}
+                  </span>
+                </button>
+              </React.Fragment>
             );
           })}
         </div>
@@ -485,42 +644,54 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary }) {
                   const rep = group.rep;
                   const isMulti = group.versions.length > 1;
                   const isOpen = expandedGroups.has(group.key);
+                  const team = rep.origin?.teamId ? getTeam(rep.origin.teamId) : null;
+                  const share = team?.sharing?.isShared ? 'coaches' : 'private';
+                  const typeTone = rep.type === 'Play'
+                    ? { bg: 'var(--accent-soft)', fg: 'var(--accent)' }
+                    : rep.type === 'Warm-up'
+                    ? { bg: 'rgb(var(--warn-rgb) / 0.18)', fg: 'var(--warn)' }
+                    : { bg: 'rgb(var(--good-rgb) / 0.18)', fg: 'var(--good)' };
                   return (
                     <div key={group.key} className={`card card-hover p-4 flex flex-col gap-3 ${isMulti && isOpen ? 'sm:col-span-2 lg:col-span-3' : ''}`}>
                       <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="font-semibold truncate">{group.name}</div>
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className="font-semibold truncate" style={{ letterSpacing: '-0.015em' }}>{group.name}</div>
                           {isMulti && (
-                            <span className="shrink-0 px-2 py-0.5 text-xs font-semibold rounded-full bg-slate-700 text-slate-300">
-                              {group.versions.length} versions
+                            <span className="shrink-0 px-2 py-0.5 text-[11px] font-mono rounded-full" style={{ background: 'var(--bg-sunken)', color: 'var(--ink-3)' }}>
+                              ×{group.versions.length}
                             </span>
                           )}
                         </div>
+                        <PinButton pinned={group.pinned} onToggle={() => togglePin('exercises', group.key)} size="sm" />
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
                         {rep.type && (
-                          <span className={`shrink-0 px-2 py-0.5 text-xs font-semibold rounded-full ${
-                            rep.type === 'Play' ? 'bg-blue-600/30 text-blue-300' : 'bg-green-600/30 text-green-300'
-                          }`}>
-                            {rep.type.toUpperCase()}
+                          <span className="px-2 py-0.5 text-[10.5px] font-mono uppercase rounded-full" style={{ background: typeTone.bg, color: typeTone.fg, letterSpacing: '0.08em' }}>
+                            {rep.type}
                           </span>
+                        )}
+                        {rep.tags?.moment && (
+                          <span className="px-2 py-0.5 text-[11px] rounded-full" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
+                            {rep.tags.moment}
+                          </span>
+                        )}
+                        {rep.tags?.ageGroup && (
+                          <span className="px-2 py-0.5 text-[11px] rounded-full" style={{ background: 'var(--bg-sunken)', color: 'var(--ink-2)' }}>{rep.tags.ageGroup}</span>
                         )}
                       </div>
 
-                      {(rep.tags?.ageGroup || rep.tags?.moment) && (
-                        <div className="flex flex-wrap gap-1">
-                          {rep.tags?.ageGroup && (
-                            <span className="px-2 py-0.5 bg-slate-700 text-slate-300 text-xs rounded">{rep.tags.ageGroup}</span>
-                          )}
-                          {rep.tags?.moment && (
-                            <span className="px-2 py-0.5 bg-purple-600/30 text-purple-300 text-xs rounded">{rep.tags.moment}</span>
-                          )}
-                        </div>
-                      )}
-
                       {rep.payload?.objective && !isOpen && (
-                        <p className="text-xs text-slate-400 line-clamp-2">{rep.payload.objective}</p>
+                        <p className="text-[12.5px] line-clamp-2" style={{ color: 'var(--ink-2)' }}>{rep.payload.objective}</p>
                       )}
 
-                      <div className="text-xs text-slate-500">Updated {formatDate(group.latestUpdatedAt)}</div>
+                      <div className="flex items-center justify-between gap-3 text-[11.5px]" style={{ color: 'var(--ink-3)' }}>
+                        <span>Updated {formatDate(group.latestUpdatedAt)}</span>
+                        <span className="inline-flex items-center gap-3">
+                          <ShareTag share={share} compact />
+                          <SyncDot synced={syncOn} />
+                        </span>
+                      </div>
 
                       {isMulti && isOpen && (
                         <div className="flex flex-col gap-3 pt-2 border-t border-slate-700">
@@ -659,6 +830,11 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary }) {
           />
         )}
 
+        {/* ===== COMMUNITY TAB ===== */}
+        {activeTabLabel === 'Community' && (
+          <CommunityTab isSignedIn={isSignedIn} onSignIn={() => alert('Sign-in flow is not wired up yet.')} />
+        )}
+
         {/* ===== SESSIONS TAB ===== */}
         {activeTabLabel === 'Sessions' && (
           <>
@@ -707,36 +883,51 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary }) {
                   const isMulti = group.versions.length > 1;
                   const groupKey = `sess:${group.key}`;
                   const isOpen = expandedGroups.has(groupKey);
+                  const team = rep.origin?.teamId ? getTeam(rep.origin.teamId) : null;
+                  const share = team?.sharing?.isShared ? 'coaches' : 'private';
                   return (
                     <div key={groupKey} className={`card card-hover p-4 flex flex-col gap-3 ${isMulti && isOpen ? 'sm:col-span-2 lg:col-span-3' : ''}`}>
                       <div className="flex items-start justify-between gap-2">
-                        <div className="font-semibold truncate">{group.name}</div>
-                        {isMulti && (
-                          <span className="shrink-0 px-2 py-0.5 text-xs font-semibold rounded-full bg-slate-700 text-slate-300">
-                            {group.versions.length} versions
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className="font-semibold truncate" style={{ letterSpacing: '-0.015em' }}>{group.name}</div>
+                          {isMulti && (
+                            <span className="shrink-0 px-2 py-0.5 text-[11px] font-mono rounded-full" style={{ background: 'var(--bg-sunken)', color: 'var(--ink-3)' }}>
+                              ×{group.versions.length}
+                            </span>
+                          )}
+                        </div>
+                        <PinButton pinned={group.pinned} onToggle={() => togglePin('sessions', group.key)} size="sm" />
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        {rep.tags?.moment && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
+                            {rep.tags.moment}
+                          </span>
+                        )}
+                        {rep.tags?.ageGroup && (
+                          <span className="px-2 py-0.5 text-[11px] rounded-full" style={{ background: 'var(--bg-sunken)', color: 'var(--ink-2)' }}>{rep.tags.ageGroup}</span>
+                        )}
+                        {rep.tags?.duration && (
+                          <span className="font-mono uppercase" style={{ fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.06em' }}>
+                            {rep.tags.duration} MIN
                           </span>
                         )}
                       </div>
 
-                      <div className="flex flex-wrap gap-1">
-                        {rep.tags?.ageGroup && (
-                          <span className="px-2 py-0.5 bg-slate-700 text-slate-300 text-xs rounded">{rep.tags.ageGroup}</span>
-                        )}
-                        {rep.tags?.moment && (
-                          <span className="px-2 py-0.5 bg-purple-600/30 text-purple-300 text-xs rounded">{rep.tags.moment}</span>
-                        )}
-                        {rep.tags?.duration && (
-                          <span className="px-2 py-0.5 bg-slate-700 text-slate-400 text-xs rounded">{rep.tags.duration} min</span>
-                        )}
-                      </div>
-
                       {rep.payload?.sections?.length > 0 && !isOpen && (
-                        <p className="text-xs text-slate-400">
+                        <p className="text-[12.5px]" style={{ color: 'var(--ink-2)' }}>
                           {rep.payload.sections.length} exercise{rep.payload.sections.length !== 1 ? 's' : ''}
                         </p>
                       )}
 
-                      <div className="text-xs text-slate-500">Updated {formatDate(group.latestUpdatedAt)}</div>
+                      <div className="flex items-center justify-between gap-3 text-[11.5px]" style={{ color: 'var(--ink-3)' }}>
+                        <span>Updated {formatDate(group.latestUpdatedAt)}</span>
+                        <span className="inline-flex items-center gap-3">
+                          <ShareTag share={share} compact />
+                          <SyncDot synced={syncOn} />
+                        </span>
+                      </div>
 
                       {isMulti && isOpen && (
                         <div className="flex flex-col gap-3 pt-2 border-t border-slate-700">
@@ -861,27 +1052,27 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary }) {
       {/* Use Session → Pick Team Modal */}
       {useSessionItem && (
         <>
-          <div className="fixed inset-0 bg-black/60 z-40" onClick={() => setUseSessionItem(null)} />
+          <div className="modal-backdrop" onClick={() => setUseSessionItem(null)} />
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-sm shadow-2xl">
-              <h2 className="text-lg font-bold mb-1">Use "{useSessionItem.name}"</h2>
-              <p className="text-sm text-slate-400 mb-4">Which team should this session be added to?</p>
+            <div className="card p-6 w-full max-w-sm animate-fade-in" style={{ boxShadow: 'var(--shadow-lg)' }}>
+              <h2 className="text-[18px] font-semibold mb-1" style={{ letterSpacing: '-0.015em' }}>Use &ldquo;{useSessionItem.name}&rdquo;</h2>
+              <p className="text-[13px] mb-4" style={{ color: 'var(--ink-2)' }}>Which team should this session be added to?</p>
               {teams.length === 0 ? (
-                <p className="text-slate-400 text-sm">No teams yet. Create a team first.</p>
+                <p className="text-[13px]" style={{ color: 'var(--ink-2)' }}>No teams yet. Create a team first.</p>
               ) : (
                 <>
                   <select
                     value={selectedUseTeamId}
                     onChange={e => setSelectedUseTeamId(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500 mb-4"
+                    className="input-field mb-4"
                   >
                     {teams.map(t => (
                       <option key={t.id} value={t.id}>{t.name}{t.ageGroup ? ` (${t.ageGroup})` : ''}</option>
                     ))}
                   </select>
                   <div className="flex gap-3">
-                    <button onClick={() => setUseSessionItem(null)} className="flex-1 btn btn-subtle">Cancel</button>
-                    <button onClick={handleConfirmUseSession} className="flex-1 btn btn-primary">Add to Team</button>
+                    <button onClick={() => setUseSessionItem(null)} className="flex-1 btn btn-secondary">Cancel</button>
+                    <button onClick={handleConfirmUseSession} className="flex-1 btn btn-primary">Add to team</button>
                   </div>
                 </>
               )}
@@ -890,5 +1081,52 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary }) {
         </>
       )}
     </div>
+  );
+}
+
+// Community tab — locked for guests with an inline CTA, otherwise an empty
+// state until the discovery layer is implemented. Per the design handoff,
+// Community is the carrot that earns the optional account.
+function CommunityTab({ isSignedIn, onSignIn }) {
+  return (
+    <>
+      {!isSignedIn ? (
+        <div
+          className="rounded-[14px] p-5 mb-5 flex items-center gap-4"
+          style={{ background: 'var(--accent-soft)', border: '1px solid rgb(var(--accent-rgb) / 0.35)' }}
+        >
+          <div
+            style={{
+              width: 42, height: 42, borderRadius: 11, background: 'var(--accent)',
+              color: 'var(--accent-ink)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M3 12h18M12 3a13 13 0 010 18M12 3a13 13 0 000 18" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[16px] font-semibold" style={{ color: 'var(--ink)', letterSpacing: '-0.015em' }}>
+              See what other coaches are running.
+            </div>
+            <div className="mt-1 text-[13px]" style={{ color: 'var(--ink-2)' }}>
+              Optional free account — no tracking, no email spam. Just so we can show you who you&rsquo;re following.
+            </div>
+          </div>
+          <button className="btn btn-primary" onClick={onSignIn}>Create free account</button>
+        </div>
+      ) : null}
+
+      <div className="card p-12 text-center" style={{ background: 'var(--bg-elev)' }}>
+        <div className="overline mb-3">COMING SOON</div>
+        <h3 className="text-[18px] font-semibold mb-2" style={{ letterSpacing: '-0.015em' }}>
+          Discover sessions from other coaches
+        </h3>
+        <p className="text-[13.5px] max-w-md mx-auto" style={{ color: 'var(--ink-2)' }}>
+          Coaches will be able to publish sessions, exercises, and diagrams here — and decide per item what to share. We&rsquo;re building this carefully so privacy stays the default.
+        </p>
+      </div>
+    </>
   );
 }

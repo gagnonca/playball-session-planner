@@ -45,3 +45,9 @@ export const HAS_SEEN_WELCOME_KEY = 'ppp_has_seen_welcome';
 
 // Promotions
 export const IOS_PROMO_DISMISSED_KEY = 'ppp_ios_promo_dismissed';
+
+// Library — items the coach has pinned to the top of each tab.
+// Shape: { sessions: string[], exercises: string[], diagrams: string[] }
+// All ids are normalized to the group key (lowercased name) for sessions/exercises
+// since the existing Library groups items by name; diagrams use the raw item id.
+export const LIBRARY_PINS_KEY = 'ppp_library_pins_v1';

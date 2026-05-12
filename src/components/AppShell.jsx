@@ -605,7 +605,7 @@ export default function AppShell() {
     );
   }
 
-  // Library view (Sessions, Exercises, Diagrams tabs)
+  // Library view (Sessions, Exercises, Diagrams, Community tabs)
   if (currentView === VIEWS.LIBRARY) {
     return (
       <ViewErrorBoundary onRecover={navigateToTeams}>
@@ -613,6 +613,8 @@ export default function AppShell() {
           teamsContext={teamsContext}
           libraryHook={libraryHook}
           diagramLibrary={diagramLibrary}
+          syncContext={syncContext}
+          isSignedIn={Boolean(syncContext?.isSyncEnabled)}
         />
       </ViewErrorBoundary>
     );
