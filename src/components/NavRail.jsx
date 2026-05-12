@@ -62,6 +62,16 @@ export default function NavRail({ teamsContext, syncContext }) {
   const syncEnabled = Boolean(syncContext?.isSyncEnabled);
   const syncStatus = syncContext?.syncStatus || 'idle';
   const isOnline = syncContext?.isOnline ?? true;
+  const hasAccount = false; // real account tier not implemented yet
+
+  // Three explicit progression tiers the user moves through:
+  //   1. offline    — nothing leaves this browser
+  //   2. sync       — paired device(s), still no account
+  //   3. account    — signed in (future)
+  let tier;
+  if (hasAccount) tier = 'account';
+  else if (syncEnabled) tier = 'sync';
+  else tier = 'offline';
 
   // Pill state — copy + dot color
   let pillCopy, pillTone;
@@ -81,6 +91,12 @@ export default function NavRail({ teamsContext, syncContext }) {
     pillCopy = 'Synced';
     pillTone = 'var(--good)';
   }
+
+  const chipMeta = tier === 'account'
+    ? { letter: 'A', label: 'Account', sub: 'Signed in' }
+    : tier === 'sync'
+      ? { letter: 'C', label: 'Coach', sub: 'Synced device' }
+      : { letter: 'G', label: 'Guest', sub: 'No account · no tracking' };
 
   return (
     <aside
@@ -153,19 +169,27 @@ export default function NavRail({ teamsContext, syncContext }) {
           style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
           onMouseEnter={(e) => { e.currentTarget.style.background = 'rgb(var(--ink-rgb) / 0.04)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          title={`${chipMeta.label} · ${chipMeta.sub}`}
         >
           <span
             className="inline-flex items-center justify-center rounded-full font-semibold"
-            style={{ width: 24, height: 24, background: 'var(--ink)', color: 'var(--bg)', fontSize: 11, flexShrink: 0 }}
+            style={{
+              width: 24,
+              height: 24,
+              background: tier === 'account' ? 'var(--accent)' : 'var(--ink)',
+              color: tier === 'account' ? 'var(--accent-ink)' : 'var(--bg)',
+              fontSize: 11,
+              flexShrink: 0,
+            }}
           >
-            {syncEnabled ? 'C' : 'G'}
+            {chipMeta.letter}
           </span>
           <div className="text-left min-w-0">
             <div className="text-[12.5px]" style={{ color: 'var(--ink)', fontWeight: 500 }}>
-              {syncEnabled ? 'Coach' : 'Guest'}
+              {chipMeta.label}
             </div>
             <div className="text-[10.5px]" style={{ color: 'var(--ink-3)' }}>
-              {syncEnabled ? 'Signed in' : 'No account'}
+              {chipMeta.sub}
             </div>
           </div>
         </button>

@@ -12,3 +12,18 @@ export function parseMinutes(timeStr) {
 export function planTotal(sections) {
   return (sections || []).reduce((sum, s) => sum + parseMinutes(s.time), 0);
 }
+
+// Counts referenced exercises (= named sections) and diagrams (= sections
+// or variations carrying diagram data) for the cascading share explainer.
+export function countReferenced(sections) {
+  let exercises = 0;
+  let diagrams = 0;
+  for (const s of sections || []) {
+    if ((s.name || '').trim()) exercises++;
+    if (s.diagramData || s.imageDataUrl) diagrams++;
+    for (const v of s.variations || []) {
+      if (v.diagramData || v.imageDataUrl) diagrams++;
+    }
+  }
+  return { exercises, diagrams };
+}

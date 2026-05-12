@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { pdf } from '@react-pdf/renderer';
 import SessionSummary from '../SessionSummary';
 import Section from '../Section';
@@ -6,8 +6,10 @@ import AddSectionModal from '../AddSectionModal';
 import LibraryModal from '../LibraryModal';
 import AIConfigModal from '../AIConfigModal';
 import SessionPlanPDF from '../SessionPlanPDF';
+import ShareModal from '../teams/ShareModal';
 import SessionRail from './SessionRail';
-import { planTotal, parseMinutes } from '../../utils/sessionDuration';
+import SharePopover from './SharePopover';
+import { planTotal, parseMinutes, countReferenced } from '../../utils/sessionDuration';
 import useAI from '../../hooks/useAI';
 import {
   defaultSection,
@@ -60,13 +62,14 @@ function DurationChip({ current, target }) {
   );
 }
 
-export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHook }) {
+export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHook, syncContext, sharingContext, onShowLinkDevice }) {
   const {
     selectedTeamId,
     selectedSessionId,
     getTeam,
     getSession,
     updateSession,
+    updateTeam,
     navigateToTeams,
     navigateToTeamDetail,
     navigateToLibraryInsert,
@@ -83,6 +86,9 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
   const [isAIConfigOpen, setIsAIConfigOpen] = useState(false);
   const [libraryInsertMode, setLibraryInsertMode] = useState('append');
   const [saveAsState, setSaveAsState] = useState(null); // { name, description } when open
+  const [sharePopoverOpen, setSharePopoverOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const shareBtnRef = useRef(null);
 
   // AI Hook
   const aiHook = useAI();
@@ -454,6 +460,41 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
   const planMinutes = planTotal(session.sections);
   const targetMinutes = parseMinutes(session.summary?.duration);
 
+  // Share state — derived from the parent team's sharing flag. Per-item share
+  // scope isn't in the data model yet; sharing a session is sharing its team.
+  const syncEnabled = Boolean(syncContext?.isSyncEnabled);
+  const hasAccount = false; // Account tier isn't wired yet; popover treats Public as locked.
+  const isTeamShared = Boolean(team?.sharing?.isShared && team?.sharing?.shareToken);
+  const shareScope = isTeamShared ? 'coaches' : 'private';
+  const refCounts = countReferenced(session.sections);
+
+  const handleMakePrivate = async () => {
+    if (!sharingContext || !team?.sharing?.shareToken) {
+      // Already private — just close.
+      setSharePopoverOpen(false);
+      return;
+    }
+    setSharePopoverOpen(false);
+    if (!window.confirm(`Stop sharing ${team.name}? Co-coaches with the link will lose access.`)) return;
+    try {
+      await sharingContext.revokeShare(team.sharing.shareToken);
+      updateTeam(team.id, { ...team, sharing: { isShared: false, shareToken: null, sharedAt: null } });
+      toast('Sharing turned off');
+    } catch {
+      toast('Could not revoke share');
+    }
+  };
+
+  const handleMakeCoCoaches = () => {
+    setSharePopoverOpen(false);
+    if (!syncEnabled) {
+      onShowLinkDevice?.();
+      return;
+    }
+    // Hand off to the existing ShareModal for link generation + copy UX.
+    setIsShareModalOpen(true);
+  };
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
       {/* Sticky top bar */}
@@ -489,6 +530,49 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
           <div className="flex-1" />
 
           <DurationChip current={planMinutes} target={targetMinutes} />
+
+          {/* Share menu — opens the cascading scope popover */}
+          <div className="relative">
+            <button
+              ref={shareBtnRef}
+              onClick={() => setSharePopoverOpen(o => !o)}
+              className="btn btn-ghost"
+              title="Share scope"
+              aria-haspopup="dialog"
+              aria-expanded={sharePopoverOpen}
+            >
+              {shareScope === 'coaches' ? (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent)' }}>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M17 21v-2a4 4 0 00-3-3.87M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2" />
+                  <circle cx="9" cy="7" r="4" strokeWidth={1.6} />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M16 3.13a4 4 0 010 7.75" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <rect x="4" y="11" width="16" height="10" rx="2" strokeWidth={1.6} />
+                  <path d="M8 11V7a4 4 0 018 0v4" strokeWidth={1.6} strokeLinecap="round" />
+                </svg>
+              )}
+              {shareScope === 'coaches' ? 'Co-coaches' : 'Private'}
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--ink-3)' }}>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            <SharePopover
+              open={sharePopoverOpen}
+              anchorRef={shareBtnRef}
+              onClose={() => setSharePopoverOpen(false)}
+              current={shareScope}
+              syncEnabled={syncEnabled}
+              hasAccount={hasAccount}
+              exerciseCount={refCounts.exercises}
+              diagramCount={refCounts.diagrams}
+              onMakePrivate={handleMakePrivate}
+              onMakeCoCoaches={handleMakeCoCoaches}
+              onTurnOnSync={() => { setSharePopoverOpen(false); onShowLinkDevice?.(); }}
+            />
+          </div>
+
           <button
             onClick={handleDownloadPDF}
             className="btn btn-ghost"
@@ -624,6 +708,15 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
         onClose={() => setIsAIConfigOpen(false)}
         aiHook={aiHook}
       />
+
+      {isShareModalOpen && sharingContext && (
+        <ShareModal
+          team={team}
+          onClose={() => setIsShareModalOpen(false)}
+          onUpdateTeam={(updatedTeam) => updateTeam(selectedTeamId, updatedTeam)}
+          sharingHook={sharingContext}
+        />
+      )}
 
       {saveAsState && (
         <>

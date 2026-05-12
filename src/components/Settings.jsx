@@ -45,11 +45,67 @@ function formatBytes(n) {
   return `${v.toFixed(v >= 10 ? 0 : 1)} ${units[i]}`;
 }
 
+// The account tier — real account auth isn't wired yet. Locked as "coming soon".
+const HAS_ACCOUNT = false;
+
+function SyncStateLine({ status, online }) {
+  const tone = !online ? 'var(--ink-3)' : status === 'syncing' ? 'var(--warn)' : status === 'error' ? 'var(--danger)' : 'var(--good)';
+  const label = !online ? 'Offline' : status === 'syncing' ? 'Syncing now' : status === 'error' ? 'Sync error' : 'Up to date';
+  return (
+    <span className="inline-flex items-center gap-1.5" style={{ color: 'var(--ink-2)', fontSize: 12.5 }}>
+      <span className="inline-block rounded-full" style={{ width: 8, height: 8, background: tone }} />
+      {label}
+    </span>
+  );
+}
+
+function TierRow({ active, completed, title, body, cta }) {
+  return (
+    <div
+      className="card p-4 flex items-center gap-4 flex-wrap"
+      style={{
+        borderColor: active ? 'var(--accent)' : 'var(--line)',
+        boxShadow: active ? '0 0 0 3px rgb(var(--accent-rgb) / 0.12)' : 'var(--shadow-sm)',
+      }}
+    >
+      <div
+        className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center"
+        style={{
+          background: active ? 'var(--accent)' : completed ? 'rgb(var(--good-rgb) / 0.18)' : 'var(--bg-sunken)',
+          color: active ? 'var(--accent-ink)' : completed ? 'var(--good)' : 'var(--ink-3)',
+          border: active ? 'none' : '1px solid var(--line)',
+        }}
+      >
+        {completed && !active ? (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 6L9 17l-5-5" />
+          </svg>
+        ) : active ? (
+          <span className="rounded-full" style={{ width: 8, height: 8, background: 'var(--accent-ink)' }} />
+        ) : null}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[14.5px] font-semibold" style={{ letterSpacing: '-0.015em' }}>
+          {title}
+          {active && (
+            <span className="ml-2 font-mono uppercase" style={{ fontSize: 10, color: 'var(--accent)', letterSpacing: '0.08em' }}>
+              · Current
+            </span>
+          )}
+        </div>
+        <div className="text-[12.5px] mt-0.5" style={{ color: 'var(--ink-2)' }}>{body}</div>
+      </div>
+      {cta && <div className="flex-shrink-0">{cta}</div>}
+    </div>
+  );
+}
+
 export default function Settings({ teamsContext, syncContext, onShowLinkDevice }) {
   const teams = teamsContext?.teamsData?.teams || [];
   const syncOn = Boolean(syncContext?.isSyncEnabled);
   const isOnline = syncContext?.isOnline ?? true;
   const syncStatus = syncContext?.syncStatus || 'idle';
+  const hasAccount = HAS_ACCOUNT;
 
   const storage = useStorageEstimate();
   const usedPct = storage.quota > 0 ? Math.min(100, Math.round((storage.used / storage.quota) * 100)) : 0;
@@ -185,104 +241,72 @@ export default function Settings({ teamsContext, syncContext, onShowLinkDevice }
 
         <div className="hairline my-8" />
 
-        {/* Cloud sync */}
+        {/* Sync + Account progression — three tiers the user can move through */}
         <section>
-          <div className="overline mb-2">CLOUD SYNC</div>
+          <div className="overline mb-2">YOUR ACCOUNT</div>
           <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>
-            Cloud sync is {syncOn ? 'on' : 'off'}
-          </h2>
-          <p className="text-[13px] mb-4" style={{ color: 'var(--ink-2)' }}>
-            {syncOn
-              ? 'Your teams sync between every device that joined with the same pairing code.'
-              : 'Everything stays here until you turn this on. Pair a new device to enable.'}
-          </p>
-          <div className="card p-4 flex items-center gap-4 flex-wrap">
-            <div
-              className="flex-shrink-0 w-11 h-11 rounded-[11px] flex items-center justify-center"
-              style={{ background: syncOn ? 'var(--accent-soft)' : 'var(--bg-sunken)', color: syncOn ? 'var(--accent)' : 'var(--ink-2)' }}
-            >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z" />
-              </svg>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[14px] font-semibold" style={{ letterSpacing: '-0.015em' }}>
-                {syncOn ? 'Connected' : 'Not connected'}
-              </div>
-              {syncOn ? (
-                <div className="text-[12.5px] inline-flex items-center gap-1.5" style={{ color: 'var(--ink-2)' }}>
-                  <span
-                    className="inline-block rounded-full"
-                    style={{
-                      width: 8,
-                      height: 8,
-                      background:
-                        syncStatus === 'syncing' ? 'var(--warn)' :
-                        syncStatus === 'error' ? 'var(--danger)' :
-                        !isOnline ? 'var(--ink-3)' : 'var(--good)',
-                    }}
-                  />
-                  {syncStatus === 'syncing' ? 'Syncing now' : syncStatus === 'error' ? 'Sync error' : !isOnline ? 'Offline' : 'Up to date'}
-                </div>
-              ) : (
-                <div className="text-[12.5px]" style={{ color: 'var(--ink-2)' }}>
-                  Pair a device to link this browser to the cloud.
-                </div>
-              )}
-            </div>
-            <button
-              onClick={() => onShowLinkDevice && onShowLinkDevice()}
-              className={syncOn ? 'btn btn-secondary' : 'btn btn-primary'}
-            >
-              {syncOn ? 'Manage devices' : 'Turn on cloud sync'}
-            </button>
-          </div>
-        </section>
-
-        <div className="hairline my-8" />
-
-        {/* Account */}
-        <section>
-          <div className="overline mb-2">ACCOUNT (OPTIONAL)</div>
-          <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>
-            {syncOn ? 'Signed in as a coach' : 'No account required'}
+            {hasAccount ? 'Signed in' : syncOn ? 'Synced across devices' : 'On this device only'}
           </h2>
           <p className="text-[13px] mb-4 max-w-[540px]" style={{ color: 'var(--ink-2)' }}>
-            PlayBall works without an account. An account adds discovery (other coaches&rsquo; sessions) and recovery if you lose your devices.
-            We don&rsquo;t collect names or emails &mdash; sync identity is an anonymous coach id.
+            PlayBall meets you where you are. Start as a guest; turn on cloud sync when you want a second device; add a free account when you want discovery and recovery.
           </p>
-          <div className="card p-4 flex items-center gap-4 flex-wrap">
-            <div
-              className="flex-shrink-0 w-11 h-11 rounded-[11px] flex items-center justify-center font-semibold"
-              style={{ background: 'var(--ink)', color: 'var(--bg)', fontSize: 14 }}
-            >
-              {syncOn ? 'C' : 'G'}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[14px] font-semibold" style={{ letterSpacing: '-0.015em' }}>
-                {syncOn ? 'Coach' : 'Guest'}
-              </div>
-              <div className="text-[12.5px]" style={{ color: 'var(--ink-2)' }}>
-                {syncOn ? 'Sync is on — every device with your pairing sees the same teams.' : 'You&rsquo;re using PlayBall as a guest.'}
-              </div>
-            </div>
-            {syncOn ? (
-              <button
-                onClick={() => {
-                  if (window.confirm('Reset sync identity? This unlinks every device from this account; your local data stays here.')) {
-                    syncContext?.resetSync?.();
-                  }
-                }}
-                className="btn btn-ghost"
-                style={{ color: 'var(--danger)' }}
-              >
-                Reset sync
-              </button>
-            ) : (
-              <button onClick={() => onShowLinkDevice && onShowLinkDevice()} className="btn btn-secondary">
-                Pair an existing device
-              </button>
-            )}
+
+          <div className="flex flex-col gap-2">
+            <TierRow
+              tier="offline"
+              active={!syncOn}
+              completed={syncOn || hasAccount}
+              title="On this device"
+              body="No account, no tracking — your work lives in this browser."
+              cta={null}
+            />
+            <TierRow
+              tier="sync"
+              active={syncOn && !hasAccount}
+              completed={hasAccount}
+              title="Cloud sync"
+              body={
+                syncOn
+                  ? <SyncStateLine status={syncStatus} online={isOnline} />
+                  : 'Pair another device with a one-time code and they stay in lockstep.'
+              }
+              cta={
+                syncOn ? (
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => onShowLinkDevice && onShowLinkDevice()} className="btn btn-secondary">
+                      Manage devices
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm('Reset sync identity? This unlinks every device; your local data stays here.')) {
+                          syncContext?.resetSync?.();
+                        }
+                      }}
+                      className="btn btn-ghost"
+                      style={{ color: 'var(--danger)' }}
+                    >
+                      Reset
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => onShowLinkDevice && onShowLinkDevice()} className="btn btn-primary">
+                    Turn on sync
+                  </button>
+                )
+              }
+            />
+            <TierRow
+              tier="account"
+              active={hasAccount}
+              completed={false}
+              title="Free account"
+              body="Discover other coaches' sessions and get your library back if you lose every device. Coming soon — anonymous coach id stays the only identifier we hold."
+              cta={
+                <button className="btn btn-ghost" disabled style={{ opacity: 0.6 }}>
+                  Coming soon
+                </button>
+              }
+            />
           </div>
         </section>
 
