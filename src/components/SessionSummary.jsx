@@ -99,18 +99,23 @@ export default function SessionSummary({ summary, onUpdate }) {
   };
 
   return (
-    <div className="card p-4">
-      {/* Header - Always Visible */}
-      <div className="flex items-center justify-between mb-3">
-        <h1 className="text-xl font-bold">Session Summary</h1>
-        <div className="flex items-center gap-2">
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <div className="overline mb-1">SESSION SUMMARY</div>
+          <h1 className="text-[22px] font-semibold leading-tight" style={{ letterSpacing: '-0.02em' }}>
+            {summary.title || 'Untitled session'}
+          </h1>
+        </div>
+        <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={() => {
               resetHelpPreferences();
-              toast('Tips reset - they will show again');
+              toast('Tips reset — they will show again');
             }}
-            className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            className="btn btn-ghost"
+            style={{ padding: '4px 8px', fontSize: 12 }}
             title="Reset all dismissed tips"
           >
             Show tips
@@ -118,16 +123,17 @@ export default function SessionSummary({ summary, onUpdate }) {
           <button
             type="button"
             onClick={() => setIsExpanded(!isExpanded)}
-            className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200 transition-colors px-2 py-1 rounded hover:bg-slate-700/50"
+            className="btn btn-ghost"
+            style={{ padding: '4px 8px', fontSize: 12.5 }}
           >
             {isExpanded ? 'Collapse' : 'Expand'}
             <svg
-              className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+              className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M19 9l-7 7-7-7" />
             </svg>
           </button>
         </div>
@@ -181,21 +187,32 @@ export default function SessionSummary({ summary, onUpdate }) {
           )}
 
           <div className="flex flex-wrap gap-2">
-            {MOMENT_OPTIONS.map(option => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => handleChange('moment', option.value)}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5 ${
-                  moment === option.value
-                    ? 'bg-blue-600 text-white border-2 border-blue-500'
-                    : 'bg-slate-700 text-slate-300 border-2 border-slate-600 hover:border-slate-500'
-                }`}
-              >
-                <span>{option.emoji}</span>
-                <span>{option.label}</span>
-              </button>
-            ))}
+            {MOMENT_OPTIONS.map(option => {
+              const active = moment === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => handleChange('moment', option.value)}
+                  className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 transition-all"
+                  style={{
+                    border: '1.5px solid',
+                    borderColor: active ? 'var(--accent)' : 'var(--line)',
+                    background: active ? 'var(--accent-soft)' : 'var(--bg-elev)',
+                    color: active ? 'var(--accent)' : 'var(--ink-2)',
+                    fontSize: 13,
+                    fontWeight: active ? 600 : 500,
+                    letterSpacing: '-0.005em',
+                  }}
+                  onMouseEnter={(e) => { if (!active) e.currentTarget.style.borderColor = 'var(--line-2)'; }}
+                  onMouseLeave={(e) => { if (!active) e.currentTarget.style.borderColor = 'var(--line)'; }}
+                  aria-pressed={active}
+                >
+                  <span aria-hidden>{option.emoji}</span>
+                  <span>{option.label}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -270,40 +287,29 @@ export default function SessionSummary({ summary, onUpdate }) {
 
             {/* Session Notes */}
             <div>
-              <label className="label-text">Session Notes</label>
+              <label className="label-text">Session notes</label>
               <textarea
                 value={summary.notes || ''}
                 onChange={(e) => handleChange('notes', e.target.value)}
                 onInput={handleAutoGrow}
                 rows="3"
-                placeholder="High-level notes about this session..."
-                className="input-field resize-none overflow-hidden"
-              />
-            </div>
-
-            {/* Keywords */}
-            <div>
-              <label className="label-text">Keywords</label>
-              <textarea
-                value={summary.keywords || ''}
-                onChange={(e) => handleChange('keywords', e.target.value)}
-                onInput={handleAutoGrow}
-                rows="2"
-                placeholder="e.g., look up, pass, dribble"
+                placeholder="High-level notes about this session…"
                 className="input-field resize-none overflow-hidden"
               />
             </div>
 
             {/* Post-Session Reflection */}
-            <div className="mt-6 pt-6 border-t border-slate-700">
-              <h3 className="text-lg font-semibold mb-2 text-blue-400">Post-Session Reflection</h3>
-              <p className="text-xs text-slate-500 mb-3">Complete after training to reflect on the session</p>
+            <div className="mt-6 pt-6 hairline">
+              <div className="overline mb-2">POST-SESSION REFLECTION</div>
+              <p className="text-[12.5px] mb-3" style={{ color: 'var(--ink-3)' }}>
+                Fill in after practice. Helps you (and the Coach) learn what works for this team.
+              </p>
               <textarea
                 value={summary.reflectionNotes || ''}
                 onChange={(e) => handleChange('reflectionNotes', e.target.value)}
                 onInput={handleAutoGrow}
                 rows="4"
-                placeholder={`Questions to guide your reflection:\n• How did you do in achieving the goals of the training session?\n• What did you do well?\n• What could you do better?`}
+                placeholder={`• How did you do in achieving the goals of the training session?\n• What did you do well?\n• What could you do better?`}
                 className="input-field resize-none overflow-hidden"
               />
             </div>
