@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { THEMES, ACCENTS, applyTheme, loadThemePrefs, saveThemePrefs } from '../utils/theme';
 
 // Light/Dark theme cards + accent chips. Lives inside AboutModal for now
@@ -6,18 +6,12 @@ import { THEMES, ACCENTS, applyTheme, loadThemePrefs, saveThemePrefs } from '../
 // either control persists to localStorage and reskins the document tree
 // atomically via applyTheme.
 export default function AppearancePicker() {
-  const [theme, setTheme] = useState('light');
-  const [accent, setAccent] = useState('terracotta');
-
-  useEffect(() => {
-    const prefs = loadThemePrefs();
-    setTheme(prefs.theme);
-    setAccent(prefs.accent);
-  }, []);
+  // Lazy initializer: read prefs once on mount instead of seeding defaults
+  // then flushing via useEffect (which triggers a needless cascade render).
+  const [{ theme, accent }, setPrefs] = useState(() => loadThemePrefs());
 
   const pick = (nextTheme, nextAccent) => {
-    setTheme(nextTheme);
-    setAccent(nextAccent);
+    setPrefs({ theme: nextTheme, accent: nextAccent });
     applyTheme(nextTheme, nextAccent);
     saveThemePrefs(nextTheme, nextAccent);
   };

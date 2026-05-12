@@ -540,7 +540,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
           aria-label="Library tabs"
           className="inline-flex items-center gap-1"
         >
-          {TABS.map((tab, idx) => {
+          {TABS.map((tab) => {
             const active = tab.toLowerCase() === activeTabLabel.toLowerCase();
             const showDivider = tab === 'Community';
             const countKey = tab.toLowerCase();
