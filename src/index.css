@@ -216,6 +216,28 @@
   }
 }
 
+/* -----------------------------------------------------------------------------
+   Legacy `text-white` rescue
+   ----------------------------------------------------------------------------
+   Lots of components pair text-white with a colored background (bg-blue-600 etc)
+   for buttons/badges — that case wants the accent's foreground color, which is
+   still light. But many headings in modals use bare text-white on a card
+   surface, which becomes invisible on light cream paper. We default text-white
+   to --ink (so it reads on any surface) and bump it back to --accent-ink only
+   when it appears on an accent background.
+   ---------------------------------------------------------------------------- */
+.text-white { color: var(--ink); }
+.bg-blue-500.text-white,
+.bg-blue-600.text-white,
+.bg-blue-700.text-white,
+.bg-blue-500 .text-white,
+.bg-blue-600 .text-white,
+.bg-blue-700 .text-white,
+.btn-primary .text-white,
+.btn-primary.text-white {
+  color: var(--accent-ink);
+}
+
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;

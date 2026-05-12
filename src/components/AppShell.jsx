@@ -32,13 +32,13 @@ class ViewErrorBoundary extends Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
-          <div className="text-center max-w-md">
-            <svg className="w-16 h-16 mx-auto mb-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+          <div className="text-center max-w-md px-6">
+            <svg className="w-14 h-14 mx-auto mb-5" style={{ color: 'var(--warn)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
-            <h2 className="text-xl font-bold mb-2">Something went wrong</h2>
-            <p className="text-slate-400 mb-6">This page ran into an error. Your data is safe.</p>
+            <h2 className="text-xl font-semibold mb-2" style={{ letterSpacing: '-0.02em' }}>Something went wrong</h2>
+            <p className="mb-6" style={{ color: 'var(--ink-2)' }}>This page ran into an error. Your data is safe.</p>
             <button
               onClick={() => {
                 this.setState({ hasError: false });
@@ -324,10 +324,13 @@ export default function AppShell() {
   // Wait for teams data to load
   if (!teamsData) {
     return (
-      <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-slate-400">Loading...</p>
+          <div
+            className="animate-spin rounded-full h-10 w-10 mx-auto mb-4"
+            style={{ border: '2px solid var(--line)', borderBottomColor: 'var(--accent)' }}
+          />
+          <p style={{ color: 'var(--ink-2)' }}>Loading…</p>
         </div>
       </div>
     );
@@ -489,11 +492,12 @@ export default function AppShell() {
   // Static pages (privacy, support)
   if (staticPage) {
     return (
-      <div className="min-h-screen bg-slate-900 text-slate-100">
+      <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
         <div className="max-w-2xl mx-auto px-6 py-12">
           <a
             href="/"
-            className="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm mb-8 transition-colors"
+            className="inline-flex items-center gap-2 text-sm mb-8 transition-colors"
+            style={{ color: 'var(--accent)' }}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -585,7 +589,7 @@ export default function AppShell() {
     const context = getDiagramContext();
     return (
       <ViewErrorBoundary onRecover={navigateToTeams}>
-        <div className="min-h-screen bg-slate-900">
+        <div className="min-h-screen" style={{ background: 'var(--bg)' }}>
           <DiagramBuilder
             initialDiagram={context.initialDiagram}
             defaultName={context.defaultName}
@@ -616,7 +620,7 @@ export default function AppShell() {
 
   return (
     <ViewErrorBoundary onRecover={navigateToTeams}>
-      <div className="min-h-screen bg-slate-900 text-slate-100">
+      <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
         {currentView === VIEWS.TEAMS && (
           <TeamList
             teamsContext={teamsContext}
