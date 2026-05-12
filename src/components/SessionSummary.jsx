@@ -102,7 +102,7 @@ export default function SessionSummary({ summary, onUpdate }) {
     <div className="card p-5">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <div className="overline mb-1">SESSION SUMMARY</div>
+          <div className="eyebrow mb-1">SESSION SUMMARY</div>
           <h1 className="text-[22px] font-semibold leading-tight" style={{ letterSpacing: '-0.02em' }}>
             {summary.title || 'Untitled session'}
           </h1>
@@ -300,7 +300,7 @@ export default function SessionSummary({ summary, onUpdate }) {
 
             {/* Post-Session Reflection */}
             <div className="mt-6 pt-6 hairline">
-              <div className="overline mb-2">POST-SESSION REFLECTION</div>
+              <div className="eyebrow mb-2">POST-SESSION REFLECTION</div>
               <p className="text-[12.5px] mb-3" style={{ color: 'var(--ink-3)' }}>
                 Fill in after practice. Helps you (and the Coach) learn what works for this team.
               </p>

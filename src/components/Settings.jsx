@@ -114,7 +114,7 @@ export default function Settings({ teamsContext, syncContext, onShowLinkDevice }
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
       <main className="max-w-3xl mx-auto px-6 pt-10 pb-16">
-        <div className="overline mb-2">SETTINGS</div>
+        <div className="eyebrow mb-2">SETTINGS</div>
         <h1 className="text-[40px] font-semibold leading-[1.04]" style={{ letterSpacing: '-0.02em' }}>
           How PlayBall fits you.
         </h1>
@@ -131,7 +131,7 @@ export default function Settings({ teamsContext, syncContext, onShowLinkDevice }
 
         {/* Teams & co-coaches */}
         <section>
-          <div className="overline mb-2">TEAMS &amp; CO-COACHES</div>
+          <div className="eyebrow mb-2">TEAMS &amp; CO-COACHES</div>
           <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>Share a whole team</h2>
           <p className="text-[13px] mb-4" style={{ color: 'var(--ink-2)' }}>
             Share an entire team with another coach and they&rsquo;ll see every session you build for it. Manage per-team sharing here.
@@ -203,7 +203,7 @@ export default function Settings({ teamsContext, syncContext, onShowLinkDevice }
 
         {/* On this device */}
         <section>
-          <div className="overline mb-2">ON THIS DEVICE</div>
+          <div className="eyebrow mb-2">ON THIS DEVICE</div>
           <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>Storage</h2>
           <p className="text-[13px] mb-3" style={{ color: 'var(--ink-2)' }}>
             {storage.ready
@@ -243,7 +243,7 @@ export default function Settings({ teamsContext, syncContext, onShowLinkDevice }
 
         {/* Sync + Account progression — three tiers the user can move through */}
         <section>
-          <div className="overline mb-2">YOUR ACCOUNT</div>
+          <div className="eyebrow mb-2">YOUR ACCOUNT</div>
           <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>
             {hasAccount ? 'Signed in' : syncOn ? 'Synced across devices' : 'On this device only'}
           </h2>
@@ -314,7 +314,7 @@ export default function Settings({ teamsContext, syncContext, onShowLinkDevice }
 
         {/* Privacy */}
         <section>
-          <div className="overline mb-2">WHAT WE COLLECT</div>
+          <div className="eyebrow mb-2">WHAT WE COLLECT</div>
           <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>Nothing, unless you opt in.</h2>
           <p className="text-[13px] mb-3 max-w-[540px]" style={{ color: 'var(--ink-2)' }}>
             By default, nothing leaves your browser. When you turn on cloud sync or share a team, the relevant data is sent to our servers

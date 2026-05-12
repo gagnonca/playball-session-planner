@@ -90,7 +90,7 @@ export default function Schedule({ teamsContext }) {
       <main className="max-w-6xl mx-auto px-10 pt-12 pb-16">
         <div className="flex items-end justify-between flex-wrap gap-4 mb-6">
           <div>
-            <div className="overline mb-2">SCHEDULE · {monthLabel(cursor).toUpperCase()}</div>
+            <div className="eyebrow mb-2">SCHEDULE · {monthLabel(cursor).toUpperCase()}</div>
             <h1 className="text-[40px] font-semibold leading-[1.04]" style={{ letterSpacing: '-0.02em' }}>The weeks ahead.</h1>
             <p className="mt-2 text-[14.5px] max-w-[540px]" style={{ color: 'var(--ink-2)' }}>
               Practices and games for every team you coach.{' '}
@@ -382,7 +382,7 @@ function ListView({ cursor, events, onOpenEvent }) {
   if (groups.length === 0) {
     return (
       <div className="card p-12 text-center">
-        <div className="overline mb-3">NO SESSIONS</div>
+        <div className="eyebrow mb-3">NO SESSIONS</div>
         <h3 className="text-[18px] font-semibold mb-2" style={{ letterSpacing: '-0.015em' }}>
           No scheduled sessions yet
         </h3>
@@ -409,7 +409,7 @@ function ListView({ cursor, events, onOpenEvent }) {
     <div className="flex flex-col gap-7">
       {groups.map(g => (
         <div key={g.weekStart.toISOString()}>
-          <div className="overline mb-3">{weekHeading(g.weekStart)}</div>
+          <div className="eyebrow mb-3">{weekHeading(g.weekStart)}</div>
           <div className="flex flex-col gap-2">
             {g.items.map(e => (
               <button

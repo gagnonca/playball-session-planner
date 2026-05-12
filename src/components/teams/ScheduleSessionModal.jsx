@@ -63,7 +63,7 @@ export default function ScheduleSessionModal({ teamsContext, teamId, onClose, on
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="card animate-fade-in w-full max-w-[620px]" style={{ boxShadow: 'var(--shadow-lg)' }}>
           <div className="p-6">
-            <div className="overline mb-2">
+            <div className="eyebrow mb-2">
               NEW SESSION{team?.name ? ` · ${team.name.toUpperCase()}${team.ageGroup ? ` ${team.ageGroup}` : ''}` : ''}
             </div>
             <h2 className="text-[24px] font-semibold leading-tight mb-5" style={{ letterSpacing: '-0.02em' }}>

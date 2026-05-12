@@ -63,7 +63,7 @@ function SummaryTile({ summary, sectionCount, active, onClick }) {
       onMouseEnter={(e) => { if (!active) e.currentTarget.style.borderColor = 'var(--line-2)'; }}
       onMouseLeave={(e) => { if (!active) e.currentTarget.style.borderColor = 'var(--line)'; }}
     >
-      <div className="overline mb-1" style={{ fontSize: 10 }}>SESSION SUMMARY</div>
+      <div className="eyebrow mb-1" style={{ fontSize: 10 }}>SESSION SUMMARY</div>
       <div className="text-[15px] font-semibold leading-tight truncate" style={{ letterSpacing: '-0.015em', color: 'var(--ink)' }}>
         {summary?.title || 'Untitled session'}
       </div>
@@ -226,7 +226,7 @@ export default function SessionRail({
       />
 
       <div className="flex items-center justify-between mt-2 px-1">
-        <span className="overline" style={{ fontSize: 10.5 }}>
+        <span className="eyebrow" style={{ fontSize: 10.5 }}>
           PLAN ({sections.length})
         </span>
         <button onClick={onAddSection} className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }}>

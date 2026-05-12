@@ -122,7 +122,7 @@ export default function SharePopover({
         boxShadow: 'var(--shadow-lg)',
       }}
     >
-      <div className="overline mb-2.5" style={{ fontSize: 10.5 }}>SHARE SCOPE</div>
+      <div className="eyebrow mb-2.5" style={{ fontSize: 10.5 }}>SHARE SCOPE</div>
 
       {!syncEnabled && (
         <div

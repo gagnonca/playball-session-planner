@@ -1132,7 +1132,7 @@ function CommunityTab({ isSignedIn, onSignIn }) {
       ) : null}
 
       <div className="card p-12 text-center" style={{ background: 'var(--bg-elev)' }}>
-        <div className="overline mb-3">COMING SOON</div>
+        <div className="eyebrow mb-3">COMING SOON</div>
         <h3 className="text-[18px] font-semibold mb-2" style={{ letterSpacing: '-0.015em' }}>
           Discover sessions from other coaches
         </h3>
