@@ -26,7 +26,7 @@ function greeting() {
 }
 
 export default function TeamList({ teamsContext, syncContext, sharingContext, onShowLinkDevice, iosReferral, onDismissIosReferral }) {
-  const { teamsData, navigateToTeamDetail, deleteTeam, navigateToLibrary } = teamsContext;
+  const { teamsData, navigateToTeamDetail, deleteTeam, navigateToLibrary, navigateToSchedule } = teamsContext;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem(HAS_SEEN_WELCOME_KEY));
@@ -91,6 +91,18 @@ export default function TeamList({ teamsContext, syncContext, sharingContext, on
                 lastSyncAt={syncContext.lastSyncAt}
                 onLinkDevice={onShowLinkDevice}
               />
+            )}
+            {navigateToSchedule && (
+              <button
+                onClick={() => navigateToSchedule()}
+                className="btn btn-ghost"
+                title="Schedule"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Schedule
+              </button>
             )}
             <button
               onClick={() => navigateToLibrary('exercises')}

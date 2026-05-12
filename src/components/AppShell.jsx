@@ -13,6 +13,7 @@ import TeamDetail from './teams/TeamDetail';
 import SessionBuilder from './session-builder/SessionBuilder';
 import DiagramBuilder from './DiagramBuilder';
 import Library from './Library';
+import Schedule from './Schedule';
 import LinkDeviceModal from './LinkDeviceModal';
 import StorageLimitModal from './StorageLimitModal';
 import ImportLanding from './ImportLanding';
@@ -601,6 +602,15 @@ export default function AppShell() {
             onClose={navigateBackFromDiagramBuilder}
           />
         </div>
+      </ViewErrorBoundary>
+    );
+  }
+
+  // Schedule view
+  if (currentView === VIEWS.SCHEDULE) {
+    return (
+      <ViewErrorBoundary onRecover={navigateToTeams}>
+        <Schedule teamsContext={teamsContext} />
       </ViewErrorBoundary>
     );
   }

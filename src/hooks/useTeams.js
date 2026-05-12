@@ -42,6 +42,7 @@ function buildUrl(viewState, teams) {
   if (currentView === VIEWS.TEAMS) return '/';
 
   if (currentView === VIEWS.LIBRARY) return '/library';
+  if (currentView === VIEWS.SCHEDULE) return '/schedule';
 
   if (currentView === VIEWS.DIAGRAM_BUILDER && editingDiagramId) {
     return '/diagrams/' + editingDiagramId;
@@ -112,6 +113,11 @@ function resolveUrl(pathname, teams) {
   // /library
   if (segments[0] === 'library') {
     return { currentView: VIEWS.LIBRARY };
+  }
+
+  // /schedule
+  if (segments[0] === 'schedule') {
+    return { currentView: VIEWS.SCHEDULE };
   }
 
   // /diagrams → library diagrams tab; /diagrams/<id> → diagram editor
@@ -829,6 +835,15 @@ export default function useTeams() {
     pushViewState({ currentView: VIEWS.LIBRARY, libraryTab: tab }, '/library');
   };
 
+  const navigateToSchedule = () => {
+    setCurrentView(VIEWS.SCHEDULE);
+    setSelectedTeamId(null);
+    setSelectedSessionId(null);
+    setSelectedSectionId(null);
+    setEditingDiagramId(null);
+    pushViewState({ currentView: VIEWS.SCHEDULE }, '/schedule');
+  };
+
   // Navigate to library in insert mode (from session builder)
   const navigateToLibraryInsert = (tab = 'exercises', teamId, sessionId, sectionId = null) => {
     setCurrentView(VIEWS.LIBRARY);
@@ -886,6 +901,7 @@ export default function useTeams() {
     navigateToDiagramLibrary,
     navigateToEditLibraryDiagram,
     navigateBackFromDiagramBuilder,
+    navigateToSchedule,
     navigateToLibrary,
     navigateToLibraryInsert,
   };
