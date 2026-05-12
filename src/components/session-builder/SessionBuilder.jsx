@@ -1,28 +1,13 @@
 import { useState, useCallback } from 'react';
 import { pdf } from '@react-pdf/renderer';
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-  useSortable,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
-import Header from '../Header';
 import SessionSummary from '../SessionSummary';
 import Section from '../Section';
 import AddSectionModal from '../AddSectionModal';
 import LibraryModal from '../LibraryModal';
 import AIConfigModal from '../AIConfigModal';
 import SessionPlanPDF from '../SessionPlanPDF';
+import SessionRail from './SessionRail';
+import { planTotal, parseMinutes } from '../../utils/sessionDuration';
 import useAI from '../../hooks/useAI';
 import {
   defaultSection,
@@ -32,49 +17,50 @@ import {
 } from '../../utils/helpers';
 import { PPP_TEMPLATES } from '../../constants/coaching';
 
-// Sortable wrapper component for sections
-function SortableSection({ section, teamsContext, diagramLibrary, aiContext, ...props }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: section.id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
+// AutoSaved chip — small inline pill confirming everything persists automatically.
+function AutoSavedChip() {
   return (
-    <div ref={setNodeRef} style={style}>
-      <div className="flex items-start gap-2">
-        {/* Drag Handle */}
-        <button
-          {...attributes}
-          {...listeners}
-          className="cursor-grab active:cursor-grabbing mt-6 p-2 rounded-md transition-colors no-print"
-          style={{ color: 'var(--ink-3)' }}
-          title="Drag to reorder"
-          onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-sunken)'; e.currentTarget.style.color = 'var(--ink-2)'; }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ink-3)'; }}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M4 8h16M4 16h16" />
-          </svg>
-        </button>
-        <div className="flex-1">
-          <Section section={section} teamsContext={teamsContext} diagramLibrary={diagramLibrary} aiContext={aiContext} {...props} />
-        </div>
-      </div>
-    </div>
+    <span
+      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full"
+      style={{ background: 'rgb(var(--good-rgb) / 0.12)', color: 'var(--good)', fontSize: 11.5 }}
+      title="Auto-saved — no Save button needed"
+    >
+      <span className="inline-block rounded-full" style={{ width: 6, height: 6, background: 'var(--good)' }} />
+      <span>Auto-saved</span>
+    </span>
   );
 }
 
-export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHook, syncContext, onShowLinkDevice }) {
+// DurationChip — current vs target minutes. Mono. Color-coded:
+// neutral on target, warn when under by >3, danger when over.
+function DurationChip({ current, target }) {
+  const overOrUnder = target > 0 ? current - target : 0;
+  let color = 'var(--ink-2)';
+  let bg = 'var(--bg-sunken)';
+  if (target > 0) {
+    if (overOrUnder > 0) { color = 'var(--danger)'; bg = 'rgb(var(--danger-rgb) / 0.10)'; }
+    else if (overOrUnder < -3) { color = 'var(--warn)'; bg = 'rgb(var(--warn-rgb) / 0.12)'; }
+    else { color = 'var(--good)'; bg = 'rgb(var(--good-rgb) / 0.12)'; }
+  }
+  return (
+    <span
+      className="font-mono uppercase"
+      style={{
+        padding: '4px 9px',
+        borderRadius: 999,
+        background: bg,
+        color,
+        fontSize: 10.5,
+        letterSpacing: '0.08em',
+      }}
+      title={target > 0 ? (overOrUnder === 0 ? 'On target' : overOrUnder > 0 ? `${overOrUnder} over target` : `${-overOrUnder} under target`) : 'No target set'}
+    >
+      {target > 0 ? `${current}/${target} MIN` : `${current} MIN`}
+    </span>
+  );
+}
+
+export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHook }) {
   const {
     selectedTeamId,
     selectedSessionId,
@@ -83,7 +69,6 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
     updateSession,
     navigateToTeams,
     navigateToTeamDetail,
-    navigateToLibrary,
     navigateToLibraryInsert,
   } = teamsContext;
 
@@ -101,14 +86,6 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
 
   // AI Hook
   const aiHook = useAI();
-
-  // Drag and drop sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
 
   // Handle missing team or session (corrupt data, stale URL, etc.)
   if (!team || !session || !session.summary) {
@@ -184,21 +161,12 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
     setSession(prev => ({ ...prev, selectedSectionId: sectionId }));
   }, [setSession]);
 
-  // Handle drag and drop reordering
-  const handleDragEnd = useCallback((event) => {
-    const { active, over } = event;
+  const handleSelectSummary = useCallback(() => {
+    setSession(prev => ({ ...prev, selectedSectionId: null }));
+  }, [setSession]);
 
-    if (active.id !== over.id) {
-      setSession(prev => {
-        const oldIndex = prev.sections.findIndex(s => s.id === active.id);
-        const newIndex = prev.sections.findIndex(s => s.id === over.id);
-
-        return {
-          ...prev,
-          sections: arrayMove(prev.sections, oldIndex, newIndex),
-        };
-      });
-    }
+  const handleReorderSections = useCallback((nextSections) => {
+    setSession(prev => ({ ...prev, sections: nextSections }));
   }, [setSession]);
 
   const handleSaveToLibrary = useCallback((section, name) => {
@@ -476,71 +444,105 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
     navigateToTeamDetail(selectedTeamId);
   }, [navigateToTeamDetail, selectedTeamId]);
 
+  // Selection: null = Summary view; otherwise = a section id.
+  const selectedSectionId = session.selectedSectionId ?? null;
+  const activeSection = selectedSectionId
+    ? session.sections.find(s => s.id === selectedSectionId)
+    : null;
+
+  // Duration math for the chip
+  const planMinutes = planTotal(session.sections);
+  const targetMinutes = parseMinutes(session.summary?.duration);
+
   return (
-    <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
-      {/* Breadcrumb */}
-      <div style={{ background: 'var(--bg)', borderBottom: '1px solid var(--line)' }}>
-        <div className="max-w-7xl mx-auto px-4 py-2.5">
+    <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+      {/* Sticky top bar */}
+      <header
+        className="sticky top-0 z-20"
+        style={{
+          background: 'rgb(var(--bg-elev-rgb) / 0.94)',
+          backdropFilter: 'blur(8px)',
+          borderBottom: '1px solid var(--line)',
+        }}
+      >
+        <div className="max-w-[1400px] mx-auto px-4 py-2.5 flex items-center gap-3">
           <button
             onClick={handleBackToTeam}
-            className="btn btn-ghost"
+            className="btn btn-ghost flex-shrink-0"
             style={{ padding: '4px 8px', fontSize: 13 }}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 19l-7-7 7-7" />
             </svg>
-            <span>Back to {team.name}</span>
+            <span>{team.name}</span>
+          </button>
+          <span style={{ color: 'var(--ink-3)' }}>/</span>
+          <span
+            className="font-semibold truncate"
+            style={{ fontSize: 16, letterSpacing: '-0.015em', color: 'var(--ink)' }}
+            title={session.summary?.title || 'Untitled session'}
+          >
+            {session.summary?.title || 'Untitled session'}
+          </span>
+          <AutoSavedChip />
+
+          <div className="flex-1" />
+
+          <DurationChip current={planMinutes} target={targetMinutes} />
+          <button
+            onClick={handleDownloadPDF}
+            className="btn btn-ghost"
+            title="Download PDF"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+            </svg>
+            Export PDF
+          </button>
+          <button
+            onClick={handleOpenSaveAs}
+            className="btn btn-ghost"
+            title="Save a renamed copy to library"
+          >
+            Save as…
+          </button>
+          <button
+            onClick={() => setIsAIConfigOpen(true)}
+            className="btn btn-soft"
+            title="AI Coach (configure)"
+          >
+            <span aria-hidden style={{ marginRight: 4 }}>✨</span>
+            Ask Coach
           </button>
         </div>
-      </div>
+      </header>
 
-      <Header
-        onDownloadPDF={handleDownloadPDF}
-        onOpenAISettings={() => setIsAIConfigOpen(true)}
-        isAIConfigured={aiHook.isConfigured()}
-        onNavigateToLibrary={() => navigateToLibraryInsert('exercises', selectedTeamId, selectedSessionId)}
-        onSaveAs={handleOpenSaveAs}
-        syncStatus={syncContext?.isSyncEnabled ? syncContext.syncStatus : 'idle'}
-        lastSyncAt={syncContext?.lastSyncAt}
-        onLinkDevice={onShowLinkDevice}
-      />
-
-      <main className="max-w-7xl mx-auto px-4 py-6">
-        <SessionSummary
+      {/* Two-column body */}
+      <div className="flex-1 flex max-w-[1400px] mx-auto w-full">
+        <SessionRail
           summary={session.summary}
-          onUpdate={handleUpdateSummary}
+          sections={session.sections}
+          selectedSectionId={selectedSectionId}
+          onSelectSummary={handleSelectSummary}
+          onSelectSection={handleSelectSection}
+          onReorderSections={handleReorderSections}
+          onAddSection={handleAddSection}
         />
 
-        {session.sections.length > 0 && (
-          <div className="mt-10 mb-4">
-            <div className="text-[11px] font-mono uppercase" style={{ color: 'var(--ink-3)', letterSpacing: '0.1em' }}>
-              PLAN ({session.sections.length})
-            </div>
-            <h2 className="text-[22px] font-semibold mt-1 mb-1" style={{ letterSpacing: '-0.02em' }}>Sections</h2>
-            <p className="text-[13px]" style={{ color: 'var(--ink-2)' }}>
-              Always start and end with Play. Add as many Practice blocks as you want — drag to reorder.
-            </p>
-          </div>
-        )}
-
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext
-            items={session.sections.map(s => s.id)}
-            strategy={verticalListSortingStrategy}
-          >
-            {session.sections.map(section => (
-              <SortableSection
-                key={section.id}
-                section={section}
-                onUpdate={(updated) => handleUpdateSection(section.id, updated)}
-                onRemove={() => handleRemoveSection(section.id)}
+        <main className="flex-1 min-w-0 px-8 py-8 overflow-x-hidden">
+          {activeSection ? (
+            <>
+              <Section
+                key={activeSection.id}
+                section={activeSection}
+                onUpdate={(updated) => handleUpdateSection(activeSection.id, updated)}
+                onRemove={() => {
+                  handleRemoveSection(activeSection.id);
+                  handleSelectSummary();
+                }}
                 onSaveToLibrary={handleSaveToLibrary}
                 onOpenLibrary={() => {
-                  setLibraryOpenedFromSectionId(section.id);
+                  setLibraryOpenedFromSectionId(activeSection.id);
                   setIsLibraryModalOpen(true);
                 }}
                 teamsContext={teamsContext}
@@ -551,48 +553,40 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
                   onConfigureAI: () => setIsAIConfigOpen(true),
                 }}
               />
-            ))}
-          </SortableContext>
-        </DndContext>
-
-        <div className="flex justify-center my-10">
-          <button
-            onClick={handleAddSection}
-            className="btn btn-primary"
-            style={{ padding: '11px 22px', fontSize: 14.5 }}
-          >
-            + Add section
-          </button>
-        </div>
-
-        <footer className="text-[13px] text-center my-4" style={{ color: 'var(--ink-2)' }}>
-          Tip: use <strong style={{ color: 'var(--ink)' }}>Download PDF</strong> to export this session as a printable plan.
-        </footer>
-
-        <div className="no-print flex flex-wrap gap-3 justify-center my-6">
-          <button onClick={handleExportSession} className="btn btn-subtle">
-            Export JSON
-          </button>
-          <label className="btn btn-subtle cursor-pointer">
-            Import JSON
-            <input
-              type="file"
-              accept="application/json"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  handleImportSession(file);
-                  e.target.value = '';
-                }
-              }}
-              className="hidden"
+            </>
+          ) : (
+            <SessionSummary
+              summary={session.summary}
+              onUpdate={handleUpdateSummary}
             />
-          </label>
-          <button onClick={handleClearSession} className="btn btn-ghost" style={{ color: 'var(--danger)' }}>
-            Clear session
-          </button>
-        </div>
-      </main>
+          )}
+
+          <footer className="mt-12">
+            <div className="hairline mb-6" />
+            <div className="no-print flex flex-wrap gap-3 justify-center">
+              <button onClick={handleExportSession} className="btn btn-ghost">Export JSON</button>
+              <label className="btn btn-ghost cursor-pointer">
+                Import JSON
+                <input
+                  type="file"
+                  accept="application/json"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      handleImportSession(file);
+                      e.target.value = '';
+                    }
+                  }}
+                  className="hidden"
+                />
+              </label>
+              <button onClick={handleClearSession} className="btn btn-ghost" style={{ color: 'var(--danger)' }}>
+                Clear session
+              </button>
+            </div>
+          </footer>
+        </main>
+      </div>
 
       {/* Modals */}
       <AddSectionModal
