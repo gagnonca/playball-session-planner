@@ -86,21 +86,30 @@ const TOOLS = [
   { id: 'dribble',  label: 'Dribble',  key: 'X' },
 ];
 
-// Pitch presets — each has an aspect ratio (long / short axis) and a `pitch`
-// id that the FieldBackground renderer branches on. Aspect is in HORIZONTAL
-// orientation; vertical orientation inverts it.
-const FIELD_PRESETS = [
-  { value: '4v4',   label: '4v4',   aspect: 1.50, maxWidth: 720, pitch: '4v4'   },
-  { value: '7v7',   label: '7v7',   aspect: 1.60, maxWidth: 800, pitch: '7v7'   },
-  { value: '9v9',   label: '9v9',   aspect: 1.65, maxWidth: 840, pitch: '9v9'   },
-  { value: '11v11', label: '11v11', aspect: 1.55, maxWidth: 880, pitch: '11v11' },
-  { value: 'half',  label: 'Half',  aspect: 1.10, maxWidth: 640, pitch: 'half'  },
-  { value: 'third', label: 'Third', aspect: 0.70, maxWidth: 460, pitch: 'third' },
+// Pitch SIZE controls the game format — aspect ratio of the full pitch plus
+// box / center-circle dimensions used when those markings render. 4v4 has no
+// penalty box and no center circle by convention.
+const PITCH_SIZES = [
+  { value: '4v4',   label: '4v4',   aspect: 1.50, circleRadius: 0,  box: null },
+  { value: '7v7',   label: '7v7',   aspect: 1.60, circleRadius: 56, box: { outerW: 95,  outerH: 175, innerW: 35, innerH: 80  } },
+  { value: '9v9',   label: '9v9',   aspect: 1.65, circleRadius: 70, box: { outerW: 125, outerH: 220, innerW: 50, innerH: 110 } },
+  { value: '11v11', label: '11v11', aspect: 1.55, circleRadius: 82, box: { outerW: 160, outerH: 265, innerW: 60, innerH: 125 } },
 ];
-const DEFAULT_PRESET = '11v11';
-function findPreset(value) {
-  return FIELD_PRESETS.find(p => p.value === value) || FIELD_PRESETS[3];
-}
+
+// Pitch VIEW controls how much of the pitch is shown. Each view divides the
+// long axis (full = 1, half = 2, third = 3) so aspect ratios derive cleanly
+// from the chosen size.
+const PITCH_VIEWS = [
+  { value: 'full',  label: 'Full',  divisor: 1 },
+  { value: 'half',  label: 'Half',  divisor: 2 },
+  { value: 'third', label: 'Third', divisor: 3 },
+];
+
+const DEFAULT_PITCH_SIZE = '11v11';
+const DEFAULT_PITCH_VIEW = 'full';
+const PITCH_MAX_WIDTH = 880;
+const findSize = (v) => PITCH_SIZES.find(p => p.value === v) || PITCH_SIZES[3];
+const findView = (v) => PITCH_VIEWS.find(p => p.value === v) || PITCH_VIEWS[0];
 
 // Logical canvas viewBox — Konva pixels match these so shapes scale cleanly
 // across field types. Width is fixed; height derives from aspect so each
@@ -162,11 +171,11 @@ function isMarkerKind(kind) {
 
 // --- Field background -------------------------------------------------------
 
-// Pitch markings differ by format — fewer / smaller boxes for small-sided
-// games, no penalty box at all for 4v4, half-pitch and third views for
-// drill-focused diagrams. All markings are drawn in HORIZONTAL orientation
-// (long axis = x); rotation, if any, happens at the parent Group level.
-function FieldBackground({ w, h, pitch = '11v11' }) {
+// Pitch markings are composed from a SIZE (4v4..11v11, dictates box +
+// center-circle dimensions) and a VIEW (full / half / third, dictates how
+// much of the pitch is shown and which markings appear). Both axes are
+// orthogonal — every combination renders sensibly.
+function FieldBackground({ w, h, size, view }) {
   const m = 30; // pitch padding inset
   const lineColor = 'rgba(255,255,255,0.65)';
   const stripeStroke = 'rgba(255,255,255,0.04)';
@@ -194,104 +203,72 @@ function FieldBackground({ w, h, pitch = '11v11' }) {
   const centerCircle = (r) => (
     <Circle x={w / 2} y={h / 2} radius={r} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
   );
-  const penaltyBoxes = (outerW, outerH, innerW, innerH) => (
-    <>
-      <Rect x={m} y={(h - outerH) / 2} width={outerW} height={outerH} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
-      <Rect x={w - m - outerW} y={(h - outerH) / 2} width={outerW} height={outerH} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
-      <Rect x={m} y={(h - innerH) / 2} width={innerW} height={innerH} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
-      <Rect x={w - m - innerW} y={(h - innerH) / 2} width={innerW} height={innerH} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
-    </>
-  );
+  const sizeCfg = findSize(size);
+  const box = sizeCfg.box;
+  const cr  = sizeCfg.circleRadius;
+  const endBox = (side) => {
+    if (!box) return null;
+    const { outerW, outerH, innerW, innerH } = box;
+    const isLeft = side === 'left';
+    const outerX = isLeft ? m : w - m - outerW;
+    const innerX = isLeft ? m : w - m - innerW;
+    return (
+      <Group key={side} listening={false}>
+        <Rect x={outerX} y={(h - outerH) / 2} width={outerW} height={outerH} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
+        <Rect x={innerX} y={(h - innerH) / 2} width={innerW} height={innerH} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
+      </Group>
+    );
+  };
+  const tinyGoal = (side) => {
+    // For 4v4: no penalty box, but a small visible goal post on each end.
+    const x = side === 'left' ? m - 5 : w - m;
+    return (
+      <Rect key={`goal-${side}`} x={x} y={(h - 50) / 2} width={5} height={50} fill={lineColor} listening={false} />
+    );
+  };
 
-  if (pitch === '4v4') {
+  if (view === 'full') {
     return (
       <Group listening={false}>
         {stripes}
         {boundary}
         {halfway}
+        {cr > 0 && centerCircle(cr)}
         {centerSpot}
-        {/* No penalty box, no center circle. Tiny goal markers at each end. */}
-        <Rect x={m - 5} y={(h - 50) / 2} width={5} height={50} fill={lineColor} listening={false} />
-        <Rect x={w - m} y={(h - 50) / 2} width={5} height={50} fill={lineColor} listening={false} />
+        {box ? [endBox('left'), endBox('right')] : [tinyGoal('left'), tinyGoal('right')]}
       </Group>
     );
   }
-  if (pitch === '7v7') {
+
+  if (view === 'half') {
+    // Show one end (right) with its penalty box; the open (left) side gets
+    // a half-circle hugging the centerline so it reads as "the goal half".
+    // For 4v4, the open side gets the tiny goal marker only.
     return (
       <Group listening={false}>
         {stripes}
         {boundary}
-        {halfway}
-        {centerCircle(56)}
-        {centerSpot}
-        {penaltyBoxes(95, 175, 35, 80)}
+        {cr > 0 && (
+          <Path
+            data={`M ${m} ${h / 2 - cr} A ${cr} ${cr} 0 0 1 ${m} ${h / 2 + cr}`}
+            stroke={lineColor}
+            strokeWidth={2}
+            listening={false}
+          />
+        )}
+        {box ? endBox('right') : tinyGoal('right')}
       </Group>
     );
   }
-  if (pitch === '9v9') {
-    return (
-      <Group listening={false}>
-        {stripes}
-        {boundary}
-        {halfway}
-        {centerCircle(70)}
-        {centerSpot}
-        {penaltyBoxes(125, 220, 50, 110)}
-      </Group>
-    );
-  }
-  if (pitch === '11v11') {
-    return (
-      <Group listening={false}>
-        {stripes}
-        {boundary}
-        {halfway}
-        {centerCircle(82)}
-        {centerSpot}
-        {penaltyBoxes(160, 265, 60, 125)}
-      </Group>
-    );
-  }
-  if (pitch === 'half') {
-    // Half pitch — one end with a penalty box + half-center-circle on the
-    // open side. Used for end-zone drills.
-    return (
-      <Group listening={false}>
-        {stripes}
-        {boundary}
-        {/* Open side: half-circle hugging the centerline */}
-        <Path
-          data={`M ${m} ${h / 2 - 70} A 70 70 0 0 1 ${m} ${h / 2 + 70}`}
-          stroke={lineColor}
-          strokeWidth={2}
-          fill={null}
-          listening={false}
-        />
-        <Rect x={w - m - 160} y={(h - 265) / 2} width={160} height={265} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
-        <Rect x={w - m - 60} y={(h - 125) / 2} width={60} height={125} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
-      </Group>
-    );
-  }
-  if (pitch === 'third') {
-    // Third — outline + two dashed thirds. Tactical channel rehearsals.
-    return (
-      <Group listening={false}>
-        {stripes}
-        {boundary}
-        <Line points={[m + (w - 2 * m) / 3, m, m + (w - 2 * m) / 3, h - m]} stroke={lineColor} strokeWidth={2} dash={[8, 6]} opacity={0.6} listening={false} />
-        <Line points={[m + (w - 2 * m) * 2 / 3, m, m + (w - 2 * m) * 2 / 3, h - m]} stroke={lineColor} strokeWidth={2} dash={[8, 6]} opacity={0.6} listening={false} />
-      </Group>
-    );
-  }
-  // Fallback: 11v11
+
+  // view === 'third' — outline + two dashed thirds, no boxes or circle.
+  // Useful for tactical channel work that doesn't care about goal-line markings.
   return (
     <Group listening={false}>
       {stripes}
       {boundary}
-      {halfway}
-      {centerCircle(82)}
-      {centerSpot}
-      {penaltyBoxes(160, 265, 60, 125)}
+      <Line points={[m + (w - 2 * m) / 3, m, m + (w - 2 * m) / 3, h - m]} stroke={lineColor} strokeWidth={2} dash={[8, 6]} opacity={0.6} listening={false} />
+      <Line points={[m + (w - 2 * m) * 2 / 3, m, m + (w - 2 * m) * 2 / 3, h - m]} stroke={lineColor} strokeWidth={2} dash={[8, 6]} opacity={0.6} listening={false} />
     </Group>
   );
 }
@@ -596,7 +573,7 @@ function LineHandles({ points, canvasScale, onMovePoint, onRemovePoint }) {
 
 // --- Top bar ----------------------------------------------------------------
 
-function TopBar({ title, onTitleChange, fieldType, onFieldType, orientation, onOrientation, onBack, onSave, onExport }) {
+function TopBar({ title, onTitleChange, pitchSize, onPitchSize, pitchView, onPitchView, orientation, onOrientation, onBack, onSave, onExport }) {
   return (
     <header
       className="flex items-center gap-4 px-5 py-3"
@@ -627,19 +604,35 @@ function TopBar({ title, onTitleChange, fieldType, onFieldType, orientation, onO
         }}
         placeholder="Untitled play"
       />
-      <div className="inline-flex items-center gap-1.5">
-        <span className="font-mono uppercase" style={{ fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.08em' }}>PITCH</span>
-        <select
-          value={fieldType}
-          onChange={(e) => onFieldType(e.target.value)}
-          className="input-field"
-          style={{ padding: '6px 10px', fontSize: 13, width: 'auto' }}
-          aria-label="Pitch preset"
-        >
-          {FIELD_PRESETS.map(p => (
-            <option key={p.value} value={p.value}>{p.label}</option>
-          ))}
-        </select>
+      <div className="inline-flex items-center gap-3">
+        <label className="inline-flex items-center gap-1.5">
+          <span className="font-mono uppercase" style={{ fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.08em' }}>SIZE</span>
+          <select
+            value={pitchSize}
+            onChange={(e) => onPitchSize(e.target.value)}
+            className="input-field"
+            style={{ padding: '6px 10px', fontSize: 13, width: 'auto' }}
+            aria-label="Pitch size"
+          >
+            {PITCH_SIZES.map(p => (
+              <option key={p.value} value={p.value}>{p.label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="inline-flex items-center gap-1.5">
+          <span className="font-mono uppercase" style={{ fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.08em' }}>VIEW</span>
+          <select
+            value={pitchView}
+            onChange={(e) => onPitchView(e.target.value)}
+            className="input-field"
+            style={{ padding: '6px 10px', fontSize: 13, width: 'auto' }}
+            aria-label="Pitch view"
+          >
+            {PITCH_VIEWS.map(p => (
+              <option key={p.value} value={p.value}>{p.label}</option>
+            ))}
+          </select>
+        </label>
         <button
           onClick={() => onOrientation(orientation === 'vertical' ? 'horizontal' : 'vertical')}
           className="btn btn-ghost"
@@ -648,7 +641,6 @@ function TopBar({ title, onTitleChange, fieldType, onFieldType, orientation, onO
           style={{ padding: '4px 8px' }}
         >
           {orientation === 'vertical' ? (
-            // Show the alternate orientation as the action label
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="7" width="18" height="10" rx="1.5" />
               <path d="M12 7v10" />
@@ -1021,7 +1013,8 @@ function defaultPendingFor(tool, shapes) {
 
 export default function DiagramPlayground() {
   const [title, setTitle] = useState('1v1 in the channel');
-  const [fieldType, setFieldType] = useState(DEFAULT_PRESET);
+  const [pitchSize, setPitchSize] = useState(DEFAULT_PITCH_SIZE);
+  const [pitchView, setPitchView] = useState(DEFAULT_PITCH_VIEW);
   const [orientation, setOrientation] = useState('horizontal');
   const fieldRotationGroupRef = useRef(null);
   const [tool, setTool] = useState('select');
@@ -1037,11 +1030,14 @@ export default function DiagramPlayground() {
   const transformerRef = useRef(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
 
-  const fieldCfg = findPreset(fieldType);
-  // Visible aspect ratio depends on orientation (horizontal/vertical flips it).
-  // Computed once so containerRef/ResizeObserver/canvasScale stay consistent.
-  const displayAspect = orientation === 'vertical' ? 1 / fieldCfg.aspect : fieldCfg.aspect;
+  const sizeCfg = findSize(pitchSize);
+  const viewCfg = findView(pitchView);
+  // Full-pitch aspect divided by the view's divisor: full=1, half=2, third=3.
+  // Half/third views are taller-than-wide on a horizontal canvas, which feels
+  // right for end-zone or channel views.
+  const fieldAspect = sizeCfg.aspect / viewCfg.divisor;
   const isVertical = orientation === 'vertical';
+  const displayAspect = isVertical ? 1 / fieldAspect : fieldAspect;
   const selected = useMemo(() => {
     if (selectedIds.size !== 1) return null;
     const onlyId = selectedIds.values().next().value;
@@ -1074,12 +1070,12 @@ export default function DiagramPlayground() {
   // pixel dimension is stageSize.height. Canvas-scale (pixels per logical
   // unit) reads from whichever axis is currently the long one.
   const longPx = isVertical ? stageSize.height : stageSize.width;
-  const shortPx = isVertical ? stageSize.width : stageSize.height;
   const scale = longPx > 0 ? longPx / VB_W : 1;
-  // Field viewBox: long axis = VB_W, short axis derives from preset aspect.
+  // Field viewBox in pixel space — long axis = VB_W * scale, short axis is
+  // (long axis / fieldAspect) so the rendered field exactly fills the
+  // container regardless of which view / orientation is active.
   const fieldW = VB_W * scale;
-  const fieldH = (VB_W / fieldCfg.aspect) * scale;
-  void shortPx; // referenced in handlers below
+  const fieldH = (VB_W / fieldAspect) * scale;
 
   // --- Keyboard shortcuts
   useEffect(() => {
@@ -1385,8 +1381,10 @@ export default function DiagramPlayground() {
       <TopBar
         title={title}
         onTitleChange={setTitle}
-        fieldType={fieldType}
-        onFieldType={setFieldType}
+        pitchSize={pitchSize}
+        onPitchSize={setPitchSize}
+        pitchView={pitchView}
+        onPitchView={setPitchView}
         orientation={orientation}
         onOrientation={setOrientation}
         onBack={() => { window.location.href = '/'; }}
@@ -1413,7 +1411,7 @@ export default function DiagramPlayground() {
             ref={containerRef}
             style={{
               width: '100%',
-              maxWidth: isVertical ? fieldCfg.maxWidth / fieldCfg.aspect : fieldCfg.maxWidth,
+              maxWidth: isVertical ? PITCH_MAX_WIDTH / fieldAspect : PITCH_MAX_WIDTH,
               aspectRatio: displayAspect,
               background: 'color-mix(in oklab, var(--good, #4a7c59) 28%, var(--bg-elev))',
               borderRadius: 14,
@@ -1449,7 +1447,7 @@ export default function DiagramPlayground() {
                     x={isVertical ? stageSize.width : 0}
                     y={0}
                   >
-                    <FieldBackground w={fieldW} h={fieldH} pitch={fieldCfg.pitch} />
+                    <FieldBackground w={fieldW} h={fieldH} size={pitchSize} view={pitchView} />
                     {renderedShapes}
                     {previewLine}
                     {pendingShape && cursorLogical && isMarkerKind(tool) && (
