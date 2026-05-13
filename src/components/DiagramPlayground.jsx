@@ -289,66 +289,187 @@ function MarkerShape({ shape, onClick, onDragMove, onTransformEnd, draggable, id
   return null;
 }
 
-function LineShape({ shape, selected, onClick }) {
-  const { kind, x1, y1, x2, y2 } = shape;
-  // Soft arc for visual richness — control point perpendicular to the
-  // straight line, like the design's curved arrows.
-  const midX = (x1 + x2) / 2;
-  const midY = (y1 + y2) / 2;
+const LINE_STROKE = '#1a1814';
+
+function defaultBendFor(kind) {
+  if (kind === 'pass') return -22;
+  if (kind === 'run') return 18;
+  if (kind === 'dribble') return 10; // amplitude of the wave's peaks
+  return 0;
+}
+
+// Build the geometry for a line: midpoint of straight segment, perpendicular
+// normal, applied bend (control point), and — for dribble — the wave's last
+// segment so we can angle the arrow head correctly.
+function lineGeometry(shape) {
+  const { x1, y1, x2, y2, kind } = shape;
   const dx = x2 - x1;
   const dy = y2 - y1;
   const len = Math.hypot(dx, dy) || 1;
   const nx = -dy / len;
   const ny = dx / len;
-  const bend = kind === 'dribble' ? 18 : kind === 'pass' ? -22 : 18;
+  const bend = shape.bend ?? defaultBendFor(kind);
+  const midX = (x1 + x2) / 2;
+  const midY = (y1 + y2) / 2;
   const ctlX = midX + nx * bend;
   const ctlY = midY + ny * bend;
+  return { dx, dy, len, nx, ny, bend, midX, midY, ctlX, ctlY };
+}
 
-  const sceneFunc = (ctx, shapeNode) => {
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    if (kind === 'dribble') {
-      // Wavy line: small perpendicular zig-zags from start to end
-      const steps = Math.max(4, Math.round(len / 24));
-      for (let i = 1; i <= steps; i++) {
-        const t = i / steps;
-        const px = x1 + dx * t;
-        const py = y1 + dy * t;
-        const side = (i % 2 === 0 ? 1 : -1);
-        const ox = nx * 8 * side;
-        const oy = ny * 8 * side;
-        ctx.lineTo(px + ox, py + oy);
+// Compute the wavy dribble polyline. Returns array of points including
+// both endpoints. The wave is symmetric across the start→end axis and
+// uses a half-cycle every step so consecutive peaks alternate sides.
+function dribblePoints(shape) {
+  const { x1, y1, x2, y2 } = shape;
+  const { dx, dy, len, nx, ny, bend } = lineGeometry(shape);
+  const amplitude = Math.max(6, Math.min(18, Math.abs(bend)));
+  const steps = Math.max(4, Math.round(len / 26));
+  const points = [{ x: x1, y: y1 }];
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    const px = x1 + dx * t;
+    const py = y1 + dy * t;
+    const side = (i % 2 === 0 ? 1 : -1);
+    points.push({ x: px + nx * amplitude * side, y: py + ny * amplitude * side });
+  }
+  points.push({ x: x2, y: y2 });
+  return points;
+}
+
+function LineShape({ shape, onClick }) {
+  const { kind, x1, y1, x2, y2 } = shape;
+  const geo = lineGeometry(shape);
+
+  // Render the curve in a sceneFunc. For pass/run we use a quadratic curve
+  // through the control point. For dribble we build a smooth Bezier through
+  // the wave's points (midpoint-spline trick) so it reads as a soft, rounded
+  // zigzag instead of sharp diagonal segments.
+  let arrowDirX, arrowDirY;
+  let sceneFunc;
+  if (kind === 'dribble') {
+    const points = dribblePoints(shape);
+    sceneFunc = (ctx, shapeNode) => {
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      // Smooth through each interior point — each point becomes a quadratic
+      // control, the curve passes through the midpoint of every segment.
+      for (let i = 1; i < points.length - 1; i++) {
+        const xc = (points[i].x + points[i + 1].x) / 2;
+        const yc = (points[i].y + points[i + 1].y) / 2;
+        ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
       }
-    } else {
-      ctx.quadraticCurveTo(ctlX, ctlY, x2, y2);
-    }
-    ctx.strokeShape(shapeNode);
-  };
+      ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+      ctx.strokeShape(shapeNode);
+    };
+    // Arrow direction: tangent at the last segment so the arrow head lines
+    // up with the curve's actual exit angle (not the straight start→end).
+    const last = points[points.length - 1];
+    const prev = points[points.length - 2];
+    arrowDirX = last.x - prev.x;
+    arrowDirY = last.y - prev.y;
+  } else {
+    sceneFunc = (ctx, shapeNode) => {
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.quadraticCurveTo(geo.ctlX, geo.ctlY, x2, y2);
+      ctx.strokeShape(shapeNode);
+    };
+    // Tangent at end of quadratic Bezier = direction from control point to
+    // end point.
+    arrowDirX = x2 - geo.ctlX;
+    arrowDirY = y2 - geo.ctlY;
+  }
+  const dirLen = Math.hypot(arrowDirX, arrowDirY) || 1;
+  const tailLen = 14; // pull the arrow's tail back along the tangent
+  const tailX = x2 - (arrowDirX / dirLen) * tailLen;
+  const tailY = y2 - (arrowDirY / dirLen) * tailLen;
 
   return (
     <Group onMouseDown={onClick} onTap={onClick}>
-      <Path
+      <Shape
         sceneFunc={sceneFunc}
-        stroke="#ffffff"
+        stroke={LINE_STROKE}
         strokeWidth={3}
         dash={kind === 'run' ? [10, 8] : undefined}
         lineCap="round"
+        lineJoin="round"
         hitStrokeWidth={20}
       />
       <Arrow
-        points={[x2 - dx * 0.04, y2 - dy * 0.04, x2, y2]}
-        stroke="#ffffff"
+        points={[tailX, tailY, x2, y2]}
+        stroke={LINE_STROKE}
         strokeWidth={3}
-        fill="#ffffff"
-        pointerLength={10}
-        pointerWidth={10}
+        fill={LINE_STROKE}
+        pointerLength={11}
+        pointerWidth={11}
+        listening={false}
       />
-      {selected && (
-        <>
-          <Circle x={x1} y={y1} radius={5} fill="#c8553d" />
-          <Circle x={x2} y={y2} radius={5} fill="#c8553d" />
-        </>
-      )}
+    </Group>
+  );
+}
+
+// Drag handles for a selected line: start, end, and a midpoint control that
+// adjusts the bend (curvature). All values are in the same logical coord
+// system as the line itself; the parent multiplies by canvas scale.
+function LineHandles({ shape, onMove, canvasScale }) {
+  const geo = lineGeometry(shape);
+  // Bend handle position (in screen space, pre-scaled)
+  const handleX = geo.midX + geo.nx * geo.bend;
+  const handleY = geo.midY + geo.ny * geo.bend;
+
+  const onEndpointDrag = (which) => (e) => {
+    const node = e.target;
+    const px = node.x() / canvasScale;
+    const py = node.y() / canvasScale;
+    if (which === 'start') onMove({ x1: px, y1: py });
+    else onMove({ x2: px, y2: py });
+  };
+  const onBendDrag = (e) => {
+    const node = e.target;
+    const hx = node.x() / canvasScale;
+    const hy = node.y() / canvasScale;
+    // Project (hx, hy) - midpoint onto the normal axis -> new bend.
+    const offX = hx - geo.midX;
+    const offY = hy - geo.midY;
+    const newBend = offX * geo.nx + offY * geo.ny;
+    onMove({ bend: newBend });
+  };
+
+  return (
+    <Group listening>
+      <Circle
+        x={shape.x1}
+        y={shape.y1}
+        radius={6}
+        fill="#ffffff"
+        stroke="#c8553d"
+        strokeWidth={2}
+        draggable
+        onDragMove={onEndpointDrag('start')}
+        onDragEnd={onEndpointDrag('start')}
+      />
+      <Circle
+        x={shape.x2}
+        y={shape.y2}
+        radius={6}
+        fill="#ffffff"
+        stroke="#c8553d"
+        strokeWidth={2}
+        draggable
+        onDragMove={onEndpointDrag('end')}
+        onDragEnd={onEndpointDrag('end')}
+      />
+      <Circle
+        x={handleX}
+        y={handleY}
+        radius={5}
+        fill="#c8553d"
+        stroke="#ffffff"
+        strokeWidth={2}
+        draggable
+        onDragMove={onBendDrag}
+        onDragEnd={onBendDrag}
+      />
     </Group>
   );
 }
@@ -474,7 +595,18 @@ function ToolRail({ tool, onTool }) {
 
 // --- Inspector --------------------------------------------------------------
 
-function Inspector({ shape, multiCount, onLabel, onColor, onNotes, onDelete, onSelectAll, onDeselect }) {
+const KIND_PLURALS = {
+  attacker: 'attackers',
+  defender: 'defenders',
+  ball: 'balls',
+  cone: 'cones',
+  goal: 'goals',
+};
+function kindPluralLabel(kind) {
+  return KIND_PLURALS[kind] || `${kind}s`;
+}
+
+function Inspector({ shape, multiCount, onLabel, onColor, onNotes, onDelete, onSelectAll, onSelectAllOfKind, onDeselect }) {
   if (multiCount > 1) {
     return (
       <aside
@@ -549,7 +681,7 @@ function Inspector({ shape, multiCount, onLabel, onColor, onNotes, onDelete, onS
         </div>
       </div>
 
-      {!isLineKind(shape.kind) && shape.kind !== 'cone' && (
+      {!isLineKind(shape.kind) && shape.kind !== 'cone' && shape.kind !== 'ball' && (
         <>
           <label className="label-text">Label</label>
           <input
@@ -561,28 +693,42 @@ function Inspector({ shape, multiCount, onLabel, onColor, onNotes, onDelete, onS
         </>
       )}
 
-      <div className="mb-1.5 text-[12.5px] font-medium" style={{ color: 'var(--ink-2)' }}>Color</div>
-      <div className="flex gap-2 mb-4">
-        {(shape.kind === 'cone' ? CONE_SWATCHES : COLORS).map(c => {
-          const active = shape.color === c;
-          return (
-            <button
-              key={c}
-              onClick={() => onColor(c)}
-              aria-pressed={active}
-              className="rounded-[7px]"
-              style={{
-                width: 26,
-                height: 26,
-                background: c,
-                border: active ? '2px solid var(--ink)' : '2px solid transparent',
-                cursor: 'pointer',
-              }}
-              title={c}
-            />
-          );
-        })}
-      </div>
+      {shape.kind !== 'ball' && (
+        <>
+          <div className="mb-1.5 text-[12.5px] font-medium" style={{ color: 'var(--ink-2)' }}>Color</div>
+          <div className="flex gap-2 mb-4">
+            {(shape.kind === 'cone' ? CONE_SWATCHES : COLORS).map(c => {
+              const active = shape.color === c;
+              return (
+                <button
+                  key={c}
+                  onClick={() => onColor(c)}
+                  aria-pressed={active}
+                  className="rounded-[7px]"
+                  style={{
+                    width: 26,
+                    height: 26,
+                    background: c,
+                    border: active ? '2px solid var(--ink)' : '2px solid transparent',
+                    cursor: 'pointer',
+                  }}
+                  title={c}
+                />
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {onSelectAllOfKind && !shape.pending && !isLineKind(shape.kind) && (
+        <button
+          onClick={onSelectAllOfKind}
+          className="btn btn-ghost w-full justify-center mb-4"
+          style={{ fontSize: 12.5 }}
+        >
+          Select all {kindPluralLabel(shape.kind)}
+        </button>
+      )}
 
       <div className="hairline my-4" />
 
@@ -775,6 +921,9 @@ export default function DiagramPlayground() {
   const selectOnly  = useCallback((id) => setSelectedIds(new Set([id])), []);
   const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
   const selectAll = useCallback(() => setSelectedIds(new Set(shapes.map(s => s.id))), [shapes]);
+  const selectAllOfKind = useCallback((kind) => {
+    setSelectedIds(new Set(shapes.filter(s => s.kind === kind).map(s => s.id)));
+  }, [shapes]);
 
   // Resize observer — keep the stage matching the displayed field surface
   useEffect(() => {
@@ -967,8 +1116,13 @@ export default function DiagramPlayground() {
     const dy = logical.y - drawingLine.y1;
     if (Math.hypot(dx, dy) > 12) {
       const id = uid(drawingLine.kind);
-      setShapes(prev => [...prev, { id, kind: drawingLine.kind, x1: drawingLine.x1, y1: drawingLine.y1, x2: logical.x, y2: logical.y, color: '#1a1814' }]);
+      const bend = defaultBendFor(drawingLine.kind);
+      setShapes(prev => [...prev, { id, kind: drawingLine.kind, x1: drawingLine.x1, y1: drawingLine.y1, x2: logical.x, y2: logical.y, bend }]);
       selectOnly(id);
+      // Drop straight back into select-mode so the new line's handles are
+      // immediately usable.
+      setTool('select');
+      setPendingShape(null);
     }
     setDrawingLine(null);
   };
@@ -1007,16 +1161,20 @@ export default function DiagramPlayground() {
     if (isLineKind(s.kind)) {
       const scaled = { ...s, x1: s.x1 * scale, y1: s.y1 * scale, x2: s.x2 * scale, y2: s.y2 * scale };
       return (
-        <LineShape
-          key={s.id}
-          shape={scaled}
-          selected={isSelected}
-          onClick={onClick}
-        />
+        <Group key={s.id}>
+          <LineShape shape={scaled} onClick={onClick} />
+          {isSelected && (
+            <LineHandles
+              shape={scaled}
+              canvasScale={scale}
+              onMove={(patch) => updateShape(s.id, patch)}
+            />
+          )}
+        </Group>
       );
     }
     return null;
-  }), [shapes, selectedIds, scale, tool, commitNodeTransform, selectOnly]);
+  }), [shapes, selectedIds, scale, tool, commitNodeTransform, selectOnly, updateShape]);
 
   const previewLine = drawingLine && drawingLine.x2 != null ? (
     <LineShape
@@ -1155,6 +1313,11 @@ export default function DiagramPlayground() {
                 : undefined
           }
           onSelectAll={shapes.length > 0 ? selectAll : undefined}
+          onSelectAllOfKind={
+            selected && !isLineKind(selected.kind)
+              ? () => selectAllOfKind(selected.kind)
+              : undefined
+          }
           onDeselect={clearSelection}
         />
       </div>
