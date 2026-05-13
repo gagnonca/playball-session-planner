@@ -4,7 +4,6 @@ import SessionSummary from '../SessionSummary';
 import Section from '../Section';
 import AddSectionModal from '../AddSectionModal';
 import LibraryModal from '../LibraryModal';
-import AIConfigModal from '../AIConfigModal';
 import SessionPlanPDF from '../SessionPlanPDF';
 import ShareModal from '../teams/ShareModal';
 import SessionRail from './SessionRail';
@@ -83,7 +82,6 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isLibraryModalOpen, setIsLibraryModalOpen] = useState(false);
   const [libraryOpenedFromSectionId, setLibraryOpenedFromSectionId] = useState(null);
-  const [isAIConfigOpen, setIsAIConfigOpen] = useState(false);
   const [libraryInsertMode, setLibraryInsertMode] = useState('append');
   const [saveAsState, setSaveAsState] = useState(null); // { name, description } when open
   const [sharePopoverOpen, setSharePopoverOpen] = useState(false);
@@ -591,9 +589,17 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
             Save as…
           </button>
           <button
-            onClick={() => setIsAIConfigOpen(true)}
-            className="btn btn-soft"
-            title="AI Coach (configure)"
+            onClick={() => {
+              if (!aiHook.isConfigured()) {
+                // Coach panel isn't wired yet; nudge to AI setup until Phase 4 lands.
+                if (teamsContext.navigateToSettings) teamsContext.navigateToSettings();
+                return;
+              }
+              // Phase 4 will mount the slide-in Coach overlay here.
+              toast('Coach overlay coming soon — AI suggestions are inline for now.');
+            }}
+            className={aiHook.isConfigured() ? 'btn btn-soft' : 'btn btn-ghost'}
+            title={aiHook.isConfigured() ? 'Ask the Coach (preview)' : 'Set up AI in Settings'}
           >
             <span aria-hidden style={{ marginRight: 4 }}>✨</span>
             Ask Coach
@@ -634,7 +640,7 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
                 aiContext={{
                   aiHook,
                   sessionSummary: session.summary,
-                  onConfigureAI: () => setIsAIConfigOpen(true),
+                  onConfigureAI: () => teamsContext.navigateToSettings?.(),
                 }}
               />
             </>
@@ -701,12 +707,6 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
         onExportLibrary={handleExportLibrary}
         onImportLibrary={handleImportLibrary}
         onClearLibrary={handleClearLibrary}
-      />
-
-      <AIConfigModal
-        isOpen={isAIConfigOpen}
-        onClose={() => setIsAIConfigOpen(false)}
-        aiHook={aiHook}
       />
 
       {isShareModalOpen && sharingContext && (

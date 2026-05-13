@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import AppearancePicker from './AppearancePicker';
+import AIAssistantSection from './AIAssistantSection';
 
 // Settings — Appearance, Cloud sync, Storage, Account, Privacy.
 // Reads existing hooks. No new API surface; sync/account actions defer
@@ -126,6 +127,11 @@ export default function Settings({ teamsContext, syncContext, onShowLinkDevice }
 
         {/* Appearance */}
         <AppearancePicker />
+
+        <div className="hairline my-8" />
+
+        {/* AI Assistant */}
+        <AIAssistantSection />
 
         <div className="hairline my-8" />
 

@@ -699,7 +699,9 @@ export default function AppShell() {
             libraryHook={libraryHook}
             diagramLibrary={diagramLibrary}
             syncContext={syncContext}
+            sharingContext={sharingContext}
             isSignedIn={Boolean(syncContext?.isSyncEnabled)}
+            onShowLinkDevice={() => setShowLinkDeviceModal(true)}
           />
         )}
         {currentView === VIEWS.SETTINGS && (

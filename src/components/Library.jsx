@@ -1,13 +1,16 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
   libraryPayloadToSection,
   libraryPayloadToSession,
   sectionToLibraryPayload,
   sessionToLibraryPayload,
+  toast,
 } from '../utils/helpers';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { LIBRARY_HIDDEN_KEY, LIBRARY_PINS_KEY } from '../constants/storage';
 import DiagramLibrary from './DiagramLibrary';
+import SharePopover from './session-builder/SharePopover';
+import ShareModal from './teams/ShareModal';
 
 const TABS = ['Sessions', 'Exercises', 'Diagrams', 'Community'];
 
@@ -67,6 +70,28 @@ const SHARE_META = {
   public:   { label: 'Public',      color: 'var(--good)', icon: 'globe' },
 };
 
+function ShareTagIcon({ icon }) {
+  if (icon === 'lock') return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 018 0v4" />
+    </svg>
+  );
+  if (icon === 'users') return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 00-3-3.87M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M16 3.13a4 4 0 010 7.75" />
+    </svg>
+  );
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3a13 13 0 010 18M12 3a13 13 0 000 18" />
+    </svg>
+  );
+}
+
 function ShareTag({ share = 'private', compact }) {
   const meta = SHARE_META[share] || SHARE_META.private;
   return (
@@ -74,31 +99,89 @@ function ShareTag({ share = 'private', compact }) {
       title={meta.label}
       style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: meta.color }}
     >
-      {meta.icon === 'lock' && (
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="4" y="11" width="16" height="10" rx="2" />
-          <path d="M8 11V7a4 4 0 018 0v4" />
-        </svg>
-      )}
-      {meta.icon === 'users' && (
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M17 21v-2a4 4 0 00-3-3.87M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2" />
-          <circle cx="9" cy="7" r="4" />
-          <path d="M16 3.13a4 4 0 010 7.75" />
-        </svg>
-      )}
-      {meta.icon === 'globe' && (
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M3 12h18M12 3a13 13 0 010 18M12 3a13 13 0 000 18" />
-        </svg>
-      )}
+      <ShareTagIcon icon={meta.icon} />
       {!compact && meta.label}
     </span>
   );
 }
 
-export default function Library({ teamsContext, libraryHook, diagramLibrary, syncContext, isSignedIn = false }) {
+// Clickable per-item share editor. Opens SharePopover anchored to the chip.
+// Sharing scope is per-team in the data model, so the popover mutates the
+// row's source team. Read-only fallback (no editing) is returned for items
+// without a known team (e.g. manual library entries with no origin).
+function ShareControl({ team, sharingContext, syncContext, onOpenShareModal, onShowLinkDevice, compact }) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef(null);
+
+  const editable = Boolean(team && sharingContext);
+  const share = team?.sharing?.isShared ? 'coaches' : 'private';
+  const meta = SHARE_META[share] || SHARE_META.private;
+  const syncEnabled = Boolean(syncContext?.isSyncEnabled);
+
+  if (!editable) return <ShareTag share={share} compact={compact} />;
+
+  const handleMakePrivate = async () => {
+    setOpen(false);
+    if (!team?.sharing?.shareToken) return;
+    if (!window.confirm(`Stop sharing ${team.name}? Co-coaches with the link will lose access.`)) return;
+    try {
+      await sharingContext.revokeShare(team.sharing.shareToken);
+      toast('Sharing turned off');
+    } catch {
+      toast('Could not revoke share');
+    }
+  };
+
+  const handleMakeCoCoaches = () => {
+    setOpen(false);
+    if (!syncEnabled) {
+      onShowLinkDevice?.();
+      return;
+    }
+    onOpenShareModal?.(team);
+  };
+
+  return (
+    <span className="relative inline-flex">
+      <button
+        ref={anchorRef}
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+        className="inline-flex items-center gap-1 rounded-[6px] transition-colors"
+        style={{
+          padding: '2px 6px',
+          margin: '-2px -6px',
+          background: 'transparent',
+          border: 'none',
+          fontSize: 11.5,
+          color: meta.color,
+          cursor: 'pointer',
+        }}
+        title={`${meta.label} — click to change`}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgb(var(--ink-rgb) / 0.05)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+      >
+        <ShareTagIcon icon={meta.icon} />
+        {!compact && meta.label}
+      </button>
+      <SharePopover
+        open={open}
+        anchorRef={anchorRef}
+        onClose={() => setOpen(false)}
+        current={share}
+        syncEnabled={syncEnabled}
+        hasAccount={false}
+        exerciseCount={team?.sessions?.reduce((sum, s) => sum + (s.sections?.length || 0), 0) || 0}
+        diagramCount={team?.sessions?.reduce((sum, s) => sum + (s.sections?.reduce((dc, sec) => dc + (sec.diagramData || sec.imageDataUrl ? 1 : 0), 0) || 0), 0) || 0}
+        onMakePrivate={handleMakePrivate}
+        onMakeCoCoaches={handleMakeCoCoaches}
+        onTurnOnSync={() => { setOpen(false); onShowLinkDevice?.(); }}
+      />
+    </span>
+  );
+}
+
+export default function Library({ teamsContext, libraryHook, diagramLibrary, syncContext, sharingContext, isSignedIn = false, onShowLinkDevice }) {
   const {
     teamsData,
     selectedTeamId,
@@ -335,6 +418,10 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
     diagrams: diagramLibrary?.diagrams?.length || 0,
     community: 0,
   }), [filteredSessionGroups.length, filteredExerciseGroups.length, diagramLibrary?.diagrams?.length]);
+
+  // Team-scoped share editing — opens the existing ShareModal at the page level.
+  const [shareModalTeam, setShareModalTeam] = useState(null);
+  const handleOpenShareModal = useCallback((team) => setShareModalTeam(team), []);
 
   const [expandedGroups, setExpandedGroups] = useState(() => new Set());
   const toggleGroup = (key) => {
@@ -658,7 +745,6 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
                   const isMulti = group.versions.length > 1;
                   const isOpen = expandedGroups.has(group.key);
                   const team = rep.origin?.teamId ? getTeam(rep.origin.teamId) : null;
-                  const share = team?.sharing?.isShared ? 'coaches' : 'private';
                   const typeTone = rep.type === 'Play'
                     ? { bg: 'var(--accent-soft)', fg: 'var(--accent)' }
                     : rep.type === 'Warm-up'
@@ -701,7 +787,14 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
                       <div className="flex items-center justify-between gap-3 text-[11.5px]" style={{ color: 'var(--ink-3)' }}>
                         <span>Updated {formatDate(group.latestUpdatedAt)}</span>
                         <span className="inline-flex items-center gap-3">
-                          <ShareTag share={share} compact />
+                          <ShareControl
+                            team={team}
+                            sharingContext={sharingContext}
+                            syncContext={syncContext}
+                            onOpenShareModal={handleOpenShareModal}
+                            onShowLinkDevice={onShowLinkDevice}
+                            compact
+                          />
                           <SyncDot synced={syncOn} />
                         </span>
                       </div>
@@ -897,7 +990,6 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
                   const groupKey = `sess:${group.key}`;
                   const isOpen = expandedGroups.has(groupKey);
                   const team = rep.origin?.teamId ? getTeam(rep.origin.teamId) : null;
-                  const share = team?.sharing?.isShared ? 'coaches' : 'private';
                   return (
                     <div key={groupKey} className={`card card-hover p-4 flex flex-col gap-3 ${isMulti && isOpen ? 'sm:col-span-2 lg:col-span-3' : ''}`}>
                       <div className="flex items-start justify-between gap-2">
@@ -937,7 +1029,14 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
                       <div className="flex items-center justify-between gap-3 text-[11.5px]" style={{ color: 'var(--ink-3)' }}>
                         <span>Updated {formatDate(group.latestUpdatedAt)}</span>
                         <span className="inline-flex items-center gap-3">
-                          <ShareTag share={share} compact />
+                          <ShareControl
+                            team={team}
+                            sharingContext={sharingContext}
+                            syncContext={syncContext}
+                            onOpenShareModal={handleOpenShareModal}
+                            onShowLinkDevice={onShowLinkDevice}
+                            compact
+                          />
                           <SyncDot synced={syncOn} />
                         </span>
                       </div>
@@ -1063,6 +1162,15 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
       </div>
 
       {/* Use Session → Pick Team Modal */}
+      {shareModalTeam && sharingContext && (
+        <ShareModal
+          team={shareModalTeam}
+          onClose={() => setShareModalTeam(null)}
+          onUpdateTeam={(updatedTeam) => teamsContext.updateTeam?.(shareModalTeam.id, updatedTeam)}
+          sharingHook={sharingContext}
+        />
+      )}
+
       {useSessionItem && (
         <>
           <div className="modal-backdrop" onClick={() => setUseSessionItem(null)} />
