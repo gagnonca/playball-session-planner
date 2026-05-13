@@ -322,8 +322,27 @@ function MarkerShape({ shape, onClick, onDragMove, onTransformEnd, draggable, id
   }
   if (kind === 'defender') {
     const fill = color || DEFENDER_COLOR;
+    // Bounding box of the equilateral triangle (DEFENDER_PTS, R=30). The
+    // Transformer uses Group.getClientRect to decide its own size; a Shape
+    // with a sceneFunc doesn't report a rect, so without this invisible
+    // marker the transformer would size itself to the Text label and clip
+    // the actual triangle.
+    const bboxXs = DEFENDER_PTS.map(p => p.x);
+    const bboxYs = DEFENDER_PTS.map(p => p.y);
+    const bboxX  = Math.min(...bboxXs) - 2;
+    const bboxY  = Math.min(...bboxYs) - 2;
+    const bboxW  = Math.max(...bboxXs) - Math.min(...bboxXs) + 4;
+    const bboxH  = Math.max(...bboxYs) - Math.min(...bboxYs) + 4;
     return (
       <Group {...common}>
+        <Rect
+          x={bboxX}
+          y={bboxY}
+          width={bboxW}
+          height={bboxH}
+          listening={false}
+          opacity={0}
+        />
         <Shape
           sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, pts: DEFENDER_PTS, corner: 7 })}
           fill={fill}
