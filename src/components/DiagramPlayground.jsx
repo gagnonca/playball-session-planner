@@ -846,11 +846,18 @@ export default function DiagramPlayground() {
       const draft = pendingShape && pendingShape.kind === tool ? pendingShape : fallback;
       const { pending: _pending, ...rest } = draft || {};
       void _pending;
-      setShapes(prev => [...prev, { ...rest, id, kind: tool, x: logical.x, y: logical.y }]);
+      const placed = { ...rest, id, kind: tool, x: logical.x, y: logical.y };
+      setShapes(prev => [...prev, placed]);
       setSelectedId(id);
-      // Reset pending defaults so the next placement gets a fresh label
-      // (A1 -> A2 -> A3) and the inspector reflects the next stamp.
-      setPendingShape(defaultPendingFor(tool, [...shapes, { kind: tool }]));
+      // Carry the coach's choices forward so the next stamp is the same
+      // configured marker. Label advances (D1 -> D2 -> D3), color sticks,
+      // notes reset since they belong to the specific shape just placed.
+      const nextDefault = defaultPendingFor(tool, [...shapes, placed]);
+      setPendingShape({
+        ...nextDefault,
+        color: draft.color ?? nextDefault.color,
+        notes: '',
+      });
       return;
     }
 
@@ -1029,14 +1036,24 @@ export default function DiagramPlayground() {
         <Inspector
           shape={selected || pendingShape}
           onLabel={(v) => {
+            // Labels are intrinsic to a placed shape — don't propagate to the
+            // pending config (each new stamp auto-labels itself).
             if (selected) updateShape(selected.id, { label: v });
             else if (pendingShape) setPendingShape(p => ({ ...p, label: v }));
           }}
           onColor={(v) => {
+            // Color is a "stamp variant" — coaches usually mean "every stamp of
+            // this kind should be this color from now on". So we update the
+            // pending config in parallel whenever a marker tool is active or
+            // when the selected shape is a marker kind. The cursor ghost and
+            // every future placement immediately inherit the new color.
             if (selected) updateShape(selected.id, { color: v });
-            else if (pendingShape) setPendingShape(p => ({ ...p, color: v }));
+            if (pendingShape && isMarkerKind(pendingShape.kind)) {
+              setPendingShape(p => ({ ...p, color: v }));
+            }
           }}
           onNotes={(v) => {
+            // Notes belong to the placed shape; don't carry them across stamps.
             if (selected) updateShape(selected.id, { notes: v });
             else if (pendingShape) setPendingShape(p => ({ ...p, notes: v }));
           }}
