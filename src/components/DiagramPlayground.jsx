@@ -518,15 +518,19 @@ function Inspector({ shape, onLabel, onColor, onNotes, onDelete }) {
       className="overflow-y-auto"
       style={{ width: 280, background: 'var(--bg-elev)', borderLeft: '1px solid var(--line)', padding: 22 }}
     >
-      <div className="eyebrow mb-3" style={{ fontSize: 10.5 }}>SELECTION</div>
+      <div className="eyebrow mb-3" style={{ fontSize: 10.5 }}>
+        {shape.pending ? 'NEXT STAMP' : 'SELECTION'}
+      </div>
       <div className="card p-3.5 mb-4 flex items-center gap-2.5">
         <ShapePreview shape={shape} />
         <div className="flex-1 min-w-0">
           <div className="text-[13.5px] font-medium capitalize" style={{ color: 'var(--ink)' }}>{shape.kind}</div>
           <div className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-            {isLineKind(shape.kind)
-              ? `${Math.round(shape.x1)},${Math.round(shape.y1)} → ${Math.round(shape.x2)},${Math.round(shape.y2)}`
-              : `x:${Math.round(shape.x)} y:${Math.round(shape.y)}`}
+            {shape.pending
+              ? 'Click the field to place'
+              : isLineKind(shape.kind)
+                ? `${Math.round(shape.x1)},${Math.round(shape.y1)} → ${Math.round(shape.x2)},${Math.round(shape.y2)}`
+                : `x:${Math.round(shape.x)} y:${Math.round(shape.y)}`}
           </div>
         </div>
       </div>
@@ -577,15 +581,18 @@ function Inspector({ shape, onLabel, onColor, onNotes, onDelete }) {
         className="input-field resize-none"
       />
 
-      <div className="hairline my-4" />
-
-      <button
-        onClick={onDelete}
-        className="btn btn-ghost w-full justify-center"
-        style={{ color: 'var(--danger)' }}
-      >
-        Delete shape
-      </button>
+      {onDelete && (
+        <>
+          <div className="hairline my-4" />
+          <button
+            onClick={onDelete}
+            className="btn btn-ghost w-full justify-center"
+            style={{ color: 'var(--danger)' }}
+          >
+            Delete shape
+          </button>
+        </>
+      )}
 
       <div className="hairline my-4" />
 
@@ -713,6 +720,24 @@ const STARTER_SHAPES = [
   { id: 'starter-run',  kind: 'run',  x1: 640, y1: 420, x2: 520, y2: 320, color: '#1a1814' },
 ];
 
+// Default props for a freshly-picked tool. The pending shape uses these
+// until the user edits something in the inspector.
+function defaultPendingFor(tool, shapes) {
+  if (!isMarkerKind(tool)) return null;
+  return {
+    pending: true,
+    kind: tool,
+    x: 0,
+    y: 0,
+    label: nextLabel(tool, shapes),
+    color: tool === 'attacker' ? '#c8553d'
+         : tool === 'defender' ? DEFENDER_COLOR
+         : tool === 'cone' ? CONE_COLOR
+         : null,
+    notes: '',
+  };
+}
+
 export default function DiagramPlayground() {
   const [title, setTitle] = useState('1v1 in the channel');
   const [fieldType, setFieldType] = useState('full');
@@ -720,6 +745,12 @@ export default function DiagramPlayground() {
   const [shapes, setShapes] = useState(STARTER_SHAPES);
   const [selectedId, setSelectedId] = useState(null);
   const [drawingLine, setDrawingLine] = useState(null); // { kind, x1, y1 } when mid-drag
+  // `pendingShape` is the synthesized stamp the inspector binds to BEFORE
+  // anything is placed. The user can tweak label/color/notes; those values
+  // flow into the next placement. Only meaningful for marker tools — line
+  // tools don't have inspector-editable defaults pre-draw.
+  const [pendingShape, setPendingShape] = useState(null);
+  const [cursorLogical, setCursorLogical] = useState(null); // { x, y } in logical coords, or null
   const containerRef = useRef(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
 
@@ -749,7 +780,13 @@ export default function DiagramPlayground() {
       // Don't intercept when an input/textarea is focused.
       const t = e.target;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-      if (e.key === 'Escape') { setTool('select'); setDrawingLine(null); setSelectedId(null); return; }
+      if (e.key === 'Escape') {
+        setTool('select');
+        setDrawingLine(null);
+        setSelectedId(null);
+        setPendingShape(null);
+        return;
+      }
       if ((e.key === 'Backspace' || e.key === 'Delete') && selectedId) {
         e.preventDefault();
         deleteShape(selectedId);
@@ -758,7 +795,12 @@ export default function DiagramPlayground() {
       const match = TOOLS.find(t2 => t2.key.toLowerCase() === e.key.toLowerCase());
       if (match) {
         setTool(match.id);
-        if (match.id !== 'select') setSelectedId(null);
+        if (match.id !== 'select') {
+          setSelectedId(null);
+          setPendingShape(defaultPendingFor(match.id, shapes));
+        } else {
+          setPendingShape(null);
+        }
       }
     };
     window.addEventListener('keydown', onKey);
@@ -800,13 +842,15 @@ export default function DiagramPlayground() {
 
     if (isMarkerKind(tool)) {
       const id = uid(tool);
-      const label = nextLabel(tool, shapes);
-      const color = tool === 'attacker' ? '#c8553d'
-                  : tool === 'defender' ? DEFENDER_COLOR
-                  : tool === 'cone' ? CONE_COLOR
-                  : null;
-      setShapes(prev => [...prev, { id, kind: tool, x: logical.x, y: logical.y, label, color }]);
+      const fallback = defaultPendingFor(tool, shapes);
+      const draft = pendingShape && pendingShape.kind === tool ? pendingShape : fallback;
+      const { pending: _pending, ...rest } = draft || {};
+      void _pending;
+      setShapes(prev => [...prev, { ...rest, id, kind: tool, x: logical.x, y: logical.y }]);
       setSelectedId(id);
+      // Reset pending defaults so the next placement gets a fresh label
+      // (A1 -> A2 -> A3) and the inspector reflects the next stamp.
+      setPendingShape(defaultPendingFor(tool, [...shapes, { kind: tool }]));
       return;
     }
 
@@ -816,12 +860,19 @@ export default function DiagramPlayground() {
   };
 
   const handleStageMouseMove = (e) => {
-    if (!drawingLine) return;
     const stage = e.target.getStage();
     const pos = stage.getPointerPosition();
     if (!pos) return;
     const logical = stageToLogical(pos);
+    // Track cursor so a marker preview can follow it. We only update when
+    // a placement tool is active; select-mode doesn't need a ghost.
+    if (isMarkerKind(tool)) setCursorLogical(logical);
+    if (!drawingLine) return;
     setDrawingLine(prev => prev ? { ...prev, x2: logical.x, y2: logical.y } : null);
+  };
+
+  const handleStageMouseLeave = () => {
+    setCursorLogical(null);
   };
 
   const handleStageMouseUp = (e) => {
@@ -911,8 +962,13 @@ export default function DiagramPlayground() {
           onTool={(next) => {
             setTool(next);
             // Picking a placement tool clears the selection so the inspector
-            // reflects whatever you're about to drop next, not a stale shape.
-            if (next !== 'select') setSelectedId(null);
+            // shows a pending preview of what you're about to drop next.
+            if (next !== 'select') {
+              setSelectedId(null);
+              setPendingShape(defaultPendingFor(next, shapes));
+            } else {
+              setPendingShape(null);
+            }
           }}
         />
 
@@ -939,6 +995,7 @@ export default function DiagramPlayground() {
                 onMouseDown={handleStageMouseDown}
                 onMouseMove={handleStageMouseMove}
                 onMouseUp={handleStageMouseUp}
+                onMouseLeave={handleStageMouseLeave}
                 onTouchStart={handleStageMouseDown}
                 onTouchMove={handleStageMouseMove}
                 onTouchEnd={handleStageMouseUp}
@@ -949,6 +1006,20 @@ export default function DiagramPlayground() {
                 <Layer>
                   {renderedShapes}
                   {previewLine}
+                  {/* Cursor ghost — translucent stamp that follows the pointer
+                      when a marker tool is active. Non-listening so it never
+                      intercepts clicks. */}
+                  {pendingShape && cursorLogical && isMarkerKind(tool) && (
+                    <Group listening={false} opacity={0.6}>
+                      <MarkerShape
+                        shape={{ ...pendingShape, x: cursorLogical.x * scale, y: cursorLogical.y * scale }}
+                        selected={false}
+                        draggable={false}
+                        onClick={() => {}}
+                        onDragMove={() => {}}
+                      />
+                    </Group>
+                  )}
                 </Layer>
               </Stage>
             )}
@@ -956,11 +1027,20 @@ export default function DiagramPlayground() {
         </div>
 
         <Inspector
-          shape={selected}
-          onLabel={(v) => updateShape(selected.id, { label: v })}
-          onColor={(v) => updateShape(selected.id, { color: v })}
-          onNotes={(v) => updateShape(selected.id, { notes: v })}
-          onDelete={() => deleteShape(selected.id)}
+          shape={selected || pendingShape}
+          onLabel={(v) => {
+            if (selected) updateShape(selected.id, { label: v });
+            else if (pendingShape) setPendingShape(p => ({ ...p, label: v }));
+          }}
+          onColor={(v) => {
+            if (selected) updateShape(selected.id, { color: v });
+            else if (pendingShape) setPendingShape(p => ({ ...p, color: v }));
+          }}
+          onNotes={(v) => {
+            if (selected) updateShape(selected.id, { notes: v });
+            else if (pendingShape) setPendingShape(p => ({ ...p, notes: v }));
+          }}
+          onDelete={selected ? () => deleteShape(selected.id) : undefined}
         />
       </div>
     </div>
