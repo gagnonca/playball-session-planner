@@ -1,5 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text, Path } from 'react-konva';
+import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text, Path, RegularPolygon, Ellipse, Image as KImage } from 'react-konva';
+import useKonvaImage from '../hooks/useKonvaImage';
+import ballSvg from '../assets/ball.svg';
+
+// Cone path lifted from src/components/DiagramBuilder/components/shapes/Cone.jsx
+// so the playground cones match the production look (orange body + brown ring).
+const CONE_BODY_PATH = 'M 3 24 L 12 4 C 12.5 3.5 13.5 3.5 14 4 L 27 24 C 27.5 25 27 26 26 26 L 4 26 C 3 26 2.5 25 3 24 Z';
+const CONE_BODY_COLOR = '#FF6B35';
+const CONE_RING_COLOR = '#90330C';
+const DEFENDER_COLOR = '#3B82F6';
 
 // Playground for the redesigned Diagram Builder. Routed at /diagram-playground
 // (see App.jsx). Built on react-konva so we can ship without the tldraw
@@ -46,9 +55,14 @@ const COLORS = ['#c8553d', '#3d7a4a', '#3d5a8a', '#c8853d', '#1a1814'];
 const Icon = {
   select:   (c) => <svg width="20" height="20" viewBox="0 0 24 24" stroke={c} strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M5 4l8 16 2-6 6-2z" /></svg>,
   attacker: ()  => <svg width="22" height="22" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="var(--accent)" /><text x="12" y="16" fontSize="11" fontWeight="600" fill="var(--accent-ink)" textAnchor="middle">A</text></svg>,
-  defender: (c) => <svg width="22" height="22" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3" fill="var(--bg-elev)" stroke={c} strokeWidth="1.6" /><text x="12" y="16" fontSize="11" fontWeight="600" fill={c} textAnchor="middle">D</text></svg>,
-  ball:     (c) => <svg width="20" height="20" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="var(--bg-elev)" stroke={c} strokeWidth="1.6" /><path d="M12 6l2 3-1 3-3 0-1-3z" fill={c} /></svg>,
-  cone:     (c) => <svg width="20" height="20" viewBox="0 0 24 24" stroke={c} strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4l8 16H4z" fill="#fcd34d" /></svg>,
+  defender: ()  => <svg width="22" height="22" viewBox="0 0 24 24"><path d="M12 4 L21 20 L3 20 Z" fill={DEFENDER_COLOR} stroke="#1a1814" strokeWidth="1.2" strokeLinejoin="round" /></svg>,
+  ball:     ()  => <img src={ballSvg} width="18" height="18" alt="" style={{ display: 'block' }} />,
+  cone:     ()  => (
+    <svg width="22" height="22" viewBox="0 0 30 28">
+      <path d={CONE_BODY_PATH} fill={CONE_BODY_COLOR} stroke="#1a1814" strokeWidth="1" />
+      <ellipse cx="15" cy="5" rx="7" ry="2" fill={CONE_RING_COLOR} stroke="#1a1814" strokeWidth="1" />
+    </svg>
+  ),
   goal:     (c) => <svg width="20" height="20" viewBox="0 0 24 24" stroke={c} strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4v16M4 4h12l-2 5h-10M4 12h10l-2 5H4" /></svg>,
   pass:     (c) => <svg width="22" height="22" viewBox="0 0 24 24" stroke={c} strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12h16M16 8l4 4-4 4" /></svg>,
   run:      (c) => <svg width="22" height="22" viewBox="0 0 24 24" stroke={c} strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12h16M16 8l4 4-4 4" strokeDasharray="3 3" /></svg>,
@@ -114,9 +128,14 @@ function FieldBackground({ w, h }) {
 
 // --- Shape renderers --------------------------------------------------------
 
+function BallImage(props) {
+  const image = useKonvaImage(ballSvg);
+  if (!image) return null;
+  return <KImage image={image} {...props} />;
+}
+
 function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
   const { kind, x, y, label, color } = shape;
-  const accent = color || (kind === 'attacker' ? '#c8553d' : kind === 'defender' ? '#1a1814' : '#1a1814');
 
   const common = {
     x, y,
@@ -127,36 +146,101 @@ function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
   };
 
   if (kind === 'attacker') {
+    const fill = color || '#c8553d';
     return (
       <Group {...common}>
-        <Circle radius={22} fill={accent} />
+        <Circle radius={22} fill={fill} />
         <Text text={label || 'A'} x={-22} y={-7} width={44} align="center" fontSize={14} fontStyle="600" fill="#ffffff" />
         {selected && <Circle radius={32} stroke="#c8553d" strokeWidth={2} dash={[4, 4]} fillEnabled={false} listening={false} />}
       </Group>
     );
   }
   if (kind === 'defender') {
+    // Blue filled triangle — sides=3, base of 44 (radius 24 fits visually
+    // similar weight to the attacker circle). Label sits below the apex
+    // since the triangle is too narrow to host text legibly inside.
+    const fill = color || DEFENDER_COLOR;
     return (
       <Group {...common}>
-        <Rect x={-22} y={-22} width={44} height={44} cornerRadius={4} fill="#ffffff" stroke={accent} strokeWidth={2} />
-        <Text text={label || 'D'} x={-22} y={-7} width={44} align="center" fontSize={14} fontStyle="600" fill={accent} />
-        {selected && <Rect x={-32} y={-32} width={64} height={64} cornerRadius={6} stroke="#c8553d" strokeWidth={2} dash={[4, 4]} fillEnabled={false} listening={false} />}
+        <RegularPolygon
+          sides={3}
+          radius={24}
+          fill={fill}
+          stroke="#1a1814"
+          strokeWidth={1.5}
+        />
+        {label && (
+          <Text
+            text={label}
+            x={-22}
+            y={28}
+            width={44}
+            align="center"
+            fontSize={12}
+            fontStyle="600"
+            fill="#1a1814"
+          />
+        )}
+        {selected && (
+          <RegularPolygon
+            sides={3}
+            radius={34}
+            stroke="#c8553d"
+            strokeWidth={2}
+            dash={[4, 4]}
+            fillEnabled={false}
+            listening={false}
+          />
+        )}
       </Group>
     );
   }
   if (kind === 'ball') {
+    // Display size matches DiagramBuilder/SoccerBall.jsx (30x30) so the
+    // playground feels at home with the production canvas.
+    const size = 26;
     return (
       <Group {...common}>
-        <Circle radius={9} fill="#ffffff" stroke="#1a1814" strokeWidth={1.5} />
-        {selected && <Circle radius={18} stroke="#c8553d" strokeWidth={2} dash={[4, 4]} fillEnabled={false} listening={false} />}
+        <BallImage width={size} height={size} offsetX={size / 2} offsetY={size / 2} />
+        {selected && <Circle radius={size / 2 + 6} stroke="#c8553d" strokeWidth={2} dash={[4, 4]} fillEnabled={false} listening={false} />}
       </Group>
     );
   }
   if (kind === 'cone') {
+    // Path-based cone from DiagramBuilder/Cone.jsx — orange body, brown ring.
+    // The Path is authored in a 30x30 coordinate space; offset so its center
+    // lines up with the group origin.
     return (
-      <Group {...common}>
-        <Line points={[0, -16, 14, 16, -14, 16]} closed fill="#fcd34d" stroke="#1a1814" strokeWidth={1.5} />
-        {selected && <Circle radius={26} stroke="#c8553d" strokeWidth={2} dash={[4, 4]} fillEnabled={false} listening={false} />}
+      <Group {...common} offsetX={15} offsetY={15}>
+        <Path
+          data={CONE_BODY_PATH}
+          fill={CONE_BODY_COLOR}
+          stroke="#1a1814"
+          strokeWidth={1}
+        />
+        <Ellipse
+          x={15}
+          y={5}
+          radiusX={7}
+          radiusY={2}
+          fill={CONE_RING_COLOR}
+          stroke="#1a1814"
+          strokeWidth={1}
+        />
+        {selected && (
+          <Rect
+            x={-4}
+            y={-4}
+            width={38}
+            height={38}
+            cornerRadius={6}
+            stroke="#c8553d"
+            strokeWidth={2}
+            dash={[4, 4]}
+            fillEnabled={false}
+            listening={false}
+          />
+        )}
       </Group>
     );
   }
@@ -520,10 +604,12 @@ function ShapePreview({ shape }) {
   if (shape.kind === 'defender') {
     return (
       <div
-        className="flex-shrink-0 rounded-[6px] flex items-center justify-center font-semibold"
-        style={{ width: 36, height: 36, background: '#ffffff', color: shape.color || 'var(--ink)', border: `2px solid ${shape.color || 'var(--ink)'}`, fontSize: 14 }}
+        className="flex-shrink-0 rounded-[10px] flex items-center justify-center"
+        style={{ width: 36, height: 36, background: 'var(--bg-sunken)' }}
       >
-        {shape.label || 'D'}
+        <svg width="24" height="24" viewBox="0 0 24 24">
+          <path d="M12 4 L21 20 L3 20 Z" fill={shape.color || DEFENDER_COLOR} stroke="#1a1814" strokeWidth="1.2" strokeLinejoin="round" />
+        </svg>
       </div>
     );
   }
@@ -532,8 +618,13 @@ function ShapePreview({ shape }) {
       className="flex-shrink-0 rounded-[10px] flex items-center justify-center"
       style={{ width: 36, height: 36, background: 'var(--bg-sunken)' }}
     >
-      {shape.kind === 'ball' && <div style={{ width: 14, height: 14, borderRadius: '50%', background: '#fff', border: '1.5px solid #1a1814' }} />}
-      {shape.kind === 'cone' && <svg width="22" height="22" viewBox="0 0 24 24"><path d="M12 4l8 16H4z" fill="#fcd34d" stroke="#1a1814" strokeWidth="1.5" /></svg>}
+      {shape.kind === 'ball' && <img src={ballSvg} width="22" height="22" alt="" style={{ display: 'block' }} />}
+      {shape.kind === 'cone' && (
+        <svg width="24" height="22" viewBox="0 0 30 28">
+          <path d={CONE_BODY_PATH} fill={CONE_BODY_COLOR} stroke="#1a1814" strokeWidth="1" />
+          <ellipse cx="15" cy="5" rx="7" ry="2" fill={CONE_RING_COLOR} stroke="#1a1814" strokeWidth="1" />
+        </svg>
+      )}
       {shape.kind === 'goal' && <svg width="22" height="14" viewBox="0 0 24 14"><rect x="1" y="1" width="22" height="12" rx="1" stroke="#1a1814" strokeWidth="1.5" fill="rgba(255,255,255,0.8)" /></svg>}
     </div>
   );
@@ -544,7 +635,7 @@ function ShapePreview({ shape }) {
 const STARTER_SHAPES = [
   { id: 'starter-a1', kind: 'attacker', x: 280, y: 200, label: 'A1', color: '#c8553d' },
   { id: 'starter-a2', kind: 'attacker', x: 640, y: 420, label: 'A2', color: '#c8553d' },
-  { id: 'starter-d1', kind: 'defender', x: 500, y: 312, label: 'D1', color: '#1a1814' },
+  { id: 'starter-d1', kind: 'defender', x: 500, y: 312, label: 'D1' },
   { id: 'starter-ball', kind: 'ball', x: 310, y: 215 },
   { id: 'starter-cone-1', kind: 'cone', x: 180, y: 475 },
   { id: 'starter-cone-2', kind: 'cone', x: 820, y: 175 },
@@ -637,7 +728,7 @@ export default function DiagramPlayground() {
     if (isMarkerKind(tool)) {
       const id = uid(tool);
       const label = nextLabel(tool, shapes);
-      const color = tool === 'attacker' ? '#c8553d' : tool === 'defender' ? '#1a1814' : null;
+      const color = tool === 'attacker' ? '#c8553d' : tool === 'defender' ? DEFENDER_COLOR : null;
       setShapes(prev => [...prev, { id, kind: tool, x: logical.x, y: logical.y, label, color }]);
       setSelectedId(id);
       return;
