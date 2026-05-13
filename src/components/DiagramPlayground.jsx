@@ -130,9 +130,6 @@ const Icon = {
       <path
         d="M 0 -12 L 10.39 6 L -10.39 6 Z"
         fill={DEFENDER_COLOR}
-        stroke="#1a1814"
-        strokeWidth="1"
-        strokeLinejoin="round"
       />
     </svg>
   ),
@@ -290,16 +287,15 @@ function ConeImage({ color, ...props }) {
 function MarkerShape({ shape, onClick, onDragMove, onDragEnd, onTransformEnd, draggable, id }) {
   const { kind, x, y, label, color } = shape;
   const rotation = shape.rotation ?? 0;
+  const scale    = shape.scale ?? 1;
 
-  // Scale is intentionally NOT read from shape state — match the production
-  // DiagramBuilder pattern: visual scale lives on the Konva node within a
-  // session and isn't part of the persisted shape data. Resize handles still
-  // work; their effect persists until the next reload.
   const common = {
     id, // findOne(`#id`) anchors the Transformer to the right Group
     name: 'selectable',
     x,
     y,
+    scaleX: scale,
+    scaleY: scale,
     rotation,
     draggable,
     onMouseDown: onClick,
@@ -342,10 +338,8 @@ function MarkerShape({ shape, onClick, onDragMove, onDragEnd, onTransformEnd, dr
           opacity={0}
         />
         <Shape
-          sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, pts: DEFENDER_PTS, corner: 7 })}
+          sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, pts: DEFENDER_PTS, corner: 2 })}
           fill={fill}
-          stroke="#1a1814"
-          strokeWidth={1.5}
           lineJoin="round"
         />
         {label && (
@@ -590,7 +584,7 @@ function LineHandles({ points, canvasScale, onMovePoint, onRemovePoint }) {
 
 // --- Top bar ----------------------------------------------------------------
 
-function TopBar({ title, onTitleChange, pitchSize, onPitchSize, pitchView, onPitchView, orientation, onOrientation, onBack, onSave, onExport }) {
+function TopBar({ title, onTitleChange, pitchSize, onPitchSize, pitchView, onPitchView, orientation, onOrientation, onBack, onSave, onExport, onUndo, onRedo, canUndo, canRedo }) {
   return (
     <header
       className="flex items-center gap-4 px-5 py-3"
@@ -670,6 +664,34 @@ function TopBar({ title, onTitleChange, pitchSize, onPitchSize, pitchView, onPit
           )}
         </button>
       </div>
+      <div className="inline-flex items-center gap-0.5">
+        <button
+          onClick={onUndo}
+          disabled={!canUndo}
+          className="btn btn-ghost"
+          title="Undo (⌘Z)"
+          aria-label="Undo"
+          style={{ padding: '4px 8px', opacity: canUndo ? 1 : 0.35, cursor: canUndo ? 'pointer' : 'not-allowed' }}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 14l-4-4 4-4" />
+            <path d="M5 10h9a5 5 0 0 1 0 10h-3" />
+          </svg>
+        </button>
+        <button
+          onClick={onRedo}
+          disabled={!canRedo}
+          className="btn btn-ghost"
+          title="Redo (⇧⌘Z)"
+          aria-label="Redo"
+          style={{ padding: '4px 8px', opacity: canRedo ? 1 : 0.35, cursor: canRedo ? 'pointer' : 'not-allowed' }}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 14l4-4-4-4" />
+            <path d="M19 10h-9a5 5 0 0 0 0 10h3" />
+          </svg>
+        </button>
+      </div>
       <button onClick={onExport} className="btn btn-ghost">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
@@ -740,7 +762,14 @@ function kindPluralLabel(kind) {
   return KIND_PLURALS[kind] || `${kind}s`;
 }
 
-function Inspector({ shape, multiCount, onLabel, onColor, onNotes, onDelete, onSelectAll, onSelectAllOfKind, onDeselect }) {
+function Inspector({
+  shape, multiCount,
+  onLabel, onColor, onNotes, onDelete,
+  onSelectAll, onSelectAllOfKind, onDeselect,
+  onSize, onRotation,
+  applyToAllOfKind, onApplyToAllOfKindChange,
+  description, onDescriptionChange,
+}) {
   if (multiCount > 1) {
     return (
       <aside
@@ -783,6 +812,20 @@ function Inspector({ shape, multiCount, onLabel, onColor, onNotes, onDelete, onS
             Select all
             <kbd className="font-mono ml-2" style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)', padding: '0 6px', borderRadius: 4, fontSize: 10.5 }}>⌘A</kbd>
           </button>
+        )}
+
+        {onDescriptionChange && (
+          <>
+            <div className="hairline my-5" />
+            <div className="eyebrow mb-2" style={{ fontSize: 10.5 }}>DESCRIPTION</div>
+            <textarea
+              value={description || ''}
+              onChange={(e) => onDescriptionChange(e.target.value)}
+              rows={4}
+              placeholder="Describe this diagram — coaching points, key actions, etc."
+              className="input-field resize-none"
+            />
+          </>
         )}
 
         <div className="hairline my-5" />
@@ -851,6 +894,62 @@ function Inspector({ shape, multiCount, onLabel, onColor, onNotes, onDelete, onS
               );
             })}
           </div>
+        </>
+      )}
+
+      {!shape.pending && !isLineKind(shape.kind) && (onSize || onRotation) && (
+        <>
+          {onApplyToAllOfKindChange && (
+            <label className="flex items-center gap-2 mb-3 text-[12.5px]" style={{ color: 'var(--ink-2)' }}>
+              <input
+                type="checkbox"
+                checked={!!applyToAllOfKind}
+                onChange={(e) => onApplyToAllOfKindChange(e.target.checked)}
+                style={{ accentColor: 'var(--accent)' }}
+              />
+              Apply to all {kindPluralLabel(shape.kind)}
+            </label>
+          )}
+
+          {onSize && (
+            <div className="mb-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[12.5px] font-medium" style={{ color: 'var(--ink-2)' }}>Size</span>
+                <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                  {((shape.scale ?? 1)).toFixed(1)}×
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.5}
+                max={2.5}
+                step={0.1}
+                value={shape.scale ?? 1}
+                onChange={(e) => onSize(parseFloat(e.target.value))}
+                style={{ width: '100%', accentColor: 'var(--accent)' }}
+              />
+            </div>
+          )}
+
+          {onRotation && (
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[12.5px] font-medium" style={{ color: 'var(--ink-2)' }}>Rotation</span>
+                <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                  {Math.round(shape.rotation ?? 0)}°
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={360}
+                step={15}
+                value={shape.rotation ?? 0}
+                onChange={(e) => onRotation(parseFloat(e.target.value))}
+                style={{ width: '100%', accentColor: 'var(--accent)' }}
+              />
+            </div>
+          )}
         </>
       )}
 
@@ -965,9 +1064,6 @@ function ShapePreview({ shape }) {
           <path
             d="M 0 -12 L 10.39 6 L -10.39 6 Z"
             fill={fill}
-            stroke="#1a1814"
-            strokeWidth="1"
-            strokeLinejoin="round"
           />
           <text x="0" y="2" fontSize="7" fontWeight="600" fill="#ffffff" textAnchor="middle">
             {shape.label || 'D'}
@@ -1028,20 +1124,93 @@ function defaultPendingFor(tool, shapes) {
   };
 }
 
-export default function DiagramPlayground() {
-  const [title, setTitle] = useState('1v1 in the channel');
-  const [pitchSize, setPitchSize] = useState(DEFAULT_PITCH_SIZE);
-  const [pitchView, setPitchView] = useState(DEFAULT_PITCH_VIEW);
-  const [orientation, setOrientation] = useState('horizontal');
+// Initial diagrams from the legacy DiagramBuilder carry `elements`+`lines`
+// arrays but never a `shapes` field. We can render their PNG as a read-only
+// backdrop but not edit them — coach can "Start over" to discard.
+function isLegacyDiagram(d) {
+  if (!d) return false;
+  if (Array.isArray(d.shapes)) return false;
+  return Array.isArray(d.elements) || Array.isArray(d.lines) || !!d.dataUrl;
+}
+
+export default function DiagramPlayground({
+  initialDiagram = null,
+  defaultName = '',
+  defaultDescription = '',
+  ageGroup = '',
+  moment = '',
+  sectionType = '',
+  onSave,
+  onClose,
+} = {}) {
+  const startsLegacy = isLegacyDiagram(initialDiagram);
+  const [title, setTitle] = useState(
+    initialDiagram?.name || defaultName || '1v1 in the channel'
+  );
+  const [description, setDescription] = useState(
+    initialDiagram?.description || defaultDescription || ''
+  );
+  const [pitchSize, setPitchSize] = useState(initialDiagram?.pitchSize || DEFAULT_PITCH_SIZE);
+  const [pitchView, setPitchView] = useState(initialDiagram?.pitchView || DEFAULT_PITCH_VIEW);
+  const [orientation, setOrientation] = useState(initialDiagram?.orientation || 'horizontal');
+  const [legacyImage, setLegacyImage] = useState(startsLegacy ? (initialDiagram?.dataUrl || initialDiagram?.imageDataUrl || null) : null);
+  const isLegacy = !!legacyImage;
   const fieldRotationGroupRef = useRef(null);
   const [tool, setTool] = useState('select');
-  const [shapes, setShapes] = useState(STARTER_SHAPES);
+  // Shapes live inside a 3-tuple { shapes, past, future } so undo/redo are
+  // one O(1) swap. Every wrapped setShapes() call pushes the prior snapshot
+  // into past and clears future; undo/redo just trade between the three
+  // slots. Capped at HISTORY_LIMIT to keep memory bounded for big sessions.
+  const [shapeHistory, setShapeHistory] = useState({
+    shapes: Array.isArray(initialDiagram?.shapes) ? initialDiagram.shapes : (startsLegacy ? [] : STARTER_SHAPES),
+    past: [],
+    future: [],
+  });
+  const shapes = shapeHistory.shapes;
+  const setShapes = useCallback((updater) => {
+    setShapeHistory(curr => {
+      const next = typeof updater === 'function' ? updater(curr.shapes) : updater;
+      if (next === curr.shapes) return curr;
+      const HISTORY_LIMIT = 50;
+      const past = curr.past.length >= HISTORY_LIMIT
+        ? [...curr.past.slice(curr.past.length - HISTORY_LIMIT + 1), curr.shapes]
+        : [...curr.past, curr.shapes];
+      return { shapes: next, past, future: [] };
+    });
+  }, []);
+  const undo = useCallback(() => {
+    setShapeHistory(curr => {
+      if (curr.past.length === 0) return curr;
+      const prev = curr.past[curr.past.length - 1];
+      return {
+        shapes: prev,
+        past: curr.past.slice(0, -1),
+        future: [...curr.future, curr.shapes],
+      };
+    });
+  }, []);
+  const redo = useCallback(() => {
+    setShapeHistory(curr => {
+      if (curr.future.length === 0) return curr;
+      const next = curr.future[curr.future.length - 1];
+      return {
+        shapes: next,
+        past: [...curr.past, curr.shapes],
+        future: curr.future.slice(0, -1),
+      };
+    });
+  }, []);
+  const canUndo = shapeHistory.past.length > 0;
+  const canRedo = shapeHistory.future.length > 0;
   // selectedIds is a Set so multi-select + select-all are first-class.
   // A single-shape inspector view is derived when size === 1.
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [drawingLine, setDrawingLine] = useState(null);
   const [pendingShape, setPendingShape] = useState(null);
   const [cursorLogical, setCursorLogical] = useState(null);
+  // When true, slider edits in the inspector scope to every shape of the
+  // selected shape's kind. Stays sticky across selections (matches prod).
+  const [applyToAllOfKind, setApplyToAllOfKind] = useState(false);
   const containerRef = useRef(null);
   const stageRef = useRef(null);
   const transformerRef = useRef(null);
@@ -1115,6 +1284,18 @@ export default function DiagramPlayground() {
         selectAll();
         return;
       }
+      // Cmd/Ctrl+Z → undo; add Shift or use Ctrl+Y for redo.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        redo();
+        return;
+      }
       if ((e.key === 'Backspace' || e.key === 'Delete') && selectedIds.size > 0) {
         e.preventDefault();
         const ids = Array.from(selectedIds);
@@ -1140,7 +1321,7 @@ export default function DiagramPlayground() {
   // --- Shape mutators
   const updateShape = useCallback((id, patch) => {
     setShapes(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
-  }, []);
+  }, [setShapes]);
 
   const deleteShape = useCallback((id) => {
     setShapes(prev => prev.filter(s => s.id !== id));
@@ -1150,7 +1331,7 @@ export default function DiagramPlayground() {
       next.delete(id);
       return next;
     });
-  }, []);
+  }, [setShapes]);
 
   // Attach the Transformer to whichever shape nodes are selected. Marker
   // groups carry id={shape.id}, so findOne('#id') resolves them. Lines are
@@ -1181,17 +1362,29 @@ export default function DiagramPlayground() {
     const nx = node.x() / canvasScale;
     const ny = node.y() / canvasScale;
     setShapes(prev => prev.map(s => s.id === id ? { ...s, x: nx, y: ny } : s));
-  }, []);
+  }, [setShapes]);
 
   const handleNodeTransformEnd = useCallback((node, canvasScale) => {
     if (!node) return;
     const id = node.id();
     if (!id) return;
+    // Read accumulated transform off the node, bake into shape state, then
+    // reset the node so future renders read from shape data without doubling
+    // up. (Matches the DiagramBuilderNew handleTransformEnd pattern.)
+    const xferScale = (node.scaleX() + node.scaleY()) / 2;
     const nx = node.x() / canvasScale;
     const ny = node.y() / canvasScale;
     const rot = node.rotation();
-    setShapes(prev => prev.map(s => s.id === id ? { ...s, x: nx, y: ny, rotation: rot } : s));
-  }, []);
+    setShapes(prev => prev.map(s => s.id === id ? {
+      ...s,
+      x: nx,
+      y: ny,
+      rotation: rot,
+      scale: Math.max(0.25, xferScale),
+    } : s));
+    node.scaleX(1);
+    node.scaleY(1);
+  }, [setShapes]);
 
   // --- Stage handlers
   // Always read pointer position relative to the rotation Group so the
@@ -1231,7 +1424,7 @@ export default function DiagramPlayground() {
       const draft = pendingShape && pendingShape.kind === tool ? pendingShape : fallback;
       const { pending: _pending, ...rest } = draft || {};
       void _pending;
-      const placed = { ...rest, id, kind: tool, x: logical.x, y: logical.y, rotation: 0 };
+      const placed = { ...rest, id, kind: tool, x: logical.x, y: logical.y, rotation: 0, scale: 1 };
       setShapes(prev => [...prev, placed]);
       selectOnly(id);
       // Carry the coach's choices forward so the next stamp is the same
@@ -1403,9 +1596,61 @@ export default function DiagramPlayground() {
         onPitchView={setPitchView}
         orientation={orientation}
         onOrientation={setOrientation}
-        onBack={() => { window.location.href = '/'; }}
-        onSave={() => alert(`(playground) save "${title}" — ${shapes.length} shapes`)}
-        onExport={() => alert('(playground) export — not wired in the playground')}
+        onBack={onClose || (() => { window.location.href = '/'; })}
+        onSave={() => {
+          // Render the current Konva stage to PNG so library/PDF/section
+          // thumbnails keep working. pixelRatio=2 for retina-quality output.
+          let dataUrl = '';
+          try {
+            dataUrl = stageRef.current?.toDataURL({ pixelRatio: 2 }) || '';
+          } catch {
+            // toDataURL throws on tainted canvases; image-less diagrams are
+            // still savable without a thumbnail.
+            dataUrl = '';
+          }
+          if (typeof onSave === 'function') {
+            onSave({
+              name: title || 'Diagram',
+              description,
+              dataUrl: dataUrl || legacyImage || '',
+              // New-format payload — what the playground edits.
+              shapes,
+              pitchSize,
+              pitchView,
+              orientation,
+              // Legacy-shape fields kept in the payload so older code paths
+              // (mobile sync, library readers) don't see undefined.
+              elements: [],
+              lines: [],
+              fieldType: pitchView === 'full' ? 'full' : 'small',
+              tags: {
+                ageGroup,
+                moments: moment ? [moment] : [],
+                type: sectionType,
+              },
+            });
+          } else {
+            // Playground/standalone mode.
+            alert(`(playground) save "${title}" — ${shapes.length} shapes`);
+          }
+        }}
+        onExport={() => {
+          try {
+            const dataUrl = stageRef.current?.toDataURL({ pixelRatio: 2 });
+            if (dataUrl) {
+              const a = document.createElement('a');
+              a.href = dataUrl;
+              a.download = `${title || 'diagram'}.png`;
+              a.click();
+            }
+          } catch {
+            alert('Export failed — try Save instead.');
+          }
+        }}
+        onUndo={undo}
+        onRedo={redo}
+        canUndo={canUndo}
+        canRedo={canRedo}
       />
 
       <div className="flex flex-1 min-h-0">
@@ -1438,6 +1683,67 @@ export default function DiagramPlayground() {
               cursor: tool === 'select' ? 'default' : isLineKind(tool) ? 'crosshair' : 'copy',
             }}
           >
+            {isLegacy && (
+              // Legacy diagrams (old elements/lines format) render as a
+              // read-only image overlay. Coach can "Start over" to discard
+              // and create a new diagram with the new builder.
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: '#000',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 10,
+                }}
+              >
+                <img
+                  src={legacyImage}
+                  alt={title}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    objectFit: 'contain',
+                    display: 'block',
+                  }}
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 12,
+                    left: 12,
+                    right: 12,
+                    background: 'rgba(20, 20, 20, 0.85)',
+                    color: '#fff',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: 10,
+                    padding: '10px 14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    fontSize: 13,
+                    backdropFilter: 'blur(8px)',
+                  }}
+                >
+                  <span style={{ flex: 1 }}>
+                    This diagram was made with the legacy editor and can&rsquo;t be edited here.
+                  </span>
+                  <button
+                    onClick={() => {
+                      if (window.confirm('Discard the existing diagram and start fresh?')) {
+                        setLegacyImage(null);
+                        setShapeHistory({ shapes: [], past: [], future: [] });
+                      }
+                    }}
+                    className="btn btn-secondary"
+                    style={{ fontSize: 12.5, whiteSpace: 'nowrap' }}
+                  >
+                    Start over
+                  </button>
+                </div>
+              </div>
+            )}
             {stageSize.width > 0 && (
               <Stage
                 ref={stageRef}
@@ -1529,6 +1835,32 @@ export default function DiagramPlayground() {
               : undefined
           }
           onDeselect={clearSelection}
+          onSize={
+            selected && !isLineKind(selected.kind)
+              ? (v) => {
+                  if (applyToAllOfKind) {
+                    setShapes(prev => prev.map(s => s.kind === selected.kind ? { ...s, scale: v } : s));
+                  } else {
+                    updateShape(selected.id, { scale: v });
+                  }
+                }
+              : undefined
+          }
+          onRotation={
+            selected && !isLineKind(selected.kind)
+              ? (v) => {
+                  if (applyToAllOfKind) {
+                    setShapes(prev => prev.map(s => s.kind === selected.kind ? { ...s, rotation: v } : s));
+                  } else {
+                    updateShape(selected.id, { rotation: v });
+                  }
+                }
+              : undefined
+          }
+          applyToAllOfKind={applyToAllOfKind}
+          onApplyToAllOfKindChange={setApplyToAllOfKind}
+          description={description}
+          onDescriptionChange={setDescription}
         />
       </div>
     </div>
