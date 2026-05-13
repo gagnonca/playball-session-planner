@@ -40,7 +40,14 @@ function equilateralPts(R) {
   ];
 }
 const DEFENDER_PTS = equilateralPts(30);
-const CONE_PTS     = equilateralPts(18);
+
+// Traffic-cone path — flat narrow top, wide rounded base, ring near the
+// top. Lifted from src/components/DiagramBuilder/components/shapes/Cone.jsx
+// so playground cones read as actual cones (an equilateral triangle with a
+// ring on top looks like a UFO). The path is authored in a 30x30 box; we
+// offset the group so its center lines up with the drag origin.
+const CONE_BODY_PATH = 'M 3 24 L 12 4 C 12.5 3.5 13.5 3.5 14 4 L 27 24 C 27.5 25 27 26 26 26 L 4 26 C 3 26 2.5 25 3 24 Z';
+const CONE_PATH_SIZE = 30;
 
 // Darken a hex color by `amount` (0..1). Used to derive the cone ring from
 // the body color so recolored cones still read as "cone with shadow".
@@ -116,9 +123,9 @@ const Icon = {
   ),
   ball:     ()  => <img src={ballSvg} width="18" height="18" alt="" style={{ display: 'block' }} />,
   cone:     ()  => (
-    <svg width="22" height="22" viewBox="-14 -14 28 28">
-      <path d="M 0 -12 L 10.39 6 L -10.39 6 Z" fill={CONE_COLOR} stroke="#1a1814" strokeWidth="1" strokeLinejoin="round" />
-      <ellipse cx="0" cy="-4" rx="4" ry="1.4" fill={darken(CONE_COLOR, 0.4)} stroke="#1a1814" strokeWidth="0.6" />
+    <svg width="22" height="22" viewBox="0 0 30 30">
+      <path d={CONE_BODY_PATH} fill={CONE_COLOR} stroke="#1a1814" strokeWidth="1" />
+      <ellipse cx="15" cy="5" rx="7" ry="2" fill={darken(CONE_COLOR, 0.4)} stroke="#1a1814" strokeWidth="1" />
     </svg>
   ),
   goal:     (c) => <svg width="20" height="20" viewBox="0 0 24 24" stroke={c} strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4v16M4 4h12l-2 5h-10M4 12h10l-2 5H4" /></svg>,
@@ -269,33 +276,41 @@ function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
     );
   }
   if (kind === 'cone') {
-    // Konva-native cone (tintable via the color picker). Body = pointy
-    // triangle with rounded vertices; ring = darker shade of the body so
-    // recolored cones still read as cones.
+    // Production-style traffic cone: trapezoid body with a small flat top
+    // and a brown rim that extends wider than the flat top (like a real
+    // cone). Tintable via the color picker — body uses `color`, ring is a
+    // 40% darker shade so recolored cones still read as cones.
     const body = color || CONE_COLOR;
     const ring = darken(body, 0.4);
-    const outerPts = CONE_PTS.map(p => ({ x: p.x * 1.3, y: p.y * 1.3 }));
+    // CONE_BODY_PATH is authored in a 30x30 viewBox. Offset the group so
+    // the path's center sits at the drag origin.
+    const half = CONE_PATH_SIZE / 2;
     return (
       <Group {...common}>
-        <Shape
-          sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, pts: CONE_PTS, corner: 4 })}
-          fill={body}
-          stroke="#1a1814"
-          strokeWidth={1}
-          lineJoin="round"
-        />
-        <Ellipse
-          x={0}
-          y={-10}
-          radiusX={7}
-          radiusY={2}
-          fill={ring}
-          stroke="#1a1814"
-          strokeWidth={0.8}
-        />
+        <Group offsetX={half} offsetY={half}>
+          <Path
+            data={CONE_BODY_PATH}
+            fill={body}
+            stroke="#1a1814"
+            strokeWidth={1}
+          />
+          <Ellipse
+            x={15}
+            y={5}
+            radiusX={7}
+            radiusY={2}
+            fill={ring}
+            stroke="#1a1814"
+            strokeWidth={1}
+          />
+        </Group>
         {selected && (
-          <Shape
-            sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, pts: outerPts, corner: 6 })}
+          <Rect
+            x={-half - 4}
+            y={-half - 4}
+            width={CONE_PATH_SIZE + 8}
+            height={CONE_PATH_SIZE + 8}
+            cornerRadius={6}
             stroke="#c8553d"
             strokeWidth={2}
             dash={[4, 4]}
@@ -699,9 +714,9 @@ function ShapePreview({ shape }) {
         className="flex-shrink-0 rounded-[10px] flex items-center justify-center"
         style={{ width: 36, height: 36, background: 'var(--bg-sunken)' }}
       >
-        <svg width="28" height="28" viewBox="-14 -14 28 28">
-          <path d="M 0 -12 L 10.39 6 L -10.39 6 Z" fill={body} stroke="#1a1814" strokeWidth="1" strokeLinejoin="round" />
-          <ellipse cx="0" cy="-4" rx="4" ry="1.4" fill={darken(body, 0.4)} stroke="#1a1814" strokeWidth="0.6" />
+        <svg width="28" height="28" viewBox="0 0 30 30">
+          <path d={CONE_BODY_PATH} fill={body} stroke="#1a1814" strokeWidth="1" />
+          <ellipse cx="15" cy="5" rx="7" ry="2" fill={darken(body, 0.4)} stroke="#1a1814" strokeWidth="1" />
         </svg>
       </div>
     );
