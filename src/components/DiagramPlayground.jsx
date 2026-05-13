@@ -25,20 +25,22 @@ function roundedTriangleScene({ ctx, shape, pts, corner }) {
   ctx.fillStrokeShape(shape);
 }
 
-// Isoceles pointier-than-equilateral defender triangle. Centroid at origin
-// (apex.y = -2 * base.y) so drag feels natural. height ≈ 50px, width ≈ 48,
-// giving a marker that reads larger and more directional than the equilateral.
-const DEFENDER_PTS = [
-  { x:   0, y: -34 },
-  { x:  24, y:  17 },
-  { x: -24, y:  17 },
-];
-// Smaller variant for cones — same proportions, half the dimensions.
-const CONE_PTS = [
-  { x:   0, y: -20 },
-  { x:  14, y:  10 },
-  { x: -14, y:  10 },
-];
+// Equilateral defender triangle. Three vertices at distance R from the
+// centroid (origin), apex up, so drag and label centering feel natural.
+// R bumped to 30 vs the original 26 so the triangle matches the attacker
+// circle's visual weight — equilateral triangles only fill ~41% of their
+// bounding circle so they read smaller at matching radii.
+function equilateralPts(R) {
+  const half = R * Math.sin(Math.PI / 3); // R * √3 / 2
+  const lower = R * 0.5;
+  return [
+    { x:     0, y: -R },
+    { x:  half, y: lower },
+    { x: -half, y: lower },
+  ];
+}
+const DEFENDER_PTS = equilateralPts(30);
+const CONE_PTS     = equilateralPts(18);
 
 // Darken a hex color by `amount` (0..1). Used to derive the cone ring from
 // the body color so recolored cones still read as "cone with shadow".
@@ -104,7 +106,7 @@ const Icon = {
     // at origin, height ≈ 1.06 * width).
     <svg width="22" height="22" viewBox="-14 -14 28 28">
       <path
-        d="M 0 -12 L 9 6 L -9 6 Z"
+        d="M 0 -12 L 10.39 6 L -10.39 6 Z"
         fill={DEFENDER_COLOR}
         stroke="#1a1814"
         strokeWidth="1"
@@ -115,7 +117,7 @@ const Icon = {
   ball:     ()  => <img src={ballSvg} width="18" height="18" alt="" style={{ display: 'block' }} />,
   cone:     ()  => (
     <svg width="22" height="22" viewBox="-14 -14 28 28">
-      <path d="M 0 -12 L 9 6 L -9 6 Z" fill={CONE_COLOR} stroke="#1a1814" strokeWidth="1" strokeLinejoin="round" />
+      <path d="M 0 -12 L 10.39 6 L -10.39 6 Z" fill={CONE_COLOR} stroke="#1a1814" strokeWidth="1" strokeLinejoin="round" />
       <ellipse cx="0" cy="-4" rx="4" ry="1.4" fill={darken(CONE_COLOR, 0.4)} stroke="#1a1814" strokeWidth="0.6" />
     </svg>
   ),
@@ -234,7 +236,7 @@ function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
           <Text
             text={label}
             x={-26}
-            y={-4}
+            y={-7}
             width={52}
             align="center"
             fontSize={14}
@@ -677,7 +679,7 @@ function ShapePreview({ shape }) {
       >
         <svg width="32" height="32" viewBox="-14 -14 28 28">
           <path
-            d="M 0 -12 L 9 6 L -9 6 Z"
+            d="M 0 -12 L 10.39 6 L -10.39 6 Z"
             fill={fill}
             stroke="#1a1814"
             strokeWidth="1"
@@ -698,7 +700,7 @@ function ShapePreview({ shape }) {
         style={{ width: 36, height: 36, background: 'var(--bg-sunken)' }}
       >
         <svg width="28" height="28" viewBox="-14 -14 28 28">
-          <path d="M 0 -12 L 9 6 L -9 6 Z" fill={body} stroke="#1a1814" strokeWidth="1" strokeLinejoin="round" />
+          <path d="M 0 -12 L 10.39 6 L -10.39 6 Z" fill={body} stroke="#1a1814" strokeWidth="1" strokeLinejoin="round" />
           <ellipse cx="0" cy="-4" rx="4" ry="1.4" fill={darken(body, 0.4)} stroke="#1a1814" strokeWidth="0.6" />
         </svg>
       </div>
