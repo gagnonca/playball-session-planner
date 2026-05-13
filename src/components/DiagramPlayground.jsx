@@ -8,14 +8,19 @@ import coneYellowSvg from '../assets/cone_yellow.svg';
 
 const DEFENDER_COLOR = '#3B82F6';
 
-// Cone variants are provided as full-color SVG assets (orange/blue/yellow)
-// rather than a tinted shape. The color picker uses the swatch values; we
-// map them to the closest cone asset. Anything else falls back to orange.
+// Cone variants are provided as full-color SVG assets. Cones use a 3-only
+// palette (orange/blue/yellow) in the inspector — anything outside that set
+// falls back to orange.
+const CONE_ORANGE = '#FF6B35';
+const CONE_BLUE   = '#3d5a8a';
+const CONE_YELLOW = '#c8853d';
 const CONE_VARIANT_BY_COLOR = {
-  '#3d5a8a': coneBlueSvg,    // ocean blue
-  '#c8853d': coneYellowSvg,  // warm gold
+  [CONE_ORANGE]: coneOrangeSvg,
+  [CONE_BLUE]:   coneBlueSvg,
+  [CONE_YELLOW]: coneYellowSvg,
 };
-const CONE_COLOR = '#c8553d'; // picker swatch that lights up when 'orange' is active
+const CONE_COLOR = CONE_ORANGE;
+const CONE_SWATCHES = [CONE_ORANGE, CONE_BLUE, CONE_YELLOW];
 function coneSrcFor(color) {
   return CONE_VARIANT_BY_COLOR[color] || coneOrangeSvg;
 }
@@ -538,7 +543,7 @@ function Inspector({ shape, onLabel, onColor, onNotes, onDelete }) {
         </div>
       </div>
 
-      {!isLineKind(shape.kind) && (
+      {!isLineKind(shape.kind) && shape.kind !== 'cone' && (
         <>
           <label className="label-text">Label</label>
           <input
@@ -552,7 +557,7 @@ function Inspector({ shape, onLabel, onColor, onNotes, onDelete }) {
 
       <div className="mb-1.5 text-[12.5px] font-medium" style={{ color: 'var(--ink-2)' }}>Color</div>
       <div className="flex gap-2 mb-4">
-        {COLORS.map(c => {
+        {(shape.kind === 'cone' ? CONE_SWATCHES : COLORS).map(c => {
           const active = shape.color === c;
           return (
             <button
