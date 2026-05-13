@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text, Path, Shape, Image as KImage } from 'react-konva';
+import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text, Path, Shape, Image as KImage, Transformer } from 'react-konva';
 import useKonvaImage from '../hooks/useKonvaImage';
 import ballSvg from '../assets/ball.svg';
 import coneOrangeSvg from '../assets/cone_orange.svg';
@@ -197,15 +197,28 @@ function ConeImage({ color, ...props }) {
   return <KImage image={image} {...props} />;
 }
 
-function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
+function MarkerShape({ shape, onClick, onDragMove, onTransformEnd, draggable, id }) {
   const { kind, x, y, label, color } = shape;
 
+  // scale + rotation are baked back into shape state via onTransformEnd; the
+  // Konva Transformer also reads them on its next attach. Default 1 / 0.
+  const scale = shape.scale ?? 1;
+  const rotation = shape.rotation ?? 0;
+
   const common = {
-    x, y,
+    id, // findOne(`#id`) anchors the Transformer to the right Group
+    name: 'selectable',
+    x,
+    y,
+    scaleX: scale,
+    scaleY: scale,
+    rotation,
     draggable,
     onMouseDown: onClick,
     onTap: onClick,
     onDragMove,
+    onTransformEnd,
+    onDragEnd: onTransformEnd,
   };
 
   if (kind === 'attacker') {
@@ -214,20 +227,11 @@ function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
       <Group {...common}>
         <Circle radius={22} fill={fill} />
         <Text text={label || 'A'} x={-22} y={-7} width={44} align="center" fontSize={14} fontStyle="600" fill="#ffffff" />
-        {selected && <Circle radius={32} stroke="#c8553d" strokeWidth={2} dash={[4, 4]} fillEnabled={false} listening={false} />}
       </Group>
     );
   }
   if (kind === 'defender') {
-    // Blue filled pointy-isoceles triangle with rounded vertices. Label
-    // centered visually at the centroid (origin) which is also the drag
-    // origin, so dragging feels natural.
     const fill = color || DEFENDER_COLOR;
-    // Selection ring: scale the defender vertices outward by 12px-ish.
-    const outerPts = DEFENDER_PTS.map(p => ({
-      x: p.x * 1.22,
-      y: p.y * 1.22,
-    }));
     return (
       <Group {...common}>
         <Shape
@@ -249,34 +253,18 @@ function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
             fill="#ffffff"
           />
         )}
-        {selected && (
-          <Shape
-            sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, pts: outerPts, corner: 9 })}
-            stroke="#c8553d"
-            strokeWidth={2}
-            dash={[4, 4]}
-            fillEnabled={false}
-            listening={false}
-          />
-        )}
       </Group>
     );
   }
   if (kind === 'ball') {
-    // Display size matches DiagramBuilder/SoccerBall.jsx (30x30) so the
-    // playground feels at home with the production canvas.
     const size = 26;
     return (
       <Group {...common}>
         <BallImage width={size} height={size} offsetX={size / 2} offsetY={size / 2} />
-        {selected && <Circle radius={size / 2 + 6} stroke="#c8553d" strokeWidth={2} dash={[4, 4]} fillEnabled={false} listening={false} />}
       </Group>
     );
   }
   if (kind === 'cone') {
-    // Render one of the colored cone SVG assets (orange/blue/yellow) based
-    // on the picked color. coneSrcFor() picks the variant; falls back to
-    // orange for any unmapped color.
     const size = 32;
     return (
       <Group {...common}>
@@ -287,20 +275,6 @@ function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
           offsetX={size / 2}
           offsetY={size / 2}
         />
-        {selected && (
-          <Rect
-            x={-size / 2 - 4}
-            y={-size / 2 - 4}
-            width={size + 8}
-            height={size + 8}
-            cornerRadius={6}
-            stroke="#c8553d"
-            strokeWidth={2}
-            dash={[4, 4]}
-            fillEnabled={false}
-            listening={false}
-          />
-        )}
       </Group>
     );
   }
@@ -309,7 +283,6 @@ function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
       <Group {...common}>
         <Rect x={-28} y={-10} width={56} height={20} cornerRadius={2} stroke="#1a1814" strokeWidth={2} fill="rgba(255,255,255,0.8)" />
         <Line points={[-22, -10, -22, 10, -10, 10, -10, -10, 0, -10, 0, 10, 10, 10, 10, -10, 22, -10, 22, 10]} stroke="#1a1814" strokeWidth={1} />
-        {selected && <Rect x={-38} y={-20} width={76} height={40} cornerRadius={4} stroke="#c8553d" strokeWidth={2} dash={[4, 4]} fillEnabled={false} listening={false} />}
       </Group>
     );
   }
@@ -501,7 +474,34 @@ function ToolRail({ tool, onTool }) {
 
 // --- Inspector --------------------------------------------------------------
 
-function Inspector({ shape, onLabel, onColor, onNotes, onDelete }) {
+function Inspector({ shape, multiCount, onLabel, onColor, onNotes, onDelete, onSelectAll, onDeselect }) {
+  if (multiCount > 1) {
+    return (
+      <aside
+        className="overflow-y-auto"
+        style={{ width: 280, background: 'var(--bg-elev)', borderLeft: '1px solid var(--line)', padding: 22 }}
+      >
+        <div className="eyebrow mb-3" style={{ fontSize: 10.5 }}>SELECTION</div>
+        <div className="card p-4">
+          <div className="text-[13.5px] font-medium" style={{ color: 'var(--ink)' }}>
+            {multiCount} shapes selected
+          </div>
+          <div className="text-[12px] mt-1" style={{ color: 'var(--ink-2)' }}>
+            Drag a corner to resize the group, or the top handle to rotate. Press <kbd className="font-mono" style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)', padding: '0 6px', borderRadius: 4, fontSize: 11 }}>⌫</kbd> to delete.
+          </div>
+        </div>
+        <div className="flex gap-2 mt-3">
+          <button onClick={onDeselect} className="btn btn-ghost flex-1">Deselect</button>
+          {onDelete && (
+            <button onClick={onDelete} className="btn btn-ghost flex-1" style={{ color: 'var(--danger)' }}>Delete all</button>
+          )}
+        </div>
+        <div className="hairline my-5" />
+        <div className="eyebrow mb-2" style={{ fontSize: 10.5 }}>SHORTCUTS</div>
+        <ShortcutList />
+      </aside>
+    );
+  }
   if (!shape) {
     return (
       <aside
@@ -512,6 +512,12 @@ function Inspector({ shape, onLabel, onColor, onNotes, onDelete }) {
         <div className="card p-4 text-[13px]" style={{ color: 'var(--ink-2)' }}>
           Nothing selected. Pick a tool and click the field, or click an existing shape.
         </div>
+        {onSelectAll && (
+          <button onClick={onSelectAll} className="btn btn-secondary w-full mt-3" style={{ fontSize: 12.5 }}>
+            Select all
+            <kbd className="font-mono ml-2" style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)', padding: '0 6px', borderRadius: 4, fontSize: 10.5 }}>⌘A</kbd>
+          </button>
+        )}
 
         <div className="hairline my-5" />
 
@@ -747,19 +753,28 @@ export default function DiagramPlayground() {
   const [fieldType, setFieldType] = useState('full');
   const [tool, setTool] = useState('select');
   const [shapes, setShapes] = useState(STARTER_SHAPES);
-  const [selectedId, setSelectedId] = useState(null);
-  const [drawingLine, setDrawingLine] = useState(null); // { kind, x1, y1 } when mid-drag
-  // `pendingShape` is the synthesized stamp the inspector binds to BEFORE
-  // anything is placed. The user can tweak label/color/notes; those values
-  // flow into the next placement. Only meaningful for marker tools — line
-  // tools don't have inspector-editable defaults pre-draw.
+  // selectedIds is a Set so multi-select + select-all are first-class.
+  // A single-shape inspector view is derived when size === 1.
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [drawingLine, setDrawingLine] = useState(null);
   const [pendingShape, setPendingShape] = useState(null);
-  const [cursorLogical, setCursorLogical] = useState(null); // { x, y } in logical coords, or null
+  const [cursorLogical, setCursorLogical] = useState(null);
   const containerRef = useRef(null);
+  const stageRef = useRef(null);
+  const transformerRef = useRef(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
 
   const fieldCfg = FIELD_TYPES[fieldType];
-  const selected = shapes.find(s => s.id === selectedId) || null;
+  const selected = useMemo(() => {
+    if (selectedIds.size !== 1) return null;
+    const onlyId = selectedIds.values().next().value;
+    return shapes.find(s => s.id === onlyId) || null;
+  }, [selectedIds, shapes]);
+
+  // Selection helpers
+  const selectOnly  = useCallback((id) => setSelectedIds(new Set([id])), []);
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+  const selectAll = useCallback(() => setSelectedIds(new Set(shapes.map(s => s.id))), [shapes]);
 
   // Resize observer — keep the stage matching the displayed field surface
   useEffect(() => {
@@ -787,20 +802,29 @@ export default function DiagramPlayground() {
       if (e.key === 'Escape') {
         setTool('select');
         setDrawingLine(null);
-        setSelectedId(null);
+        clearSelection();
         setPendingShape(null);
         return;
       }
-      if ((e.key === 'Backspace' || e.key === 'Delete') && selectedId) {
+      // Cmd/Ctrl+A → select every shape.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault();
-        deleteShape(selectedId);
+        setTool('select');
+        setPendingShape(null);
+        selectAll();
+        return;
+      }
+      if ((e.key === 'Backspace' || e.key === 'Delete') && selectedIds.size > 0) {
+        e.preventDefault();
+        const ids = Array.from(selectedIds);
+        ids.forEach(id => deleteShape(id));
         return;
       }
       const match = TOOLS.find(t2 => t2.key.toLowerCase() === e.key.toLowerCase());
       if (match) {
         setTool(match.id);
         if (match.id !== 'select') {
-          setSelectedId(null);
+          clearSelection();
           setPendingShape(defaultPendingFor(match.id, shapes));
         } else {
           setPendingShape(null);
@@ -810,7 +834,7 @@ export default function DiagramPlayground() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]);
+  }, [selectedIds]);
 
   // --- Shape mutators
   const updateShape = useCallback((id, patch) => {
@@ -819,7 +843,55 @@ export default function DiagramPlayground() {
 
   const deleteShape = useCallback((id) => {
     setShapes(prev => prev.filter(s => s.id !== id));
-    setSelectedId(curr => curr === id ? null : curr);
+    setSelectedIds(curr => {
+      if (!curr.has(id)) return curr;
+      const next = new Set(curr);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
+  // Attach the Transformer to whichever shape nodes are selected. Marker
+  // groups carry id={shape.id}, so findOne('#id') resolves them. Lines are
+  // intentionally skipped — they need their own endpoint-handle treatment.
+  useEffect(() => {
+    const stage = stageRef.current;
+    const tf = transformerRef.current;
+    if (!stage || !tf) return;
+    const nodes = Array.from(selectedIds)
+      .map(id => stage.findOne(`#${id}`))
+      .filter(Boolean)
+      // Only marker shape Groups participate in transform; their Konva name
+      // attribute is "selectable". Lines fall through to no-op selection.
+      .filter(node => node.name() === 'selectable');
+    tf.nodes(nodes);
+    tf.getLayer()?.batchDraw();
+  }, [selectedIds, shapes]);
+
+  // Apply Konva node transforms (drag end, transform end) back to shape data.
+  // The shape's `scale` / `rotation` are the source of truth; we read whatever
+  // the Transformer applied to the node, bake it into shape state, then reset
+  // the node back to identity so the next transform stacks predictably.
+  const commitNodeTransform = useCallback((node, canvasScale) => {
+    if (!node) return;
+    const id = node.id();
+    if (!id) return;
+    const xferScale = (node.scaleX() + node.scaleY()) / 2;
+    const newRotation = node.rotation();
+    setShapes(prev => prev.map(s => {
+      if (s.id !== id) return s;
+      return {
+        ...s,
+        // node.x() / node.y() are in pixels; divide by the canvas scale to get
+        // back to the logical coordinate system shape state uses.
+        x: node.x() / canvasScale,
+        y: node.y() / canvasScale,
+        scale: Math.max(0.25, (s.scale ?? 1) * xferScale),
+        rotation: newRotation,
+      };
+    }));
+    node.scaleX(1);
+    node.scaleY(1);
   }, []);
 
   // --- Stage handlers
@@ -840,7 +912,7 @@ export default function DiagramPlayground() {
     const logical = stageToLogical(pos);
 
     if (tool === 'select') {
-      setSelectedId(null);
+      clearSelection();
       return;
     }
 
@@ -850,9 +922,9 @@ export default function DiagramPlayground() {
       const draft = pendingShape && pendingShape.kind === tool ? pendingShape : fallback;
       const { pending: _pending, ...rest } = draft || {};
       void _pending;
-      const placed = { ...rest, id, kind: tool, x: logical.x, y: logical.y };
+      const placed = { ...rest, id, kind: tool, x: logical.x, y: logical.y, scale: 1, rotation: 0 };
       setShapes(prev => [...prev, placed]);
-      setSelectedId(id);
+      selectOnly(id);
       // Carry the coach's choices forward so the next stamp is the same
       // configured marker. Label advances (D1 -> D2 -> D3), color sticks,
       // notes reset since they belong to the specific shape just placed.
@@ -896,34 +968,39 @@ export default function DiagramPlayground() {
     if (Math.hypot(dx, dy) > 12) {
       const id = uid(drawingLine.kind);
       setShapes(prev => [...prev, { id, kind: drawingLine.kind, x1: drawingLine.x1, y1: drawingLine.y1, x2: logical.x, y2: logical.y, color: '#1a1814' }]);
-      setSelectedId(id);
+      selectOnly(id);
     }
     setDrawingLine(null);
   };
 
   // --- Render shapes
   const renderedShapes = useMemo(() => shapes.map(s => {
-    const isSelected = s.id === selectedId;
+    const isSelected = selectedIds.has(s.id);
     const onClick = (e) => {
-      // Block stage's empty-canvas handler from firing too.
+      // Block stage's empty-canvas handler from firing.
       if (e.cancelBubble !== undefined) e.cancelBubble = true;
-      setSelectedId(s.id);
+      // Clicking a shape while a placement tool is active drops you into
+      // select-mode for that shape (per user request — feels natural after a
+      // few placements you want to nudge what you just dropped).
+      if (tool !== 'select') {
+        setTool('select');
+        setPendingShape(null);
+      }
+      selectOnly(s.id);
     };
     if (isMarkerKind(s.kind)) {
-      const onDragMove = (e) => {
-        const node = e.target;
-        updateShape(s.id, { x: node.x() / scale, y: node.y() / scale });
-      };
-      // Konva nodes render at pixel coordinates — multiply by scale.
+      // node.x() is in pixel coords — convert back to logical on commit.
+      const handleTransformEnd = (e) => commitNodeTransform(e.target, scale);
       const scaled = { ...s, x: s.x * scale, y: s.y * scale };
       return (
         <MarkerShape
           key={s.id}
+          id={s.id}
           shape={scaled}
-          selected={isSelected}
           draggable={tool === 'select'}
           onClick={onClick}
-          onDragMove={onDragMove}
+          onDragMove={undefined}
+          onTransformEnd={handleTransformEnd}
         />
       );
     }
@@ -939,7 +1016,7 @@ export default function DiagramPlayground() {
       );
     }
     return null;
-  }), [shapes, selectedId, scale, tool, updateShape]);
+  }), [shapes, selectedIds, scale, tool, commitNodeTransform, selectOnly]);
 
   const previewLine = drawingLine && drawingLine.x2 != null ? (
     <LineShape
@@ -972,10 +1049,8 @@ export default function DiagramPlayground() {
           tool={tool}
           onTool={(next) => {
             setTool(next);
-            // Picking a placement tool clears the selection so the inspector
-            // shows a pending preview of what you're about to drop next.
             if (next !== 'select') {
-              setSelectedId(null);
+              clearSelection();
               setPendingShape(defaultPendingFor(next, shapes));
             } else {
               setPendingShape(null);
@@ -1001,6 +1076,7 @@ export default function DiagramPlayground() {
           >
             {stageSize.width > 0 && (
               <Stage
+                ref={stageRef}
                 width={stageSize.width}
                 height={stageSize.height}
                 onMouseDown={handleStageMouseDown}
@@ -1024,13 +1100,30 @@ export default function DiagramPlayground() {
                     <Group listening={false} opacity={0.6}>
                       <MarkerShape
                         shape={{ ...pendingShape, x: cursorLogical.x * scale, y: cursorLogical.y * scale }}
-                        selected={false}
                         draggable={false}
                         onClick={() => {}}
                         onDragMove={() => {}}
                       />
                     </Group>
                   )}
+                  {/* Resize / rotate handles for selected marker shape(s).
+                      Lines aren't supported by the transformer here. */}
+                  <Transformer
+                    ref={transformerRef}
+                    rotateEnabled
+                    keepRatio
+                    flipEnabled={false}
+                    anchorStroke="#c8553d"
+                    anchorFill="#ffffff"
+                    anchorCornerRadius={4}
+                    borderStroke="#c8553d"
+                    borderDash={[4, 4]}
+                    boundBoxFunc={(_, newBox) => {
+                      // prevent zero/negative scaling from a frantic drag
+                      if (Math.abs(newBox.width) < 8 || Math.abs(newBox.height) < 8) return _;
+                      return newBox;
+                    }}
+                  />
                 </Layer>
               </Stage>
             )}
@@ -1039,29 +1132,30 @@ export default function DiagramPlayground() {
 
         <Inspector
           shape={selected || pendingShape}
+          multiCount={selectedIds.size}
           onLabel={(v) => {
-            // Labels are intrinsic to a placed shape — don't propagate to the
-            // pending config (each new stamp auto-labels itself).
             if (selected) updateShape(selected.id, { label: v });
             else if (pendingShape) setPendingShape(p => ({ ...p, label: v }));
           }}
           onColor={(v) => {
-            // Color is a "stamp variant" — coaches usually mean "every stamp of
-            // this kind should be this color from now on". So we update the
-            // pending config in parallel whenever a marker tool is active or
-            // when the selected shape is a marker kind. The cursor ghost and
-            // every future placement immediately inherit the new color.
             if (selected) updateShape(selected.id, { color: v });
             if (pendingShape && isMarkerKind(pendingShape.kind)) {
               setPendingShape(p => ({ ...p, color: v }));
             }
           }}
           onNotes={(v) => {
-            // Notes belong to the placed shape; don't carry them across stamps.
             if (selected) updateShape(selected.id, { notes: v });
             else if (pendingShape) setPendingShape(p => ({ ...p, notes: v }));
           }}
-          onDelete={selected ? () => deleteShape(selected.id) : undefined}
+          onDelete={
+            selectedIds.size === 1 && selected
+              ? () => deleteShape(selected.id)
+              : selectedIds.size > 1
+                ? () => Array.from(selectedIds).forEach(id => deleteShape(id))
+                : undefined
+          }
+          onSelectAll={shapes.length > 0 ? selectAll : undefined}
+          onDeselect={clearSelection}
         />
       </div>
     </div>
