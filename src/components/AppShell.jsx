@@ -11,7 +11,7 @@ import { getTeamsData } from '../utils/indexedDBHelper';
 import TeamList from './teams/TeamList';
 import TeamDetail from './teams/TeamDetail';
 import SessionBuilder from './session-builder/SessionBuilder';
-import DiagramBuilder from './DiagramBuilder';
+import DiagramBuilder from './DiagramPlayground';
 import Library from './Library';
 import Schedule from './Schedule';
 import Settings from './Settings';
