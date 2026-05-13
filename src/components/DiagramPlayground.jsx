@@ -86,17 +86,26 @@ const TOOLS = [
   { id: 'dribble',  label: 'Dribble',  key: 'X' },
 ];
 
-const FIELD_TYPES = {
-  full:  { ratio: 16 / 10, maxWidth: 880 },
-  half:  { ratio: 1.1,     maxWidth: 640 },
-  third: { ratio: 0.7,     maxWidth: 460 },
-};
+// Pitch presets — each has an aspect ratio (long / short axis) and a `pitch`
+// id that the FieldBackground renderer branches on. Aspect is in HORIZONTAL
+// orientation; vertical orientation inverts it.
+const FIELD_PRESETS = [
+  { value: '4v4',   label: '4v4',   aspect: 1.50, maxWidth: 720, pitch: '4v4'   },
+  { value: '7v7',   label: '7v7',   aspect: 1.60, maxWidth: 800, pitch: '7v7'   },
+  { value: '9v9',   label: '9v9',   aspect: 1.65, maxWidth: 840, pitch: '9v9'   },
+  { value: '11v11', label: '11v11', aspect: 1.55, maxWidth: 880, pitch: '11v11' },
+  { value: 'half',  label: 'Half',  aspect: 1.10, maxWidth: 640, pitch: 'half'  },
+  { value: 'third', label: 'Third', aspect: 0.70, maxWidth: 460, pitch: 'third' },
+];
+const DEFAULT_PRESET = '11v11';
+function findPreset(value) {
+  return FIELD_PRESETS.find(p => p.value === value) || FIELD_PRESETS[3];
+}
 
 // Logical canvas viewBox — Konva pixels match these so shapes scale cleanly
-// across field types. Stage width/height shrink with the container; we keep
-// the logical coordinate system constant so shape positions feel stable.
+// across field types. Width is fixed; height derives from aspect so each
+// preset renders in its own viewBox without changing how shapes are stored.
 const VB_W = 1000;
-const VB_H = 625;
 
 const COLORS = ['#c8553d', '#3d7a4a', '#3d5a8a', '#c8853d', '#1a1814'];
 
@@ -153,32 +162,136 @@ function isMarkerKind(kind) {
 
 // --- Field background -------------------------------------------------------
 
-function FieldBackground({ w, h }) {
-  const m = 30; // pitch padding
+// Pitch markings differ by format — fewer / smaller boxes for small-sided
+// games, no penalty box at all for 4v4, half-pitch and third views for
+// drill-focused diagrams. All markings are drawn in HORIZONTAL orientation
+// (long axis = x); rotation, if any, happens at the parent Group level.
+function FieldBackground({ w, h, pitch = '11v11' }) {
+  const m = 30; // pitch padding inset
+  const lineColor = 'rgba(255,255,255,0.65)';
+  const stripeStroke = 'rgba(255,255,255,0.04)';
   const stripeCount = 10;
   const stripeW = w / stripeCount;
-  const stripeStroke = 'rgba(255,255,255,0.04)';
-  const lineColor = 'rgba(255,255,255,0.65)';
-  return (
-    <Group listening={false}>
-      {/* mowing stripes */}
+
+  const stripes = (
+    <>
       {Array.from({ length: stripeCount }).map((_, i) => (
         i % 2 === 1 ? (
-          <Rect key={i} x={i * stripeW} y={0} width={stripeW} height={h} fill={stripeStroke} />
+          <Rect key={i} x={i * stripeW} y={0} width={stripeW} height={h} fill={stripeStroke} listening={false} />
         ) : null
       ))}
-      {/* boundary */}
-      <Rect x={m} y={m} width={w - m * 2} height={h - m * 2} stroke={lineColor} strokeWidth={3} fillEnabled={false} />
-      {/* halfway line */}
-      <Line points={[w / 2, m, w / 2, h - m]} stroke={lineColor} strokeWidth={2} />
-      {/* center circle + dot */}
-      <Circle x={w / 2} y={h / 2} radius={74} stroke={lineColor} strokeWidth={2} fillEnabled={false} />
-      <Circle x={w / 2} y={h / 2} radius={3} fill="rgba(255,255,255,0.75)" />
-      {/* penalty boxes */}
-      <Rect x={m} y={(h - 265) / 2} width={160} height={265} stroke={lineColor} strokeWidth={2} fillEnabled={false} />
-      <Rect x={w - m - 160} y={(h - 265) / 2} width={160} height={265} stroke={lineColor} strokeWidth={2} fillEnabled={false} />
-      <Rect x={m} y={(h - 125) / 2} width={60} height={125} stroke={lineColor} strokeWidth={2} fillEnabled={false} />
-      <Rect x={w - m - 60} y={(h - 125) / 2} width={60} height={125} stroke={lineColor} strokeWidth={2} fillEnabled={false} />
+    </>
+  );
+  const boundary = (
+    <Rect x={m} y={m} width={w - m * 2} height={h - m * 2} stroke={lineColor} strokeWidth={3} fillEnabled={false} listening={false} />
+  );
+  const halfway = (
+    <Line points={[w / 2, m, w / 2, h - m]} stroke={lineColor} strokeWidth={2} listening={false} />
+  );
+  const centerSpot = (
+    <Circle x={w / 2} y={h / 2} radius={3} fill="rgba(255,255,255,0.75)" listening={false} />
+  );
+  const centerCircle = (r) => (
+    <Circle x={w / 2} y={h / 2} radius={r} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
+  );
+  const penaltyBoxes = (outerW, outerH, innerW, innerH) => (
+    <>
+      <Rect x={m} y={(h - outerH) / 2} width={outerW} height={outerH} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
+      <Rect x={w - m - outerW} y={(h - outerH) / 2} width={outerW} height={outerH} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
+      <Rect x={m} y={(h - innerH) / 2} width={innerW} height={innerH} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
+      <Rect x={w - m - innerW} y={(h - innerH) / 2} width={innerW} height={innerH} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
+    </>
+  );
+
+  if (pitch === '4v4') {
+    return (
+      <Group listening={false}>
+        {stripes}
+        {boundary}
+        {halfway}
+        {centerSpot}
+        {/* No penalty box, no center circle. Tiny goal markers at each end. */}
+        <Rect x={m - 5} y={(h - 50) / 2} width={5} height={50} fill={lineColor} listening={false} />
+        <Rect x={w - m} y={(h - 50) / 2} width={5} height={50} fill={lineColor} listening={false} />
+      </Group>
+    );
+  }
+  if (pitch === '7v7') {
+    return (
+      <Group listening={false}>
+        {stripes}
+        {boundary}
+        {halfway}
+        {centerCircle(56)}
+        {centerSpot}
+        {penaltyBoxes(95, 175, 35, 80)}
+      </Group>
+    );
+  }
+  if (pitch === '9v9') {
+    return (
+      <Group listening={false}>
+        {stripes}
+        {boundary}
+        {halfway}
+        {centerCircle(70)}
+        {centerSpot}
+        {penaltyBoxes(125, 220, 50, 110)}
+      </Group>
+    );
+  }
+  if (pitch === '11v11') {
+    return (
+      <Group listening={false}>
+        {stripes}
+        {boundary}
+        {halfway}
+        {centerCircle(82)}
+        {centerSpot}
+        {penaltyBoxes(160, 265, 60, 125)}
+      </Group>
+    );
+  }
+  if (pitch === 'half') {
+    // Half pitch — one end with a penalty box + half-center-circle on the
+    // open side. Used for end-zone drills.
+    return (
+      <Group listening={false}>
+        {stripes}
+        {boundary}
+        {/* Open side: half-circle hugging the centerline */}
+        <Path
+          data={`M ${m} ${h / 2 - 70} A 70 70 0 0 1 ${m} ${h / 2 + 70}`}
+          stroke={lineColor}
+          strokeWidth={2}
+          fill={null}
+          listening={false}
+        />
+        <Rect x={w - m - 160} y={(h - 265) / 2} width={160} height={265} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
+        <Rect x={w - m - 60} y={(h - 125) / 2} width={60} height={125} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
+      </Group>
+    );
+  }
+  if (pitch === 'third') {
+    // Third — outline + two dashed thirds. Tactical channel rehearsals.
+    return (
+      <Group listening={false}>
+        {stripes}
+        {boundary}
+        <Line points={[m + (w - 2 * m) / 3, m, m + (w - 2 * m) / 3, h - m]} stroke={lineColor} strokeWidth={2} dash={[8, 6]} opacity={0.6} listening={false} />
+        <Line points={[m + (w - 2 * m) * 2 / 3, m, m + (w - 2 * m) * 2 / 3, h - m]} stroke={lineColor} strokeWidth={2} dash={[8, 6]} opacity={0.6} listening={false} />
+      </Group>
+    );
+  }
+  // Fallback: 11v11
+  return (
+    <Group listening={false}>
+      {stripes}
+      {boundary}
+      {halfway}
+      {centerCircle(82)}
+      {centerSpot}
+      {penaltyBoxes(160, 265, 60, 125)}
     </Group>
   );
 }
@@ -483,7 +596,7 @@ function LineHandles({ points, canvasScale, onMovePoint, onRemovePoint }) {
 
 // --- Top bar ----------------------------------------------------------------
 
-function TopBar({ title, onTitleChange, fieldType, onFieldType, onBack, onSave, onExport }) {
+function TopBar({ title, onTitleChange, fieldType, onFieldType, orientation, onOrientation, onBack, onSave, onExport }) {
   return (
     <header
       className="flex items-center gap-4 px-5 py-3"
@@ -514,34 +627,39 @@ function TopBar({ title, onTitleChange, fieldType, onFieldType, onBack, onSave, 
         }}
         placeholder="Untitled play"
       />
-      <div
-        role="tablist"
-        aria-label="Field type"
-        className="inline-flex p-1 rounded-[10px]"
-        style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)' }}
-      >
-        {Object.keys(FIELD_TYPES).map(key => {
-          const active = fieldType === key;
-          return (
-            <button
-              key={key}
-              role="tab"
-              aria-selected={active}
-              onClick={() => onFieldType(key)}
-              className="px-3 py-1.5 text-[12.5px] rounded-[7px] transition-colors"
-              style={{
-                background: active ? 'var(--bg-elev)' : 'transparent',
-                color: active ? 'var(--ink)' : 'var(--ink-2)',
-                border: active ? '1px solid var(--line-2)' : '1px solid transparent',
-                boxShadow: active ? 'var(--shadow-sm)' : 'none',
-                fontWeight: active ? 500 : 400,
-                textTransform: 'capitalize',
-              }}
-            >
-              {key}
-            </button>
-          );
-        })}
+      <div className="inline-flex items-center gap-1.5">
+        <span className="font-mono uppercase" style={{ fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.08em' }}>PITCH</span>
+        <select
+          value={fieldType}
+          onChange={(e) => onFieldType(e.target.value)}
+          className="input-field"
+          style={{ padding: '6px 10px', fontSize: 13, width: 'auto' }}
+          aria-label="Pitch preset"
+        >
+          {FIELD_PRESETS.map(p => (
+            <option key={p.value} value={p.value}>{p.label}</option>
+          ))}
+        </select>
+        <button
+          onClick={() => onOrientation(orientation === 'vertical' ? 'horizontal' : 'vertical')}
+          className="btn btn-ghost"
+          title={orientation === 'vertical' ? 'Switch to horizontal' : 'Switch to vertical'}
+          aria-label="Toggle orientation"
+          style={{ padding: '4px 8px' }}
+        >
+          {orientation === 'vertical' ? (
+            // Show the alternate orientation as the action label
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="7" width="18" height="10" rx="1.5" />
+              <path d="M12 7v10" />
+            </svg>
+          ) : (
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="7" y="3" width="10" height="18" rx="1.5" />
+              <path d="M7 12h10" />
+            </svg>
+          )}
+        </button>
       </div>
       <button onClick={onExport} className="btn btn-ghost">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -903,7 +1021,9 @@ function defaultPendingFor(tool, shapes) {
 
 export default function DiagramPlayground() {
   const [title, setTitle] = useState('1v1 in the channel');
-  const [fieldType, setFieldType] = useState('full');
+  const [fieldType, setFieldType] = useState(DEFAULT_PRESET);
+  const [orientation, setOrientation] = useState('horizontal');
+  const fieldRotationGroupRef = useRef(null);
   const [tool, setTool] = useState('select');
   const [shapes, setShapes] = useState(STARTER_SHAPES);
   // selectedIds is a Set so multi-select + select-all are first-class.
@@ -917,7 +1037,11 @@ export default function DiagramPlayground() {
   const transformerRef = useRef(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
 
-  const fieldCfg = FIELD_TYPES[fieldType];
+  const fieldCfg = findPreset(fieldType);
+  // Visible aspect ratio depends on orientation (horizontal/vertical flips it).
+  // Computed once so containerRef/ResizeObserver/canvasScale stay consistent.
+  const displayAspect = orientation === 'vertical' ? 1 / fieldCfg.aspect : fieldCfg.aspect;
+  const isVertical = orientation === 'vertical';
   const selected = useMemo(() => {
     if (selectedIds.size !== 1) return null;
     const onlyId = selectedIds.values().next().value;
@@ -938,16 +1062,24 @@ export default function DiagramPlayground() {
     const el = containerRef.current;
     const obs = new ResizeObserver(([entry]) => {
       const w = entry.contentRect.width;
-      const h = w / fieldCfg.ratio;
+      const h = w / displayAspect;
       setStageSize({ width: w, height: h });
     });
     obs.observe(el);
     return () => obs.disconnect();
-  }, [fieldCfg.ratio]);
+  }, [displayAspect]);
 
-  // Logical → screen scaling. Konva renders in pixel coordinates; we use a
-  // scale factor so the same shape data fits any field type at any width.
-  const scale = stageSize.width > 0 ? stageSize.width / VB_W : 1;
+  // The field is always drawn in HORIZONTAL orientation internally. In
+  // vertical mode we wrap the rendering in a 90° rotation, so the "long"
+  // pixel dimension is stageSize.height. Canvas-scale (pixels per logical
+  // unit) reads from whichever axis is currently the long one.
+  const longPx = isVertical ? stageSize.height : stageSize.width;
+  const shortPx = isVertical ? stageSize.width : stageSize.height;
+  const scale = longPx > 0 ? longPx / VB_W : 1;
+  // Field viewBox: long axis = VB_W, short axis derives from preset aspect.
+  const fieldW = VB_W * scale;
+  const fieldH = (VB_W / fieldCfg.aspect) * scale;
+  void shortPx; // referenced in handlers below
 
   // --- Keyboard shortcuts
   useEffect(() => {
@@ -1051,10 +1183,22 @@ export default function DiagramPlayground() {
   }, []);
 
   // --- Stage handlers
-  const stageToLogical = (clientPos) => ({
-    x: clientPos.x / scale,
-    y: clientPos.y / scale,
-  });
+  // Always read pointer position relative to the rotation Group so the
+  // unrotated logical coords stay consistent across horizontal/vertical.
+  // Falls back to raw stage coords if the Group ref isn't ready yet.
+  const readPointerLogical = () => {
+    const group = fieldRotationGroupRef.current;
+    const stage = stageRef.current;
+    if (!stage) return null;
+    if (group?.getRelativePointerPosition) {
+      const p = group.getRelativePointerPosition();
+      if (p) return { x: p.x / scale, y: p.y / scale };
+    }
+    const p = stage.getPointerPosition();
+    if (!p) return null;
+    return { x: p.x / scale, y: p.y / scale };
+  };
+  const stageToLogical = () => readPointerLogical();
 
   const handleStageMouseDown = (e) => {
     // If the click hit a shape, that shape's onMouseDown selects it before
@@ -1062,10 +1206,8 @@ export default function DiagramPlayground() {
     // target is the Stage itself.
     if (e.target !== e.target.getStage()) return;
 
-    const stage = e.target;
-    const pos = stage.getPointerPosition();
-    if (!pos) return;
-    const logical = stageToLogical(pos);
+    const logical = stageToLogical();
+    if (!logical) return;
 
     if (tool === 'select') {
       clearSelection();
@@ -1098,13 +1240,9 @@ export default function DiagramPlayground() {
     }
   };
 
-  const handleStageMouseMove = (e) => {
-    const stage = e.target.getStage();
-    const pos = stage.getPointerPosition();
-    if (!pos) return;
-    const logical = stageToLogical(pos);
-    // Track cursor so a marker preview can follow it. We only update when
-    // a placement tool is active; select-mode doesn't need a ghost.
+  const handleStageMouseMove = () => {
+    const logical = stageToLogical();
+    if (!logical) return;
     if (isMarkerKind(tool)) setCursorLogical(logical);
     if (!drawingLine) return;
     setDrawingLine(prev => prev ? { ...prev, x2: logical.x, y2: logical.y } : null);
@@ -1114,11 +1252,9 @@ export default function DiagramPlayground() {
     setCursorLogical(null);
   };
 
-  const handleStageMouseUp = (e) => {
+  const handleStageMouseUp = () => {
     if (!drawingLine) return;
-    const stage = e.target.getStage();
-    const pos = stage.getPointerPosition();
-    const logical = pos ? stageToLogical(pos) : { x: drawingLine.x1, y: drawingLine.y1 };
+    const logical = stageToLogical() || { x: drawingLine.x1, y: drawingLine.y1 };
     const dx = logical.x - drawingLine.x1;
     const dy = logical.y - drawingLine.y1;
     if (Math.hypot(dx, dy) > 12) {
@@ -1177,14 +1313,12 @@ export default function DiagramPlayground() {
       const logicalPts = pointsOf(s);
       const scaledPts = logicalPts.map(p => ({ x: p.x * scale, y: p.y * scale }));
       const handleDblClick = (e) => {
-        // e.target is the line shape Group; figure out where the click
-        // landed in logical coords and splice a new midpoint into the
-        // points array at the nearest segment.
+        // e.target is the line shape Group; read the click in the rotation
+        // group's local (unrotated) coord system so orientation doesn't skew
+        // where the new midpoint lands.
         if (e.cancelBubble !== undefined) e.cancelBubble = true;
-        const stage = e.target.getStage();
-        const pos = stage?.getPointerPosition();
-        if (!pos) return;
-        const lp = { x: pos.x / scale, y: pos.y / scale };
+        const lp = readPointerLogical();
+        if (!lp) return;
         let bestIdx = 1;
         let bestDist = Infinity;
         for (let i = 0; i < logicalPts.length - 1; i++) {
@@ -1253,6 +1387,8 @@ export default function DiagramPlayground() {
         onTitleChange={setTitle}
         fieldType={fieldType}
         onFieldType={setFieldType}
+        orientation={orientation}
+        onOrientation={setOrientation}
         onBack={() => { window.location.href = '/'; }}
         onSave={() => alert(`(playground) save "${title}" — ${shapes.length} shapes`)}
         onExport={() => alert('(playground) export — not wired in the playground')}
@@ -1277,8 +1413,8 @@ export default function DiagramPlayground() {
             ref={containerRef}
             style={{
               width: '100%',
-              maxWidth: fieldCfg.maxWidth,
-              aspectRatio: fieldCfg.ratio,
+              maxWidth: isVertical ? fieldCfg.maxWidth / fieldCfg.aspect : fieldCfg.maxWidth,
+              aspectRatio: displayAspect,
               background: 'color-mix(in oklab, var(--good, #4a7c59) 28%, var(--bg-elev))',
               borderRadius: 14,
               border: '1px solid var(--line-2)',
@@ -1302,42 +1438,46 @@ export default function DiagramPlayground() {
                 onTouchEnd={handleStageMouseUp}
               >
                 <Layer>
-                  <FieldBackground w={stageSize.width} h={stageSize.height} />
-                </Layer>
-                <Layer>
-                  {renderedShapes}
-                  {previewLine}
-                  {/* Cursor ghost — translucent stamp that follows the pointer
-                      when a marker tool is active. Non-listening so it never
-                      intercepts clicks. */}
-                  {pendingShape && cursorLogical && isMarkerKind(tool) && (
-                    <Group listening={false} opacity={0.6}>
-                      <MarkerShape
-                        shape={{ ...pendingShape, x: cursorLogical.x * scale, y: cursorLogical.y * scale }}
-                        draggable={false}
-                        onClick={() => {}}
-                        onDragMove={() => {}}
-                      />
-                    </Group>
-                  )}
-                  {/* Resize / rotate handles for selected marker shape(s).
-                      Lines aren't supported by the transformer here. */}
-                  <Transformer
-                    ref={transformerRef}
-                    rotateEnabled
-                    keepRatio
-                    flipEnabled={false}
-                    anchorStroke="#c8553d"
-                    anchorFill="#ffffff"
-                    anchorCornerRadius={4}
-                    borderStroke="#c8553d"
-                    borderDash={[4, 4]}
-                    boundBoxFunc={(_, newBox) => {
-                      // prevent zero/negative scaling from a frantic drag
-                      if (Math.abs(newBox.width) < 8 || Math.abs(newBox.height) < 8) return _;
-                      return newBox;
-                    }}
-                  />
+                  {/* Field + shapes all live inside a single rotation Group so
+                      orientation = 'vertical' just rotates the visual without
+                      touching shape data. We use getRelativePointerPosition on
+                      this Group in the click handlers so logical coords stay
+                      consistent regardless of orientation. */}
+                  <Group
+                    ref={fieldRotationGroupRef}
+                    rotation={isVertical ? 90 : 0}
+                    x={isVertical ? stageSize.width : 0}
+                    y={0}
+                  >
+                    <FieldBackground w={fieldW} h={fieldH} pitch={fieldCfg.pitch} />
+                    {renderedShapes}
+                    {previewLine}
+                    {pendingShape && cursorLogical && isMarkerKind(tool) && (
+                      <Group listening={false} opacity={0.6}>
+                        <MarkerShape
+                          shape={{ ...pendingShape, x: cursorLogical.x * scale, y: cursorLogical.y * scale }}
+                          draggable={false}
+                          onClick={() => {}}
+                          onDragMove={() => {}}
+                        />
+                      </Group>
+                    )}
+                    <Transformer
+                      ref={transformerRef}
+                      rotateEnabled
+                      keepRatio
+                      flipEnabled={false}
+                      anchorStroke="#c8553d"
+                      anchorFill="#ffffff"
+                      anchorCornerRadius={4}
+                      borderStroke="#c8553d"
+                      borderDash={[4, 4]}
+                      boundBoxFunc={(_, newBox) => {
+                        if (Math.abs(newBox.width) < 8 || Math.abs(newBox.height) < 8) return _;
+                        return newBox;
+                      }}
+                    />
+                  </Group>
                 </Layer>
               </Stage>
             )}
