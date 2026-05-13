@@ -287,11 +287,13 @@ function ConeImage({ color, ...props }) {
   return <KImage image={image} {...props} />;
 }
 
-function MarkerShape({ shape, onClick, onDragMove, onTransformEnd, draggable, id }) {
+function MarkerShape({ shape, onClick, onDragMove, onDragEnd, draggable, id }) {
   const { kind, x, y, label, color } = shape;
 
-  // scale + rotation are baked back into shape state via onTransformEnd; the
-  // Konva Transformer also reads them on its next attach. Default 1 / 0.
+  // scale + rotation come from shape state and are written into Konva's
+  // transform; the Konva Transformer's onTransformEnd (handled at the parent
+  // level) is what writes new values back so per-shape vs group transforms
+  // can be coordinated.
   const scale = shape.scale ?? 1;
   const rotation = shape.rotation ?? 0;
 
@@ -307,8 +309,7 @@ function MarkerShape({ shape, onClick, onDragMove, onTransformEnd, draggable, id
     onMouseDown: onClick,
     onTap: onClick,
     onDragMove,
-    onTransformEnd,
-    onDragEnd: onTransformEnd,
+    onDragEnd,
   };
 
   if (kind === 'attacker') {
@@ -1171,31 +1172,67 @@ export default function DiagramPlayground() {
     tf.getLayer()?.batchDraw();
   }, [selectedIds, shapes]);
 
-  // Apply Konva node transforms (drag end, transform end) back to shape data.
-  // The shape's `scale` / `rotation` are the source of truth; we read whatever
-  // the Transformer applied to the node, bake it into shape state, then reset
-  // the node back to identity so the next transform stacks predictably.
-  const commitNodeTransform = useCallback((node, canvasScale) => {
+  // Drag commits only position; resize/rotate commits only scale/rotation
+  // (position is reverted in handleTransformEnd so each selected shape
+  // transforms around its own center even in multi-select).
+  const handleNodeDragEnd = useCallback((node, canvasScale) => {
     if (!node) return;
     const id = node.id();
     if (!id) return;
-    const xferScale = (node.scaleX() + node.scaleY()) / 2;
-    const newRotation = node.rotation();
+    const nx = node.x() / canvasScale;
+    const ny = node.y() / canvasScale;
+    setShapes(prev => prev.map(s => s.id === id ? { ...s, x: nx, y: ny } : s));
+  }, []);
+
+  // Snapshot pre-transform positions so we can revert them after the
+  // Transformer drags handles. Without this, multi-select resize/rotate
+  // would also translate each shape around the group bbox center.
+  const transformStartRef = useRef(null);
+  const handleTransformStart = useCallback(() => {
+    const initial = {};
+    shapes.forEach(s => {
+      if (selectedIds.has(s.id)) {
+        initial[s.id] = { x: s.x, y: s.y };
+      }
+    });
+    transformStartRef.current = initial;
+  }, [shapes, selectedIds]);
+
+  const handleTransformEnd = useCallback(() => {
+    const initial = transformStartRef.current || {};
+    const stage = stageRef.current;
+    if (!stage) return;
+    // Pick the first selected shape as the "anchor" and apply its new
+    // absolute scale + rotation to every selected shape — that's what the
+    // user asked for: "I grow one and they all go to the same size".
+    // Positions are reverted so each shape transforms around its own center.
+    const ids = Array.from(selectedIds);
+    const anchorId = ids[0];
+    if (!anchorId) return;
+    const anchorNode = stage.findOne(`#${anchorId}`);
+    if (!anchorNode) return;
+    const newScale = Math.max(0.25, (anchorNode.scaleX() + anchorNode.scaleY()) / 2);
+    const newRotation = anchorNode.rotation();
     setShapes(prev => prev.map(s => {
-      if (s.id !== id) return s;
+      if (!selectedIds.has(s.id)) return s;
+      const node = stage.findOne(`#${s.id}`);
+      // Reset each node's Konva transform so the next render reads from
+      // shape state without doubling up.
+      if (node) {
+        node.scaleX(1);
+        node.scaleY(1);
+        node.rotation(0);
+      }
       return {
         ...s,
-        // node.x() / node.y() are in pixels; divide by the canvas scale to get
-        // back to the logical coordinate system shape state uses.
-        x: node.x() / canvasScale,
-        y: node.y() / canvasScale,
-        scale: Math.max(0.25, (s.scale ?? 1) * xferScale),
+        x: initial[s.id]?.x ?? s.x,
+        y: initial[s.id]?.y ?? s.y,
+        scale: newScale,
         rotation: newRotation,
       };
     }));
-    node.scaleX(1);
-    node.scaleY(1);
-  }, []);
+    transformStartRef.current = null;
+  }, [selectedIds]);
 
   // --- Stage handlers
   // Always read pointer position relative to the rotation Group so the
@@ -1309,8 +1346,7 @@ export default function DiagramPlayground() {
       selectOnly(s.id);
     };
     if (isMarkerKind(s.kind)) {
-      // node.x() is in pixel coords — convert back to logical on commit.
-      const handleTransformEnd = (e) => commitNodeTransform(e.target, scale);
+      const handleDragEnd = (e) => handleNodeDragEnd(e.target, scale);
       const scaled = { ...s, x: s.x * scale, y: s.y * scale };
       return (
         <MarkerShape
@@ -1320,7 +1356,7 @@ export default function DiagramPlayground() {
           draggable={tool === 'select'}
           onClick={onClick}
           onDragMove={undefined}
-          onTransformEnd={handleTransformEnd}
+          onDragEnd={handleDragEnd}
         />
       );
     }
@@ -1372,7 +1408,7 @@ export default function DiagramPlayground() {
       );
     }
     return null;
-  }), [shapes, selectedIds, scale, tool, commitNodeTransform, selectOnly, updateShape]);
+  }), [shapes, selectedIds, scale, tool, handleNodeDragEnd, selectOnly, updateShape]);
 
   const previewLine = drawingLine && drawingLine.x2 != null ? (() => {
     // The preview line uses the same auto-bend seed as a placed line so
@@ -1489,6 +1525,8 @@ export default function DiagramPlayground() {
                       anchorCornerRadius={4}
                       borderStroke="#c8553d"
                       borderDash={[4, 4]}
+                      onTransformStart={handleTransformStart}
+                      onTransformEnd={handleTransformEnd}
                       boundBoxFunc={(_, newBox) => {
                         if (Math.abs(newBox.width) < 8 || Math.abs(newBox.height) < 8) return _;
                         return newBox;
