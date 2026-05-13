@@ -290,113 +290,131 @@ function MarkerShape({ shape, onClick, onDragMove, onTransformEnd, draggable, id
 }
 
 const LINE_STROKE = '#1a1814';
+const DRIBBLE_AMPLITUDE = 11;
+const DRIBBLE_SAMPLE_STEP = 22;
+
+// Perpendicular distance from a point to a line segment (clamped to the
+// segment, not the infinite line). Used to decide which segment to insert
+// a new midpoint into when the user double-clicks a curved line.
+function distToSegment(p, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const cx = a.x + dx * t;
+  const cy = a.y + dy * t;
+  return Math.hypot(p.x - cx, p.y - cy);
+}
 
 function defaultBendFor(kind) {
   if (kind === 'pass') return -22;
   if (kind === 'run') return 18;
-  if (kind === 'dribble') return 10; // amplitude of the wave's peaks
+  if (kind === 'dribble') return 14;
   return 0;
 }
 
-// Build the geometry for a line: midpoint of straight segment, perpendicular
-// normal, applied bend (control point), and — for dribble — the wave's last
-// segment so we can angle the arrow head correctly.
-function lineGeometry(shape) {
-  const { x1, y1, x2, y2, kind } = shape;
+// Lines now carry a `points: [{x,y}, ...]` array. Legacy shapes (x1/y1/x2/y2
+// with an optional `bend`) get auto-converted here so we don't have to
+// migrate stored data eagerly.
+function pointsOf(shape) {
+  if (Array.isArray(shape.points) && shape.points.length >= 2) return shape.points;
+  const { x1, y1, x2, y2, kind, bend } = shape;
+  const points = [{ x: x1, y: y1 }];
   const dx = x2 - x1;
   const dy = y2 - y1;
   const len = Math.hypot(dx, dy) || 1;
   const nx = -dy / len;
   const ny = dx / len;
-  const bend = shape.bend ?? defaultBendFor(kind);
-  const midX = (x1 + x2) / 2;
-  const midY = (y1 + y2) / 2;
-  const ctlX = midX + nx * bend;
-  const ctlY = midY + ny * bend;
-  return { dx, dy, len, nx, ny, bend, midX, midY, ctlX, ctlY };
-}
-
-// Compute the wavy dribble polyline. Returns array of points including
-// both endpoints. The wave is symmetric across the start→end axis and
-// uses a half-cycle every step so consecutive peaks alternate sides.
-function dribblePoints(shape) {
-  const { x1, y1, x2, y2 } = shape;
-  const { dx, dy, len, nx, ny, bend } = lineGeometry(shape);
-  const amplitude = Math.max(6, Math.min(18, Math.abs(bend)));
-  const steps = Math.max(4, Math.round(len / 26));
-  const points = [{ x: x1, y: y1 }];
-  for (let i = 1; i < steps; i++) {
-    const t = i / steps;
-    const px = x1 + dx * t;
-    const py = y1 + dy * t;
-    const side = (i % 2 === 0 ? 1 : -1);
-    points.push({ x: px + nx * amplitude * side, y: py + ny * amplitude * side });
+  const offset = bend ?? defaultBendFor(kind);
+  if (offset !== 0) {
+    const midX = (x1 + x2) / 2;
+    const midY = (y1 + y2) / 2;
+    points.push({ x: midX + nx * offset, y: midY + ny * offset });
   }
   points.push({ x: x2, y: y2 });
   return points;
 }
 
-function LineShape({ shape, onClick }) {
-  const { kind, x1, y1, x2, y2 } = shape;
-  const geo = lineGeometry(shape);
-
-  // Render the curve in a sceneFunc. For pass/run we use a quadratic curve
-  // through the control point. For dribble we build a smooth Bezier through
-  // the wave's points (midpoint-spline trick) so it reads as a soft, rounded
-  // zigzag instead of sharp diagonal segments.
-  let arrowDirX, arrowDirY;
-  let sceneFunc;
-  if (kind === 'dribble') {
-    const points = dribblePoints(shape);
-    sceneFunc = (ctx, shapeNode) => {
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-      // Smooth through each interior point — each point becomes a quadratic
-      // control, the curve passes through the midpoint of every segment.
-      for (let i = 1; i < points.length - 1; i++) {
-        const xc = (points[i].x + points[i + 1].x) / 2;
-        const yc = (points[i].y + points[i + 1].y) / 2;
-        ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
-      }
-      ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
-      ctx.strokeShape(shapeNode);
-    };
-    // Arrow direction: tangent at the last segment so the arrow head lines
-    // up with the curve's actual exit angle (not the straight start→end).
-    const last = points[points.length - 1];
-    const prev = points[points.length - 2];
-    arrowDirX = last.x - prev.x;
-    arrowDirY = last.y - prev.y;
-  } else {
-    sceneFunc = (ctx, shapeNode) => {
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.quadraticCurveTo(geo.ctlX, geo.ctlY, x2, y2);
-      ctx.strokeShape(shapeNode);
-    };
-    // Tangent at end of quadratic Bezier = direction from control point to
-    // end point.
-    arrowDirX = x2 - geo.ctlX;
-    arrowDirY = y2 - geo.ctlY;
+// Sample the user's polyline at uniform intervals, applying an alternating
+// perpendicular displacement to create a smooth, continuous dribble wave.
+// Phase counter persists across segments so the wave doesn't reset at each
+// midpoint — the user's control points just bend the underlying carrier.
+function buildDribbleSamples(points, amplitude = DRIBBLE_AMPLITUDE, step = DRIBBLE_SAMPLE_STEP) {
+  const samples = [{ ...points[0] }];
+  let phase = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const n = Math.max(2, Math.round(len / step));
+    for (let j = 1; j < n; j++) {
+      const t = j / n;
+      const px = a.x + dx * t;
+      const py = a.y + dy * t;
+      const side = phase++ % 2 === 0 ? 1 : -1;
+      samples.push({ x: px + nx * amplitude * side, y: py + ny * amplitude * side });
+    }
   }
+  samples.push({ ...points[points.length - 1] });
+  return samples;
+}
+
+// Draw a smooth quadratic-spline path through every point in `pts`, treating
+// each interior point as a control and the midpoint of each pair as a knot.
+// The first and last points are honored exactly (start and end of the curve).
+function smoothSceneFunc(pts) {
+  return (ctx, shapeNode) => {
+    ctx.beginPath();
+    if (pts.length === 0) { ctx.strokeShape(shapeNode); return; }
+    ctx.moveTo(pts[0].x, pts[0].y);
+    if (pts.length === 2) {
+      ctx.lineTo(pts[1].x, pts[1].y);
+    } else {
+      for (let i = 1; i < pts.length - 1; i++) {
+        const xc = (pts[i].x + pts[i + 1].x) / 2;
+        const yc = (pts[i].y + pts[i + 1].y) / 2;
+        ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+      }
+      ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    }
+    ctx.strokeShape(shapeNode);
+  };
+}
+
+function LineShape({ shape, scaledPoints, onClick, onDblClick }) {
+  const { kind } = shape;
+  const renderPts = kind === 'dribble' ? buildDribbleSamples(scaledPoints) : scaledPoints;
+
+  // Arrow tangent = direction of the last rendered segment so the head
+  // always aligns with how the curve actually arrives at the endpoint.
+  const last = renderPts[renderPts.length - 1];
+  const prev = renderPts[renderPts.length - 2] || renderPts[0];
+  const arrowDirX = last.x - prev.x;
+  const arrowDirY = last.y - prev.y;
   const dirLen = Math.hypot(arrowDirX, arrowDirY) || 1;
-  const tailLen = 14; // pull the arrow's tail back along the tangent
-  const tailX = x2 - (arrowDirX / dirLen) * tailLen;
-  const tailY = y2 - (arrowDirY / dirLen) * tailLen;
+  const tailLen = 14;
+  const tailX = last.x - (arrowDirX / dirLen) * tailLen;
+  const tailY = last.y - (arrowDirY / dirLen) * tailLen;
 
   return (
-    <Group onMouseDown={onClick} onTap={onClick}>
+    <Group onMouseDown={onClick} onTap={onClick} onDblClick={onDblClick} onDblTap={onDblClick}>
       <Shape
-        sceneFunc={sceneFunc}
+        sceneFunc={smoothSceneFunc(renderPts)}
         stroke={LINE_STROKE}
         strokeWidth={3}
         dash={kind === 'run' ? [10, 8] : undefined}
         lineCap="round"
         lineJoin="round"
-        hitStrokeWidth={20}
+        hitStrokeWidth={22}
       />
       <Arrow
-        points={[tailX, tailY, x2, y2]}
+        points={[tailX, tailY, last.x, last.y]}
         stroke={LINE_STROKE}
         strokeWidth={3}
         fill={LINE_STROKE}
@@ -408,68 +426,57 @@ function LineShape({ shape, onClick }) {
   );
 }
 
-// Drag handles for a selected line: start, end, and a midpoint control that
-// adjusts the bend (curvature). All values are in the same logical coord
-// system as the line itself; the parent multiplies by canvas scale.
-function LineHandles({ shape, onMove, canvasScale }) {
-  const geo = lineGeometry(shape);
-  // Bend handle position (in screen space, pre-scaled)
-  const handleX = geo.midX + geo.nx * geo.bend;
-  const handleY = geo.midY + geo.ny * geo.bend;
-
-  const onEndpointDrag = (which) => (e) => {
+// Per-point drag handles. Endpoints (idx === 0 and last) render as larger
+// white circles; interior midpoints render as smaller accent dots. Every
+// handle is draggable; double-clicking an interior midpoint removes it.
+function LineHandles({ points, canvasScale, onMovePoint, onRemovePoint }) {
+  const onDrag = (idx) => (e) => {
     const node = e.target;
-    const px = node.x() / canvasScale;
-    const py = node.y() / canvasScale;
-    if (which === 'start') onMove({ x1: px, y1: py });
-    else onMove({ x2: px, y2: py });
+    onMovePoint(idx, node.x() / canvasScale, node.y() / canvasScale);
   };
-  const onBendDrag = (e) => {
-    const node = e.target;
-    const hx = node.x() / canvasScale;
-    const hy = node.y() / canvasScale;
-    // Project (hx, hy) - midpoint onto the normal axis -> new bend.
-    const offX = hx - geo.midX;
-    const offY = hy - geo.midY;
-    const newBend = offX * geo.nx + offY * geo.ny;
-    onMove({ bend: newBend });
+  const onDbl = (idx) => () => {
+    // Endpoints can't be removed — minimum 2 points.
+    if (idx === 0 || idx === points.length - 1) return;
+    onRemovePoint(idx);
   };
 
   return (
     <Group listening>
-      <Circle
-        x={shape.x1}
-        y={shape.y1}
-        radius={6}
-        fill="#ffffff"
-        stroke="#c8553d"
-        strokeWidth={2}
-        draggable
-        onDragMove={onEndpointDrag('start')}
-        onDragEnd={onEndpointDrag('start')}
-      />
-      <Circle
-        x={shape.x2}
-        y={shape.y2}
-        radius={6}
-        fill="#ffffff"
-        stroke="#c8553d"
-        strokeWidth={2}
-        draggable
-        onDragMove={onEndpointDrag('end')}
-        onDragEnd={onEndpointDrag('end')}
-      />
-      <Circle
-        x={handleX}
-        y={handleY}
-        radius={5}
-        fill="#c8553d"
-        stroke="#ffffff"
-        strokeWidth={2}
-        draggable
-        onDragMove={onBendDrag}
-        onDragEnd={onBendDrag}
-      />
+      {points.map((p, idx) => {
+        const isEndpoint = idx === 0 || idx === points.length - 1;
+        if (isEndpoint) {
+          return (
+            <Circle
+              key={idx}
+              x={p.x}
+              y={p.y}
+              radius={6}
+              fill="#ffffff"
+              stroke="#c8553d"
+              strokeWidth={2}
+              draggable
+              onDragMove={onDrag(idx)}
+              onDragEnd={onDrag(idx)}
+            />
+          );
+        }
+        return (
+          <Circle
+            key={idx}
+            x={p.x}
+            y={p.y}
+            radius={5}
+            fill="#c8553d"
+            stroke="#ffffff"
+            strokeWidth={2}
+            draggable
+            onDragMove={onDrag(idx)}
+            onDragEnd={onDrag(idx)}
+            onDblClick={onDbl(idx)}
+            onDblTap={onDbl(idx)}
+          />
+        );
+      })}
     </Group>
   );
 }
@@ -1116,8 +1123,16 @@ export default function DiagramPlayground() {
     const dy = logical.y - drawingLine.y1;
     if (Math.hypot(dx, dy) > 12) {
       const id = uid(drawingLine.kind);
-      const bend = defaultBendFor(drawingLine.kind);
-      setShapes(prev => [...prev, { id, kind: drawingLine.kind, x1: drawingLine.x1, y1: drawingLine.y1, x2: logical.x, y2: logical.y, bend }]);
+      // Seed a 3-point line so the user sees an immediate curve to grab.
+      // pointsOf() can derive the auto-bend midpoint from kind defaults.
+      const points = pointsOf({
+        kind: drawingLine.kind,
+        x1: drawingLine.x1,
+        y1: drawingLine.y1,
+        x2: logical.x,
+        y2: logical.y,
+      });
+      setShapes(prev => [...prev, { id, kind: drawingLine.kind, points }]);
       selectOnly(id);
       // Drop straight back into select-mode so the new line's handles are
       // immediately usable.
@@ -1159,15 +1174,49 @@ export default function DiagramPlayground() {
       );
     }
     if (isLineKind(s.kind)) {
-      const scaled = { ...s, x1: s.x1 * scale, y1: s.y1 * scale, x2: s.x2 * scale, y2: s.y2 * scale };
+      const logicalPts = pointsOf(s);
+      const scaledPts = logicalPts.map(p => ({ x: p.x * scale, y: p.y * scale }));
+      const handleDblClick = (e) => {
+        // e.target is the line shape Group; figure out where the click
+        // landed in logical coords and splice a new midpoint into the
+        // points array at the nearest segment.
+        if (e.cancelBubble !== undefined) e.cancelBubble = true;
+        const stage = e.target.getStage();
+        const pos = stage?.getPointerPosition();
+        if (!pos) return;
+        const lp = { x: pos.x / scale, y: pos.y / scale };
+        let bestIdx = 1;
+        let bestDist = Infinity;
+        for (let i = 0; i < logicalPts.length - 1; i++) {
+          const d = distToSegment(lp, logicalPts[i], logicalPts[i + 1]);
+          if (d < bestDist) { bestDist = d; bestIdx = i + 1; }
+        }
+        const next = [...logicalPts.slice(0, bestIdx), lp, ...logicalPts.slice(bestIdx)];
+        // Drop legacy x1/x2/y1/y2/bend so points is the source of truth.
+        updateShape(s.id, { points: next, x1: undefined, y1: undefined, x2: undefined, y2: undefined, bend: undefined });
+        selectOnly(s.id);
+      };
       return (
         <Group key={s.id}>
-          <LineShape shape={scaled} onClick={onClick} />
+          <LineShape
+            shape={s}
+            scaledPoints={scaledPts}
+            onClick={onClick}
+            onDblClick={handleDblClick}
+          />
           {isSelected && (
             <LineHandles
-              shape={scaled}
+              points={scaledPts}
               canvasScale={scale}
-              onMove={(patch) => updateShape(s.id, patch)}
+              onMovePoint={(idx, x, y) => {
+                const next = logicalPts.map((p, i) => i === idx ? { x, y } : p);
+                updateShape(s.id, { points: next, x1: undefined, y1: undefined, x2: undefined, y2: undefined, bend: undefined });
+              }}
+              onRemovePoint={(idx) => {
+                if (logicalPts.length <= 2) return; // keep two endpoints
+                const next = logicalPts.filter((_, i) => i !== idx);
+                updateShape(s.id, { points: next });
+              }}
             />
           )}
         </Group>
@@ -1176,19 +1225,26 @@ export default function DiagramPlayground() {
     return null;
   }), [shapes, selectedIds, scale, tool, commitNodeTransform, selectOnly, updateShape]);
 
-  const previewLine = drawingLine && drawingLine.x2 != null ? (
-    <LineShape
-      shape={{
-        kind: drawingLine.kind,
-        x1: drawingLine.x1 * scale,
-        y1: drawingLine.y1 * scale,
-        x2: drawingLine.x2 * scale,
-        y2: drawingLine.y2 * scale,
-      }}
-      selected={false}
-      onClick={() => {}}
-    />
-  ) : null;
+  const previewLine = drawingLine && drawingLine.x2 != null ? (() => {
+    // The preview line uses the same auto-bend seed as a placed line so
+    // the user sees the eventual curve while dragging.
+    const pts = pointsOf({
+      kind: drawingLine.kind,
+      x1: drawingLine.x1,
+      y1: drawingLine.y1,
+      x2: drawingLine.x2,
+      y2: drawingLine.y2,
+    });
+    const scaledPts = pts.map(p => ({ x: p.x * scale, y: p.y * scale }));
+    return (
+      <LineShape
+        shape={{ kind: drawingLine.kind }}
+        scaledPoints={scaledPts}
+        onClick={() => {}}
+        onDblClick={() => {}}
+      />
+    );
+  })() : null;
 
   return (
     <div className="flex flex-col min-h-screen" style={{ background: 'var(--bg-sunken)', color: 'var(--ink)' }}>
