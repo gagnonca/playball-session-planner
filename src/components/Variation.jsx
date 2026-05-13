@@ -1,19 +1,23 @@
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import RichTextEditor from './RichTextEditor';
 import GuidedQAEditor from './GuidedQAEditor';
+import AIField from './AIField';
 import { fileToDataUrl, migrateToGuidedQA, toast } from '../utils/helpers';
 
-// Auto-grow textarea handler
-const useAutoGrow = () => {
-  return useCallback((e) => {
-    const target = e.target;
-    target.style.height = 'auto';
-    target.style.height = Math.max(target.scrollHeight, 72) + 'px';
-  }, []);
-};
-
-export default function Variation({ variation, onUpdate, onRemove, parentDiagram, sectionId, teamsContext, aiContext, parentSection }) {
-  const handleAutoGrow = useAutoGrow();
+// Variation renders inside a parent Section's variation card. The parent
+// owns the colored header strip + outer border; this component fills the
+// body with the variation's name + diagram + AIField text inputs.
+export default function Variation({
+  variation,
+  onUpdate,
+  onRemove,
+  parentDiagram,
+  sectionId,
+  teamsContext,
+  aiContext,
+  parentSection,
+  hideRemove = false,
+}) {
   const [generatingField, setGeneratingField] = useState(null);
 
   // Migrate legacy questions/answers to guidedQA if needed
@@ -54,40 +58,34 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
     handleOpenDiagramBuilder(true);
   };
 
-  // AI Content Generation - direct generation from context (no user prompt)
-  const handleGenerateField = async (fieldName) => {
+  const buildContext = () => ({
+    moment: aiContext?.sessionSummary?.moment,
+    ageGroup: aiContext?.sessionSummary?.ageGroup,
+    playerActions: aiContext?.sessionSummary?.playerActions,
+    keyQualities: aiContext?.sessionSummary?.keyQualities,
+    sectionName: parentSection?.name || variation.name,
+    sectionType: parentSection?.type || 'Practice',
+    sectionTime: parentSection?.time,
+    objective: variation.objective || parentSection?.objective,
+    organization: variation.organization || parentSection?.organization,
+    guidedQA: variation.guidedQA || parentSection?.guidedQA,
+    notes: variation.notes || parentSection?.notes,
+  });
+
+  const handleGenerateField = async (fieldName, extraPrompt) => {
     if (!aiContext?.aiHook) return;
-
-    const { aiHook, sessionSummary, onConfigureAI } = aiContext;
-
+    const { aiHook, onConfigureAI } = aiContext;
     if (!aiHook.isConfigured()) {
-      if (onConfigureAI) {
-        onConfigureAI();
-      }
+      onConfigureAI?.();
       return;
     }
-
     setGeneratingField(fieldName);
     try {
-      const context = {
-        moment: sessionSummary?.moment,
-        ageGroup: sessionSummary?.ageGroup,
-        playerActions: sessionSummary?.playerActions,
-        keyQualities: sessionSummary?.keyQualities,
-        sectionName: parentSection?.name || variation.name,
-        sectionType: parentSection?.type || 'Practice',
-        sectionTime: parentSection?.time,
-        objective: variation.objective || parentSection?.objective,
-        organization: variation.organization || parentSection?.organization,
-        guidedQA: variation.guidedQA || parentSection?.guidedQA,
-        notes: variation.notes || parentSection?.notes,
-      };
-
-      const content = await aiHook.generateFieldContent(fieldName, context);
+      const content = await aiHook.generateFieldContent(fieldName, buildContext(), extraPrompt);
       handleChange(fieldName, content);
       toast('Generated ✨');
     } catch (error) {
-      toast(`AI Error: ${error.message}`);
+      toast(`AI error: ${error.message}`);
     } finally {
       setGeneratingField(null);
     }
@@ -95,191 +93,131 @@ export default function Variation({ variation, onUpdate, onRemove, parentDiagram
 
   const isAIConfigured = aiContext?.aiHook?.isConfigured?.() ?? false;
 
-  // Render field with floating AI button
-  const renderAIField = (label, fieldName, value, placeholder, rows = 3, extraClasses = '') => (
-    <div>
-      <label className="label-text">{label}</label>
-      <div className="relative">
-        <textarea
-          value={value || ''}
-          onChange={(e) => handleChange(fieldName, e.target.value)}
-          onInput={handleAutoGrow}
-          rows={rows}
-          className={`input-field resize-none overflow-hidden pr-10 ${extraClasses}`}
-          placeholder={placeholder}
-        />
-        {aiContext && isAIConfigured && (
+  return (
+    <div className="p-3 flex flex-col gap-3">
+      <input
+        type="text"
+        value={variation.name || ''}
+        onChange={(e) => handleChange('name', e.target.value)}
+        placeholder="Variation name (e.g., Less Challenging)"
+        className="w-full bg-transparent outline-none"
+        style={{
+          fontSize: 14,
+          fontWeight: 600,
+          letterSpacing: '-0.015em',
+          color: 'var(--ink)',
+          border: 'none',
+          padding: 0,
+        }}
+      />
+
+      {/* Diagram surface — small, optional */}
+      <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--line)' }}>
+        {variation.imageDataUrl ? (
+          <img src={variation.imageDataUrl} alt="Variation diagram" className="block w-full" style={{ aspectRatio: '16 / 9', objectFit: 'cover' }} />
+        ) : (
           <button
-            onClick={() => handleGenerateField(fieldName)}
-            disabled={generatingField === fieldName}
-            className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-md transition-all text-yellow-400/60 hover:text-yellow-400 hover:bg-slate-700/50"
-            title="Generate with AI"
+            onClick={() => handleOpenDiagramBuilder(false)}
+            className="w-full flex items-center justify-center font-mono uppercase"
+            style={{
+              aspectRatio: '16 / 9',
+              background: 'color-mix(in oklab, #6aa365 22%, var(--bg-sunken))',
+              color: 'rgba(255,255,255,0.85)',
+              border: 'none',
+              fontSize: 10.5,
+              letterSpacing: '0.12em',
+              cursor: 'pointer',
+            }}
+            title="Draw a diagram for this variation"
           >
-            {generatingField === fieldName ? (
-              <span className="animate-spin text-xs">⟳</span>
-            ) : (
-              <span className="text-sm">✨</span>
-            )}
+            TAP TO DRAW
           </button>
         )}
       </div>
-    </div>
-  );
-
-  // Render rich text field with AI button
-  const renderRichField = (label, fieldName, value, placeholder) => {
-    const aiButton = aiContext && isAIConfigured ? (
-      <button
-        onClick={() => handleGenerateField(fieldName)}
-        disabled={generatingField === fieldName}
-        className="w-7 h-7 flex items-center justify-center rounded-md transition-all text-yellow-400/60 hover:text-yellow-400 hover:bg-slate-700/50"
-        title="Generate with AI"
-      >
-        {generatingField === fieldName
-          ? <span className="animate-spin text-xs">⟳</span>
-          : <span className="text-sm">✨</span>}
-      </button>
-    ) : null;
-
-    return (
-      <div>
-        <label className="label-text">{label}</label>
-        <RichTextEditor
-          value={value || ''}
-          onChange={(html) => handleChange(fieldName, html)}
-          placeholder={placeholder}
-          aiButton={aiButton}
-        />
+      <div className="flex flex-wrap gap-1 -mt-1 no-print">
+        {variation.imageDataUrl ? (
+          <>
+            <button onClick={() => handleOpenDiagramBuilder(false)} className="btn btn-ghost" style={{ fontSize: 11.5 }}>Edit</button>
+            <button onClick={handleRemoveImage} className="btn btn-ghost" style={{ fontSize: 11.5, color: 'var(--danger)' }}>Remove</button>
+          </>
+        ) : parentDiagram ? (
+          <button onClick={handleCopyFromParentAndEdit} className="btn btn-ghost" style={{ fontSize: 11.5 }}>
+            Start from parent
+          </button>
+        ) : null}
+        {!variation.imageDataUrl && (
+          <label className="btn btn-ghost cursor-pointer" style={{ fontSize: 11.5 }}>
+            Upload
+            <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+          </label>
+        )}
       </div>
-    );
-  };
 
-  return (
-    <div className="mt-4 p-4 bg-slate-900/30 border border-slate-700 rounded-lg">
-      <div className="flex justify-between items-center mb-4">
-        <input
-          type="text"
-          value={variation.name}
-          onChange={(e) => handleChange('name', e.target.value)}
-          placeholder="Variation name (e.g., Less Challenging)"
-          className="input-field font-semibold flex-1"
+      <AIField
+        label="Objective"
+        isAIConfigured={isAIConfigured}
+        isGenerating={generatingField === 'objective'}
+        onSuggest={() => handleGenerateField('objective')}
+        onSuggestWithPrompt={(p) => handleGenerateField('objective', p)}
+      >
+        <RichTextEditor
+          value={variation.objective || ''}
+          onChange={(html) => handleChange('objective', html)}
+          placeholder="What changes for this variation?"
         />
+      </AIField>
+
+      <AIField
+        label="Organization"
+        isAIConfigured={isAIConfigured}
+        isGenerating={generatingField === 'organization'}
+        onSuggest={() => handleGenerateField('organization')}
+        onSuggestWithPrompt={(p) => handleGenerateField('organization', p)}
+      >
+        <RichTextEditor
+          value={variation.organization || ''}
+          onChange={(html) => handleChange('organization', html)}
+          placeholder="Adjusted setup, restrictions, rules…"
+        />
+      </AIField>
+
+      <AIField
+        label="Guided Q&A"
+        isAIConfigured={isAIConfigured}
+        isGenerating={generatingField === 'guidedQA'}
+        onSuggest={() => handleGenerateField('guidedQA')}
+        onSuggestWithPrompt={(p) => handleGenerateField('guidedQA', p)}
+      >
+        <GuidedQAEditor
+          value={variation.guidedQA}
+          onChange={(html) => handleChange('guidedQA', html)}
+          placeholder="Q1: What do you see?\nA1: Look for teammates…"
+        />
+      </AIField>
+
+      <AIField
+        label="Notes"
+        isAIConfigured={isAIConfigured}
+        isGenerating={generatingField === 'notes'}
+        onSuggest={() => handleGenerateField('notes')}
+        onSuggestWithPrompt={(p) => handleGenerateField('notes', p)}
+      >
+        <RichTextEditor
+          value={variation.notes || ''}
+          onChange={(html) => handleChange('notes', html)}
+          placeholder="Coaching cues for this variation…"
+        />
+      </AIField>
+
+      {!hideRemove && (
         <button
           onClick={onRemove}
-          className="ml-3 w-8 h-8 flex items-center justify-center text-slate-400 hover:text-red-400 hover:bg-slate-700/50 rounded transition-colors no-print"
-          title="Remove variation"
+          className="btn btn-ghost self-end"
+          style={{ fontSize: 12, color: 'var(--danger)' }}
         >
-          ×
+          Remove variation
         </button>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4 mb-4">
-        {/* Diagram Box */}
-        <div className="border-2 border-dashed border-slate-700 rounded-xl p-3 flex flex-col gap-2">
-          {variation.imageDataUrl ? (
-            <>
-              <img
-                src={variation.imageDataUrl}
-                alt="Variation diagram"
-                className="w-full rounded-lg border border-slate-700"
-              />
-              <div className="flex gap-2 no-print">
-                <button
-                  onClick={() => handleOpenDiagramBuilder(false)}
-                  className="btn btn-primary flex-1 text-xs py-1"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={handleRemoveImage}
-                  className="btn btn-danger text-xs py-1"
-                >
-                  ×
-                </button>
-              </div>
-            </>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <p className="text-sm text-slate-400 mb-2">Diagram</p>
-              {parentDiagram && (
-                <button
-                  onClick={handleCopyFromParentAndEdit}
-                  className="btn btn-secondary text-xs py-1"
-                >
-                  Start from Parent
-                </button>
-              )}
-              <button
-                onClick={() => handleOpenDiagramBuilder(false)}
-                className="btn btn-primary text-xs py-1"
-              >
-                Build Diagram
-              </button>
-              <label className="btn btn-subtle text-xs py-1 cursor-pointer">
-                Upload
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                  className="hidden"
-                />
-              </label>
-            </div>
-          )}
-        </div>
-
-        {/* Text Fields */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {renderRichField(
-            'Objective',
-            'objective',
-            variation.objective,
-            'What will players learn or improve?'
-          )}
-
-          {renderRichField(
-            'Organization',
-            'organization',
-            variation.organization,
-            'Field setup, players, equipment...'
-          )}
-
-          <div className="md:col-span-2">
-            {(() => {
-              const aiButton = aiContext && isAIConfigured ? (
-                <button
-                  onClick={() => handleGenerateField('guidedQA')}
-                  disabled={generatingField === 'guidedQA'}
-                  className="w-7 h-7 flex items-center justify-center rounded-md transition-all text-yellow-400/60 hover:text-yellow-400 hover:bg-slate-700/50"
-                  title="Generate with AI"
-                >
-                  {generatingField === 'guidedQA'
-                    ? <span className="animate-spin text-xs">⟳</span>
-                    : <span className="text-sm">✨</span>}
-                </button>
-              ) : null;
-
-              return (
-                <GuidedQAEditor
-                  value={variation.guidedQA}
-                  onChange={(html) => handleChange('guidedQA', html)}
-                  placeholder="Q1: What do you see?\nA1: Look for teammates..."
-                  aiButton={aiButton}
-                />
-              );
-            })()}
-          </div>
-
-          <div className="md:col-span-2">
-            {renderRichField(
-              'Notes',
-              'notes',
-              variation.notes,
-              'Coaching tips, variations...'
-            )}
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

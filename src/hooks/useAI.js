@@ -267,8 +267,9 @@ Respond with JSON: { "questions": "Question 1?\\nQuestion 2?\\nQuestion 3?" }`;
     }
   }, [callOpenAI]);
 
-  // Generate content for a specific field using expert prompts
-  const generateFieldContent = useCallback(async (fieldName, context) => {
+  // Generate content for a specific field using expert prompts. The optional
+  // extraPrompt lets the coach steer the AI ("Add prompt" path in AIField).
+  const generateFieldContent = useCallback(async (fieldName, context, extraPrompt) => {
     const promptBuilder = FIELD_PROMPTS[fieldName];
     if (!promptBuilder) {
       throw new Error(`Unknown field: ${fieldName}`);
@@ -278,7 +279,11 @@ Respond with JSON: { "questions": "Question 1?\\nQuestion 2?\\nQuestion 3?" }`;
     setError(null);
 
     try {
-      const userPrompt = promptBuilder(context);
+      let userPrompt = promptBuilder(context);
+      const trimmedExtra = (extraPrompt || '').trim();
+      if (trimmedExtra) {
+        userPrompt += `\n\nExtra direction from the coach: ${trimmedExtra}`;
+      }
 
       const content = await callOpenAI([
         { role: 'system', content: EXPERT_SYSTEM_PROMPT },

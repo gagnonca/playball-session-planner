@@ -272,6 +272,39 @@
 .tl-canvas { background-color: #6aa365 !important; }
 
 /* -----------------------------------------------------------------------------
+   AIField shell — child editors render borderless inside the wrapper.
+   ---------------------------------------------------------------------------- */
+.ai-field-shell:focus-within {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.18);
+}
+.ai-field-shell .rich-text-editor {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  height: auto;
+  min-height: 96px;
+  resize: vertical;
+}
+.ai-field-shell .rich-text-editor:focus-within {
+  border: none;
+  box-shadow: none;
+}
+.ai-field-shell textarea.input-field,
+.ai-field-shell input.input-field {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.ai-field-shell textarea.input-field:focus,
+.ai-field-shell input.input-field:focus {
+  box-shadow: none;
+  border: none;
+}
+
+/* -----------------------------------------------------------------------------
    TipTap rich text — rebuilt against the token system. Mirrors the old shape
    so existing RichTextEditor markup keeps working.
    ---------------------------------------------------------------------------- */
