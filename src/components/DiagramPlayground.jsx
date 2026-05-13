@@ -1,10 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text, Path, Shape, Ellipse, Image as KImage } from 'react-konva';
+import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text, Path, Shape, Image as KImage } from 'react-konva';
 import useKonvaImage from '../hooks/useKonvaImage';
 import ballSvg from '../assets/ball.svg';
+import coneOrangeSvg from '../assets/cone_orange.svg';
+import coneBlueSvg from '../assets/cone_blue.svg';
+import coneYellowSvg from '../assets/cone_yellow.svg';
 
 const DEFENDER_COLOR = '#3B82F6';
-const CONE_COLOR = '#FF6B35';
+
+// Cone variants are provided as full-color SVG assets (orange/blue/yellow)
+// rather than a tinted shape. The color picker uses the swatch values; we
+// map them to the closest cone asset. Anything else falls back to orange.
+const CONE_VARIANT_BY_COLOR = {
+  '#3d5a8a': coneBlueSvg,    // ocean blue
+  '#c8853d': coneYellowSvg,  // warm gold
+};
+const CONE_COLOR = '#c8553d'; // picker swatch that lights up when 'orange' is active
+function coneSrcFor(color) {
+  return CONE_VARIANT_BY_COLOR[color] || coneOrangeSvg;
+}
 
 // Rounded-corner triangle. Konva's RegularPolygon draws sharp vertices; we
 // want a soft, marker-like point. The Shape sceneFunc arcTo's through each
@@ -40,28 +54,6 @@ function equilateralPts(R) {
   ];
 }
 const DEFENDER_PTS = equilateralPts(30);
-
-// Traffic-cone path — flat narrow top, wide rounded base, ring near the
-// top. Lifted from src/components/DiagramBuilder/components/shapes/Cone.jsx
-// so playground cones read as actual cones (an equilateral triangle with a
-// ring on top looks like a UFO). The path is authored in a 30x30 box; we
-// offset the group so its center lines up with the drag origin.
-const CONE_BODY_PATH = 'M 3 24 L 12 4 C 12.5 3.5 13.5 3.5 14 4 L 27 24 C 27.5 25 27 26 26 26 L 4 26 C 3 26 2.5 25 3 24 Z';
-const CONE_PATH_SIZE = 30;
-
-// Darken a hex color by `amount` (0..1). Used to derive the cone ring from
-// the body color so recolored cones still read as "cone with shadow".
-function darken(hex, amount = 0.45) {
-  const m = hex.replace('#', '');
-  const full = m.length === 3 ? m.split('').map(c => c + c).join('') : m;
-  const num = parseInt(full, 16);
-  const r = (num >> 16) & 255;
-  const g = (num >> 8) & 255;
-  const b = num & 255;
-  const f = 1 - amount;
-  const to2 = v => Math.max(0, Math.min(255, Math.round(v * f))).toString(16).padStart(2, '0');
-  return `#${to2(r)}${to2(g)}${to2(b)}`;
-}
 
 // Playground for the redesigned Diagram Builder. Routed at /diagram-playground
 // (see App.jsx). Built on react-konva so we can ship without the tldraw
@@ -122,12 +114,7 @@ const Icon = {
     </svg>
   ),
   ball:     ()  => <img src={ballSvg} width="18" height="18" alt="" style={{ display: 'block' }} />,
-  cone:     ()  => (
-    <svg width="22" height="22" viewBox="0 0 30 30">
-      <path d={CONE_BODY_PATH} fill={CONE_COLOR} stroke="#1a1814" strokeWidth="1" />
-      <ellipse cx="15" cy="5" rx="7" ry="2" fill={darken(CONE_COLOR, 0.4)} stroke="#1a1814" strokeWidth="1" />
-    </svg>
-  ),
+  cone:     ()  => <img src={coneOrangeSvg} width="22" height="22" alt="" style={{ display: 'block' }} />,
   goal:     (c) => <svg width="20" height="20" viewBox="0 0 24 24" stroke={c} strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4v16M4 4h12l-2 5h-10M4 12h10l-2 5H4" /></svg>,
   pass:     (c) => <svg width="22" height="22" viewBox="0 0 24 24" stroke={c} strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12h16M16 8l4 4-4 4" /></svg>,
   run:      (c) => <svg width="22" height="22" viewBox="0 0 24 24" stroke={c} strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12h16M16 8l4 4-4 4" strokeDasharray="3 3" /></svg>,
@@ -195,6 +182,12 @@ function FieldBackground({ w, h }) {
 
 function BallImage(props) {
   const image = useKonvaImage(ballSvg);
+  if (!image) return null;
+  return <KImage image={image} {...props} />;
+}
+
+function ConeImage({ color, ...props }) {
+  const image = useKonvaImage(coneSrcFor(color));
   if (!image) return null;
   return <KImage image={image} {...props} />;
 }
@@ -276,40 +269,25 @@ function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
     );
   }
   if (kind === 'cone') {
-    // Production-style traffic cone: trapezoid body with a small flat top
-    // and a brown rim that extends wider than the flat top (like a real
-    // cone). Tintable via the color picker — body uses `color`, ring is a
-    // 40% darker shade so recolored cones still read as cones.
-    const body = color || CONE_COLOR;
-    const ring = darken(body, 0.4);
-    // CONE_BODY_PATH is authored in a 30x30 viewBox. Offset the group so
-    // the path's center sits at the drag origin.
-    const half = CONE_PATH_SIZE / 2;
+    // Render one of the colored cone SVG assets (orange/blue/yellow) based
+    // on the picked color. coneSrcFor() picks the variant; falls back to
+    // orange for any unmapped color.
+    const size = 32;
     return (
       <Group {...common}>
-        <Group offsetX={half} offsetY={half}>
-          <Path
-            data={CONE_BODY_PATH}
-            fill={body}
-            stroke="#1a1814"
-            strokeWidth={1}
-          />
-          <Ellipse
-            x={15}
-            y={5}
-            radiusX={7}
-            radiusY={2}
-            fill={ring}
-            stroke="#1a1814"
-            strokeWidth={1}
-          />
-        </Group>
+        <ConeImage
+          color={color || CONE_COLOR}
+          width={size}
+          height={size}
+          offsetX={size / 2}
+          offsetY={size / 2}
+        />
         {selected && (
           <Rect
-            x={-half - 4}
-            y={-half - 4}
-            width={CONE_PATH_SIZE + 8}
-            height={CONE_PATH_SIZE + 8}
+            x={-size / 2 - 4}
+            y={-size / 2 - 4}
+            width={size + 8}
+            height={size + 8}
             cornerRadius={6}
             stroke="#c8553d"
             strokeWidth={2}
@@ -708,16 +686,12 @@ function ShapePreview({ shape }) {
     );
   }
   if (shape.kind === 'cone') {
-    const body = shape.color || CONE_COLOR;
     return (
       <div
         className="flex-shrink-0 rounded-[10px] flex items-center justify-center"
         style={{ width: 36, height: 36, background: 'var(--bg-sunken)' }}
       >
-        <svg width="28" height="28" viewBox="0 0 30 30">
-          <path d={CONE_BODY_PATH} fill={body} stroke="#1a1814" strokeWidth="1" />
-          <ellipse cx="15" cy="5" rx="7" ry="2" fill={darken(body, 0.4)} stroke="#1a1814" strokeWidth="1" />
-        </svg>
+        <img src={coneSrcFor(shape.color || CONE_COLOR)} width="28" height="28" alt="" style={{ display: 'block' }} />
       </div>
     );
   }
