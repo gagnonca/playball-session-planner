@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text, Shape, Image as KImage } from 'react-konva';
+import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text, Path, Shape, Image as KImage } from 'react-konva';
 import useKonvaImage from '../hooks/useKonvaImage';
 import ballSvg from '../assets/ball.svg';
 import coneSvg from '../assets/cone.svg';
