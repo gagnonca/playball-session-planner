@@ -1,24 +1,28 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text, Path, Shape, Image as KImage } from 'react-konva';
+import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text, Path, Shape, Ellipse, Image as KImage } from 'react-konva';
 import useKonvaImage from '../hooks/useKonvaImage';
 import ballSvg from '../assets/ball.svg';
-import coneSvg from '../assets/cone.svg';
 
 const DEFENDER_COLOR = '#3B82F6';
+const CONE_COLOR = '#FF6B35';
 
-// Rounded-corner triangle. Konva's RegularPolygon draws sharp vertices; the
-// design wants soft, marker-like points so this uses a custom sceneFunc that
-// arcs through each corner. Radius is the inscribed radius (distance from
-// center to base edge); corner is the rounding radius.
+// Rounded-corner equilateral triangle. Konva's RegularPolygon draws sharp
+// vertices; the design wants a soft, marker-like point so this uses a Shape
+// sceneFunc + arcTo through each corner.
+//
+// Geometry: inscribed-circle radius. Apex pointing up. For an equilateral
+// triangle with center at origin and the apex up, the three vertices sit
+// at angles -90°, 30°, 150° on a circle of radius `radius`.
 function roundedTriangleScene({ ctx, shape, radius, corner }) {
-  // Apex up, base parallel to x-axis. Three vertices laid out symmetrically.
-  const apex   = { x: 0,                        y: -radius * 1.1 };
-  const right  = { x:  radius * 0.95,           y:  radius * 0.55 };
-  const left   = { x: -radius * 0.95,           y:  radius * 0.55 };
+  const r = radius;
+  const apex  = { x: 0,                y: -r };
+  const right = { x:  r * Math.cos(Math.PI / 6),  y: r * Math.sin(Math.PI / 6) };
+  const left  = { x: -r * Math.cos(Math.PI / 6),  y: r * Math.sin(Math.PI / 6) };
   const pts = [apex, right, left];
 
   ctx.beginPath();
-  // Start at midpoint of the first edge so arcTo can curl through every vertex.
+  // Start at the midpoint of the apex→right edge; arcTo through every vertex
+  // and closePath links back cleanly.
   ctx.moveTo((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
   for (let i = 0; i < pts.length; i++) {
     const corner1 = pts[(i + 1) % pts.length];
@@ -27,6 +31,20 @@ function roundedTriangleScene({ ctx, shape, radius, corner }) {
   }
   ctx.closePath();
   ctx.fillStrokeShape(shape);
+}
+
+// Darken a hex color by `amount` (0..1). Used to derive the cone ring from
+// the body color so recolored cones still read as "cone with shadow".
+function darken(hex, amount = 0.45) {
+  const m = hex.replace('#', '');
+  const full = m.length === 3 ? m.split('').map(c => c + c).join('') : m;
+  const num = parseInt(full, 16);
+  const r = (num >> 16) & 255;
+  const g = (num >> 8) & 255;
+  const b = num & 255;
+  const f = 1 - amount;
+  const to2 = v => Math.max(0, Math.min(255, Math.round(v * f))).toString(16).padStart(2, '0');
+  return `#${to2(r)}${to2(g)}${to2(b)}`;
 }
 
 // Playground for the redesigned Diagram Builder. Routed at /diagram-playground
@@ -75,10 +93,11 @@ const Icon = {
   select:   (c) => <svg width="20" height="20" viewBox="0 0 24 24" stroke={c} strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M5 4l8 16 2-6 6-2z" /></svg>,
   attacker: ()  => <svg width="22" height="22" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="var(--accent)" /><text x="12" y="16" fontSize="11" fontWeight="600" fill="var(--accent-ink)" textAnchor="middle">A</text></svg>,
   defender: ()  => (
-    // Inline rounded triangle so the rail icon matches the canvas shape exactly.
+    // Equilateral triangle SVG matching the Konva rounded-triangle scene.
+    // Inscribed circle radius 10, three vertices at -90/30/150 deg.
     <svg width="22" height="22" viewBox="-12 -12 24 24">
       <path
-        d="M -8 6 A 2 2 0 0 1 -9.2 4 L -0.95 -9.6 A 2 2 0 0 1 0.95 -9.6 L 9.2 4 A 2 2 0 0 1 8 6 Z"
+        d="M 0 -10 L 8.66 5 L -8.66 5 Z"
         fill={DEFENDER_COLOR}
         stroke="#1a1814"
         strokeWidth="1"
@@ -87,7 +106,13 @@ const Icon = {
     </svg>
   ),
   ball:     ()  => <img src={ballSvg} width="18" height="18" alt="" style={{ display: 'block' }} />,
-  cone:     ()  => <img src={coneSvg} width="20" height="20" alt="" style={{ display: 'block' }} />,
+  cone:     ()  => (
+    // Tintable triangle + ring so the rail icon matches the recolorable cone.
+    <svg width="22" height="22" viewBox="-12 -12 24 24">
+      <path d="M 0 -10 L 8.66 5 L -8.66 5 Z" fill={CONE_COLOR} stroke="#1a1814" strokeWidth="1" strokeLinejoin="round" />
+      <ellipse cx="0" cy="-4" rx="4" ry="1.4" fill={darken(CONE_COLOR, 0.4)} stroke="#1a1814" strokeWidth="0.6" />
+    </svg>
+  ),
   goal:     (c) => <svg width="20" height="20" viewBox="0 0 24 24" stroke={c} strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4v16M4 4h12l-2 5h-10M4 12h10l-2 5H4" /></svg>,
   pass:     (c) => <svg width="22" height="22" viewBox="0 0 24 24" stroke={c} strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12h16M16 8l4 4-4 4" /></svg>,
   run:      (c) => <svg width="22" height="22" viewBox="0 0 24 24" stroke={c} strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12h16M16 8l4 4-4 4" strokeDasharray="3 3" /></svg>,
@@ -159,12 +184,6 @@ function BallImage(props) {
   return <KImage image={image} {...props} />;
 }
 
-function ConeImage(props) {
-  const image = useKonvaImage(coneSvg);
-  if (!image) return null;
-  return <KImage image={image} {...props} />;
-}
-
 function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
   const { kind, x, y, label, color } = shape;
 
@@ -187,15 +206,15 @@ function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
     );
   }
   if (kind === 'defender') {
-    // Blue filled triangle with rounded vertices. Label sits inside the
-    // visual center of mass (~1/3 down from the apex) so it reads as a
-    // single marker. 13px font keeps short labels (D1–D9) inside the base.
+    // Blue filled equilateral triangle with rounded vertices. Label centered
+    // visually at the centroid (which is r/3 below the geometric center for
+    // an apex-up equilateral; we shift the text y so its baseline sits there).
     const fill = color || DEFENDER_COLOR;
-    const radius = 22;
+    const radius = 26;
     return (
       <Group {...common}>
         <Shape
-          sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, radius, corner: 6 })}
+          sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, radius, corner: 8 })}
           fill={fill}
           stroke="#1a1814"
           strokeWidth={1.5}
@@ -204,9 +223,9 @@ function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
         {label && (
           <Text
             text={label}
-            x={-22}
-            y={4}
-            width={44}
+            x={-radius}
+            y={-7}
+            width={radius * 2}
             align="center"
             fontSize={13}
             fontStyle="600"
@@ -215,7 +234,7 @@ function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
         )}
         {selected && (
           <Shape
-            sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, radius: radius + 10, corner: 8 })}
+            sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, radius: radius + 10, corner: 10 })}
             stroke="#c8553d"
             strokeWidth={2}
             dash={[4, 4]}
@@ -238,19 +257,35 @@ function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
     );
   }
   if (kind === 'cone') {
-    // Production cone.svg (viewBox 200x200). Display at 28px so it reads
-    // similar weight to ball/markers without overpowering them.
-    const size = 28;
+    // Konva-native cone so the color picker can tint it (the SVG asset
+    // is fixed-color, which clashed with the accent palette). Body =
+    // rounded triangle from the same scene helper as the defender;
+    // ring = darker shade of the body, automatically derived from the
+    // current fill so recolored cones still read as cones.
+    const body = color || CONE_COLOR;
+    const ring = darken(body, 0.4);
+    const radius = 16;
     return (
       <Group {...common}>
-        <ConeImage width={size} height={size} offsetX={size / 2} offsetY={size / 2} />
+        <Shape
+          sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, radius, corner: 4 })}
+          fill={body}
+          stroke="#1a1814"
+          strokeWidth={1}
+          lineJoin="round"
+        />
+        <Ellipse
+          x={0}
+          y={-radius + 6}
+          radiusX={7}
+          radiusY={2}
+          fill={ring}
+          stroke="#1a1814"
+          strokeWidth={0.8}
+        />
         {selected && (
-          <Rect
-            x={-size / 2 - 6}
-            y={-size / 2 - 6}
-            width={size + 12}
-            height={size + 12}
-            cornerRadius={6}
+          <Shape
+            sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, radius: radius + 8, corner: 6 })}
             stroke="#c8553d"
             strokeWidth={2}
             dash={[4, 4]}
@@ -622,20 +657,34 @@ function ShapePreview({ shape }) {
     const fill = shape.color || DEFENDER_COLOR;
     return (
       <div
-        className="flex-shrink-0 rounded-[10px] flex items-center justify-center font-semibold"
-        style={{ width: 36, height: 36, background: 'var(--bg-sunken)', position: 'relative' }}
+        className="flex-shrink-0 rounded-[10px] flex items-center justify-center"
+        style={{ width: 36, height: 36, background: 'var(--bg-sunken)' }}
       >
         <svg width="28" height="28" viewBox="-12 -12 24 24">
           <path
-            d="M -8 6 A 2 2 0 0 1 -9.2 4 L -0.95 -9.6 A 2 2 0 0 1 0.95 -9.6 L 9.2 4 A 2 2 0 0 1 8 6 Z"
+            d="M 0 -10 L 8.66 5 L -8.66 5 Z"
             fill={fill}
             stroke="#1a1814"
             strokeWidth="1"
             strokeLinejoin="round"
           />
-          <text x="0" y="3" fontSize="6" fontWeight="600" fill="#ffffff" textAnchor="middle">
+          <text x="0" y="2.5" fontSize="6.5" fontWeight="600" fill="#ffffff" textAnchor="middle">
             {shape.label || 'D'}
           </text>
+        </svg>
+      </div>
+    );
+  }
+  if (shape.kind === 'cone') {
+    const body = shape.color || CONE_COLOR;
+    return (
+      <div
+        className="flex-shrink-0 rounded-[10px] flex items-center justify-center"
+        style={{ width: 36, height: 36, background: 'var(--bg-sunken)' }}
+      >
+        <svg width="26" height="26" viewBox="-12 -12 24 24">
+          <path d="M 0 -10 L 8.66 5 L -8.66 5 Z" fill={body} stroke="#1a1814" strokeWidth="1" strokeLinejoin="round" />
+          <ellipse cx="0" cy="-4" rx="4" ry="1.4" fill={darken(body, 0.4)} stroke="#1a1814" strokeWidth="0.6" />
         </svg>
       </div>
     );
@@ -646,7 +695,6 @@ function ShapePreview({ shape }) {
       style={{ width: 36, height: 36, background: 'var(--bg-sunken)' }}
     >
       {shape.kind === 'ball' && <img src={ballSvg} width="22" height="22" alt="" style={{ display: 'block' }} />}
-      {shape.kind === 'cone' && <img src={coneSvg} width="22" height="22" alt="" style={{ display: 'block' }} />}
       {shape.kind === 'goal' && <svg width="22" height="14" viewBox="0 0 24 14"><rect x="1" y="1" width="22" height="12" rx="1" stroke="#1a1814" strokeWidth="1.5" fill="rgba(255,255,255,0.8)" /></svg>}
     </div>
   );
@@ -708,7 +756,10 @@ export default function DiagramPlayground() {
         return;
       }
       const match = TOOLS.find(t2 => t2.key.toLowerCase() === e.key.toLowerCase());
-      if (match) setTool(match.id);
+      if (match) {
+        setTool(match.id);
+        if (match.id !== 'select') setSelectedId(null);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -750,7 +801,10 @@ export default function DiagramPlayground() {
     if (isMarkerKind(tool)) {
       const id = uid(tool);
       const label = nextLabel(tool, shapes);
-      const color = tool === 'attacker' ? '#c8553d' : tool === 'defender' ? DEFENDER_COLOR : null;
+      const color = tool === 'attacker' ? '#c8553d'
+                  : tool === 'defender' ? DEFENDER_COLOR
+                  : tool === 'cone' ? CONE_COLOR
+                  : null;
       setShapes(prev => [...prev, { id, kind: tool, x: logical.x, y: logical.y, label, color }]);
       setSelectedId(id);
       return;
@@ -852,7 +906,15 @@ export default function DiagramPlayground() {
       />
 
       <div className="flex flex-1 min-h-0">
-        <ToolRail tool={tool} onTool={setTool} />
+        <ToolRail
+          tool={tool}
+          onTool={(next) => {
+            setTool(next);
+            // Picking a placement tool clears the selection so the inspector
+            // reflects whatever you're about to drop next, not a stale shape.
+            if (next !== 'select') setSelectedId(null);
+          }}
+        />
 
         <div className="flex-1 flex items-center justify-center overflow-auto p-8">
           <div
