@@ -287,29 +287,26 @@ function ConeImage({ color, ...props }) {
   return <KImage image={image} {...props} />;
 }
 
-function MarkerShape({ shape, onClick, onDragMove, onDragEnd, draggable, id }) {
+function MarkerShape({ shape, onClick, onDragMove, onDragEnd, onTransformEnd, draggable, id }) {
   const { kind, x, y, label, color } = shape;
-
-  // scale + rotation come from shape state and are written into Konva's
-  // transform; the Konva Transformer's onTransformEnd (handled at the parent
-  // level) is what writes new values back so per-shape vs group transforms
-  // can be coordinated.
-  const scale = shape.scale ?? 1;
   const rotation = shape.rotation ?? 0;
 
+  // Scale is intentionally NOT read from shape state — match the production
+  // DiagramBuilder pattern: visual scale lives on the Konva node within a
+  // session and isn't part of the persisted shape data. Resize handles still
+  // work; their effect persists until the next reload.
   const common = {
     id, // findOne(`#id`) anchors the Transformer to the right Group
     name: 'selectable',
     x,
     y,
-    scaleX: scale,
-    scaleY: scale,
     rotation,
     draggable,
     onMouseDown: onClick,
     onTap: onClick,
     onDragMove,
     onDragEnd,
+    onTransformEnd,
   };
 
   if (kind === 'attacker') {
@@ -1172,9 +1169,11 @@ export default function DiagramPlayground() {
     tf.getLayer()?.batchDraw();
   }, [selectedIds, shapes]);
 
-  // Drag commits only position; resize/rotate commits only scale/rotation
-  // (position is reverted in handleTransformEnd so each selected shape
-  // transforms around its own center even in multi-select).
+  // Per-node handlers (matches production DiagramBuilder). Drag writes x/y;
+  // transformEnd writes x/y/rotation. Visual scale stays on the Konva node
+  // — multi-select transforms thus apply the same rotation delta to every
+  // selected shape (per Konva default) without needing a custom group-vs-
+  // individual transform pipeline.
   const handleNodeDragEnd = useCallback((node, canvasScale) => {
     if (!node) return;
     const id = node.id();
@@ -1184,55 +1183,15 @@ export default function DiagramPlayground() {
     setShapes(prev => prev.map(s => s.id === id ? { ...s, x: nx, y: ny } : s));
   }, []);
 
-  // Snapshot pre-transform positions so we can revert them after the
-  // Transformer drags handles. Without this, multi-select resize/rotate
-  // would also translate each shape around the group bbox center.
-  const transformStartRef = useRef(null);
-  const handleTransformStart = useCallback(() => {
-    const initial = {};
-    shapes.forEach(s => {
-      if (selectedIds.has(s.id)) {
-        initial[s.id] = { x: s.x, y: s.y };
-      }
-    });
-    transformStartRef.current = initial;
-  }, [shapes, selectedIds]);
-
-  const handleTransformEnd = useCallback(() => {
-    const initial = transformStartRef.current || {};
-    const stage = stageRef.current;
-    if (!stage) return;
-    // Pick the first selected shape as the "anchor" and apply its new
-    // absolute scale + rotation to every selected shape — that's what the
-    // user asked for: "I grow one and they all go to the same size".
-    // Positions are reverted so each shape transforms around its own center.
-    const ids = Array.from(selectedIds);
-    const anchorId = ids[0];
-    if (!anchorId) return;
-    const anchorNode = stage.findOne(`#${anchorId}`);
-    if (!anchorNode) return;
-    const newScale = Math.max(0.25, (anchorNode.scaleX() + anchorNode.scaleY()) / 2);
-    const newRotation = anchorNode.rotation();
-    setShapes(prev => prev.map(s => {
-      if (!selectedIds.has(s.id)) return s;
-      const node = stage.findOne(`#${s.id}`);
-      // Reset each node's Konva transform so the next render reads from
-      // shape state without doubling up.
-      if (node) {
-        node.scaleX(1);
-        node.scaleY(1);
-        node.rotation(0);
-      }
-      return {
-        ...s,
-        x: initial[s.id]?.x ?? s.x,
-        y: initial[s.id]?.y ?? s.y,
-        scale: newScale,
-        rotation: newRotation,
-      };
-    }));
-    transformStartRef.current = null;
-  }, [selectedIds]);
+  const handleNodeTransformEnd = useCallback((node, canvasScale) => {
+    if (!node) return;
+    const id = node.id();
+    if (!id) return;
+    const nx = node.x() / canvasScale;
+    const ny = node.y() / canvasScale;
+    const rot = node.rotation();
+    setShapes(prev => prev.map(s => s.id === id ? { ...s, x: nx, y: ny, rotation: rot } : s));
+  }, []);
 
   // --- Stage handlers
   // Always read pointer position relative to the rotation Group so the
@@ -1272,7 +1231,7 @@ export default function DiagramPlayground() {
       const draft = pendingShape && pendingShape.kind === tool ? pendingShape : fallback;
       const { pending: _pending, ...rest } = draft || {};
       void _pending;
-      const placed = { ...rest, id, kind: tool, x: logical.x, y: logical.y, scale: 1, rotation: 0 };
+      const placed = { ...rest, id, kind: tool, x: logical.x, y: logical.y, rotation: 0 };
       setShapes(prev => [...prev, placed]);
       selectOnly(id);
       // Carry the coach's choices forward so the next stamp is the same
@@ -1347,6 +1306,7 @@ export default function DiagramPlayground() {
     };
     if (isMarkerKind(s.kind)) {
       const handleDragEnd = (e) => handleNodeDragEnd(e.target, scale);
+      const handleTxEnd = (e) => handleNodeTransformEnd(e.target, scale);
       const scaled = { ...s, x: s.x * scale, y: s.y * scale };
       return (
         <MarkerShape
@@ -1357,6 +1317,7 @@ export default function DiagramPlayground() {
           onClick={onClick}
           onDragMove={undefined}
           onDragEnd={handleDragEnd}
+          onTransformEnd={handleTxEnd}
         />
       );
     }
@@ -1408,7 +1369,7 @@ export default function DiagramPlayground() {
       );
     }
     return null;
-  }), [shapes, selectedIds, scale, tool, handleNodeDragEnd, selectOnly, updateShape]);
+  }), [shapes, selectedIds, scale, tool, handleNodeDragEnd, handleNodeTransformEnd, selectOnly, updateShape]);
 
   const previewLine = drawingLine && drawingLine.x2 != null ? (() => {
     // The preview line uses the same auto-bend seed as a placed line so
@@ -1525,8 +1486,6 @@ export default function DiagramPlayground() {
                       anchorCornerRadius={4}
                       borderStroke="#c8553d"
                       borderDash={[4, 4]}
-                      onTransformStart={handleTransformStart}
-                      onTransformEnd={handleTransformEnd}
                       boundBoxFunc={(_, newBox) => {
                         if (Math.abs(newBox.width) < 8 || Math.abs(newBox.height) < 8) return _;
                         return newBox;
