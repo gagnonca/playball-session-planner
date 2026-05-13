@@ -50,7 +50,7 @@ function RailLink({ icon, label, active, onClick }) {
   );
 }
 
-export default function NavRail({ teamsContext, syncContext }) {
+export default function NavRail({ teamsContext, syncContext, onShowAbout }) {
   const {
     currentView,
     navigateToTeams,
@@ -151,8 +151,24 @@ export default function NavRail({ teamsContext, syncContext }) {
         />
       </nav>
 
-      {/* Footer — sync pill + user chip */}
+      {/* Footer — About link + sync pill + user chip */}
       <div className="flex flex-col gap-2 pt-3" style={{ borderTop: '1px solid var(--line)' }}>
+        {onShowAbout && (
+          <button
+            onClick={onShowAbout}
+            className="inline-flex items-center gap-2 px-2 py-1.5 rounded-[8px] transition-colors text-left"
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--ink-2)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgb(var(--ink-rgb) / 0.04)'; e.currentTarget.style.color = 'var(--ink)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ink-2)'; }}
+            title="About PlayBall · restart the welcome tour"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--ink-3)' }}>
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 16v-4M12 8h.01" />
+            </svg>
+            <span className="text-[12.5px]">About</span>
+          </button>
+        )}
         <div
           className="inline-flex items-center gap-2 px-2 py-1.5 rounded-[8px]"
           style={{ background: 'var(--bg-elev)', border: '1px solid var(--line)' }}

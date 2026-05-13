@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
 import TeamCard from './TeamCard';
 import CreateTeamModal from './CreateTeamModal';
-import WelcomeModal from '../WelcomeModal';
 import { toast } from '../../utils/helpers';
-import { HAS_SEEN_WELCOME_KEY, IOS_PROMO_DISMISSED_KEY } from '../../constants/storage';
+import { IOS_PROMO_DISMISSED_KEY } from '../../constants/storage';
 import playballIcon from '../../assets/playball-icon.png';
 import appStoreBadge from '../../assets/app-store-badge.svg';
 
@@ -26,7 +25,6 @@ function greeting() {
 export default function TeamList({ teamsContext, sharingContext, iosReferral, onDismissIosReferral }) {
   const { teamsData, navigateToTeamDetail, deleteTeam } = teamsContext;
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem(HAS_SEEN_WELCOME_KEY));
   const [editingTeam, setEditingTeam] = useState(null);
   const [iosPromoDismissed, setIosPromoDismissed] = useState(() => !!localStorage.getItem(IOS_PROMO_DISMISSED_KEY));
 
@@ -267,17 +265,6 @@ export default function TeamList({ teamsContext, sharingContext, iosReferral, on
         />
       )}
 
-      {showWelcome && (
-        <WelcomeModal
-          iosReferral={iosReferral}
-          onDismiss={() => setShowWelcome(false)}
-          onGetStarted={() => {
-            setShowWelcome(false);
-            setEditingTeam(null);
-            setShowCreateModal(true);
-          }}
-        />
-      )}
     </div>
   );
 }

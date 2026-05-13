@@ -15,6 +15,8 @@ import DiagramBuilder from './DiagramBuilder';
 import Library from './Library';
 import Schedule from './Schedule';
 import Settings from './Settings';
+import Welcome from './Welcome';
+import AboutModal from './AboutModal';
 import NavRail from './NavRail';
 import LinkDeviceModal from './LinkDeviceModal';
 import StorageLimitModal from './StorageLimitModal';
@@ -91,6 +93,7 @@ export default function AppShell() {
 
   const [showLinkDeviceModal, setShowLinkDeviceModal] = useState(false);
   const [linkDeviceDefaultMode, setLinkDeviceDefaultMode] = useState(null);
+  const [showAboutModal, setShowAboutModal] = useState(false);
   const [iosReferral, setIosReferral] = useState(false);
   const [importCode, setImportCode] = useState(() => {
     if (initialUrl.path === '/import') {
@@ -608,6 +611,27 @@ export default function AppShell() {
     );
   }
 
+  // First-run gate — brand-new coaches with zero teams who haven't dismissed
+  // the welcome screen land on /welcome instead of an empty Home. The /welcome
+  // route also renders this view when reached directly (e.g. from About's
+  // "Restart tutorial").
+  const hasSeenWelcome = (() => {
+    try { return localStorage.getItem(HAS_SEEN_WELCOME_KEY) === 'true'; } catch { return false; }
+  })();
+  const teamCount = teamsData?.teams?.length || 0;
+  const shouldShowWelcome =
+    currentView === VIEWS.WELCOME
+    || (currentView === VIEWS.TEAMS && teamCount === 0 && !hasSeenWelcome);
+  if (shouldShowWelcome) {
+    return (
+      <ViewErrorBoundary onRecover={navigateToTeams}>
+        <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+          <Welcome teamsContext={teamsContext} />
+        </div>
+      </ViewErrorBoundary>
+    );
+  }
+
   // SessionBuilder is fullscreen — no nav rail.
   if (currentView === VIEWS.SESSION_BUILDER) {
     return (
@@ -671,7 +695,11 @@ export default function AppShell() {
   return (
     <ViewErrorBoundary onRecover={navigateToTeams}>
       <div className="min-h-screen flex" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
-        <NavRail teamsContext={teamsContext} syncContext={syncContext} />
+        <NavRail
+          teamsContext={teamsContext}
+          syncContext={syncContext}
+          onShowAbout={() => setShowAboutModal(true)}
+        />
         <div className="flex-1 min-w-0">
         {currentView === VIEWS.TEAMS && (
           <TeamList
@@ -754,6 +782,17 @@ export default function AppShell() {
             setShowStorageLimitModal(false);
             setLinkDeviceDefaultMode('new');
             setShowLinkDeviceModal(true);
+          }}
+        />
+      )}
+
+      {showAboutModal && (
+        <AboutModal
+          onClose={() => setShowAboutModal(false)}
+          onRestartTutorial={() => {
+            setShowAboutModal(false);
+            try { localStorage.removeItem(HAS_SEEN_WELCOME_KEY); } catch { /* ignore */ }
+            teamsContext.navigateToWelcome?.();
           }}
         />
       )}

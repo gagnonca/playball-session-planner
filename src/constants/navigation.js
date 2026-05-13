@@ -12,4 +12,5 @@ export const VIEWS = {
   LIBRARY: 'library',
   SCHEDULE: 'schedule',
   SETTINGS: 'settings',
+  WELCOME: 'welcome',
 };
