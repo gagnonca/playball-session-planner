@@ -1,7 +1,6 @@
 import React from 'react';
 import appStoreBadge from '../assets/app-store-badge.svg';
 import playballIcon from '../assets/playball-icon.png';
-import AppearancePicker from './AppearancePicker';
 
 export default function AboutModal({ onClose, onRestartTutorial }) {
   return (
@@ -30,10 +29,6 @@ export default function AboutModal({ onClose, onRestartTutorial }) {
           </div>
 
           <div className="space-y-6">
-            <AppearancePicker />
-
-            <div className="hairline" />
-
             <section>
               <div className="text-[11px] font-mono uppercase mb-2" style={{ color: 'var(--ink-3)', letterSpacing: '0.1em' }}>
                 THE PLAYBALL FAMILY
