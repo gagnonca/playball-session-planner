@@ -6,32 +6,39 @@ import ballSvg from '../assets/ball.svg';
 const DEFENDER_COLOR = '#3B82F6';
 const CONE_COLOR = '#FF6B35';
 
-// Rounded-corner equilateral triangle. Konva's RegularPolygon draws sharp
-// vertices; the design wants a soft, marker-like point so this uses a Shape
-// sceneFunc + arcTo through each corner.
-//
-// Geometry: inscribed-circle radius. Apex pointing up. For an equilateral
-// triangle with center at origin and the apex up, the three vertices sit
-// at angles -90°, 30°, 150° on a circle of radius `radius`.
-function roundedTriangleScene({ ctx, shape, radius, corner }) {
-  const r = radius;
-  const apex  = { x: 0,                y: -r };
-  const right = { x:  r * Math.cos(Math.PI / 6),  y: r * Math.sin(Math.PI / 6) };
-  const left  = { x: -r * Math.cos(Math.PI / 6),  y: r * Math.sin(Math.PI / 6) };
-  const pts = [apex, right, left];
-
+// Rounded-corner triangle. Konva's RegularPolygon draws sharp vertices; we
+// want a soft, marker-like point. The Shape sceneFunc arcTo's through each
+// vertex. Vertices passed in directly so callers can stretch the shape to
+// taste (an equilateral triangle "feels" smaller than a circle of the same
+// bounding radius — there's empty space in the corners — so the defender
+// uses a slightly taller-than-wide isoceles with the centroid pinned at the
+// origin for predictable dragging).
+function roundedTriangleScene({ ctx, shape, pts, corner }) {
   ctx.beginPath();
-  // Start at the midpoint of the apex→right edge; arcTo through every vertex
-  // and closePath links back cleanly.
   ctx.moveTo((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2);
   for (let i = 0; i < pts.length; i++) {
-    const corner1 = pts[(i + 1) % pts.length];
-    const corner2 = pts[(i + 2) % pts.length];
-    ctx.arcTo(corner1.x, corner1.y, corner2.x, corner2.y, corner);
+    const c1 = pts[(i + 1) % pts.length];
+    const c2 = pts[(i + 2) % pts.length];
+    ctx.arcTo(c1.x, c1.y, c2.x, c2.y, corner);
   }
   ctx.closePath();
   ctx.fillStrokeShape(shape);
 }
+
+// Isoceles pointier-than-equilateral defender triangle. Centroid at origin
+// (apex.y = -2 * base.y) so drag feels natural. height ≈ 50px, width ≈ 48,
+// giving a marker that reads larger and more directional than the equilateral.
+const DEFENDER_PTS = [
+  { x:   0, y: -34 },
+  { x:  24, y:  17 },
+  { x: -24, y:  17 },
+];
+// Smaller variant for cones — same proportions, half the dimensions.
+const CONE_PTS = [
+  { x:   0, y: -20 },
+  { x:  14, y:  10 },
+  { x: -14, y:  10 },
+];
 
 // Darken a hex color by `amount` (0..1). Used to derive the cone ring from
 // the body color so recolored cones still read as "cone with shadow".
@@ -93,11 +100,11 @@ const Icon = {
   select:   (c) => <svg width="20" height="20" viewBox="0 0 24 24" stroke={c} strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M5 4l8 16 2-6 6-2z" /></svg>,
   attacker: ()  => <svg width="22" height="22" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="var(--accent)" /><text x="12" y="16" fontSize="11" fontWeight="600" fill="var(--accent-ink)" textAnchor="middle">A</text></svg>,
   defender: ()  => (
-    // Equilateral triangle SVG matching the Konva rounded-triangle scene.
-    // Inscribed circle radius 10, three vertices at -90/30/150 deg.
-    <svg width="22" height="22" viewBox="-12 -12 24 24">
+    // Pointy isoceles matching the canvas DEFENDER_PTS proportions (centroid
+    // at origin, height ≈ 1.06 * width).
+    <svg width="22" height="22" viewBox="-14 -14 28 28">
       <path
-        d="M 0 -10 L 8.66 5 L -8.66 5 Z"
+        d="M 0 -12 L 9 6 L -9 6 Z"
         fill={DEFENDER_COLOR}
         stroke="#1a1814"
         strokeWidth="1"
@@ -107,9 +114,8 @@ const Icon = {
   ),
   ball:     ()  => <img src={ballSvg} width="18" height="18" alt="" style={{ display: 'block' }} />,
   cone:     ()  => (
-    // Tintable triangle + ring so the rail icon matches the recolorable cone.
-    <svg width="22" height="22" viewBox="-12 -12 24 24">
-      <path d="M 0 -10 L 8.66 5 L -8.66 5 Z" fill={CONE_COLOR} stroke="#1a1814" strokeWidth="1" strokeLinejoin="round" />
+    <svg width="22" height="22" viewBox="-14 -14 28 28">
+      <path d="M 0 -12 L 9 6 L -9 6 Z" fill={CONE_COLOR} stroke="#1a1814" strokeWidth="1" strokeLinejoin="round" />
       <ellipse cx="0" cy="-4" rx="4" ry="1.4" fill={darken(CONE_COLOR, 0.4)} stroke="#1a1814" strokeWidth="0.6" />
     </svg>
   ),
@@ -206,15 +212,19 @@ function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
     );
   }
   if (kind === 'defender') {
-    // Blue filled equilateral triangle with rounded vertices. Label centered
-    // visually at the centroid (which is r/3 below the geometric center for
-    // an apex-up equilateral; we shift the text y so its baseline sits there).
+    // Blue filled pointy-isoceles triangle with rounded vertices. Label
+    // centered visually at the centroid (origin) which is also the drag
+    // origin, so dragging feels natural.
     const fill = color || DEFENDER_COLOR;
-    const radius = 26;
+    // Selection ring: scale the defender vertices outward by 12px-ish.
+    const outerPts = DEFENDER_PTS.map(p => ({
+      x: p.x * 1.22,
+      y: p.y * 1.22,
+    }));
     return (
       <Group {...common}>
         <Shape
-          sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, radius, corner: 8 })}
+          sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, pts: DEFENDER_PTS, corner: 7 })}
           fill={fill}
           stroke="#1a1814"
           strokeWidth={1.5}
@@ -223,18 +233,18 @@ function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
         {label && (
           <Text
             text={label}
-            x={-radius}
-            y={-7}
-            width={radius * 2}
+            x={-26}
+            y={-4}
+            width={52}
             align="center"
-            fontSize={13}
+            fontSize={14}
             fontStyle="600"
             fill="#ffffff"
           />
         )}
         {selected && (
           <Shape
-            sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, radius: radius + 10, corner: 10 })}
+            sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, pts: outerPts, corner: 9 })}
             stroke="#c8553d"
             strokeWidth={2}
             dash={[4, 4]}
@@ -257,18 +267,16 @@ function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
     );
   }
   if (kind === 'cone') {
-    // Konva-native cone so the color picker can tint it (the SVG asset
-    // is fixed-color, which clashed with the accent palette). Body =
-    // rounded triangle from the same scene helper as the defender;
-    // ring = darker shade of the body, automatically derived from the
-    // current fill so recolored cones still read as cones.
+    // Konva-native cone (tintable via the color picker). Body = pointy
+    // triangle with rounded vertices; ring = darker shade of the body so
+    // recolored cones still read as cones.
     const body = color || CONE_COLOR;
     const ring = darken(body, 0.4);
-    const radius = 16;
+    const outerPts = CONE_PTS.map(p => ({ x: p.x * 1.3, y: p.y * 1.3 }));
     return (
       <Group {...common}>
         <Shape
-          sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, radius, corner: 4 })}
+          sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, pts: CONE_PTS, corner: 4 })}
           fill={body}
           stroke="#1a1814"
           strokeWidth={1}
@@ -276,7 +284,7 @@ function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
         />
         <Ellipse
           x={0}
-          y={-radius + 6}
+          y={-10}
           radiusX={7}
           radiusY={2}
           fill={ring}
@@ -285,7 +293,7 @@ function MarkerShape({ shape, selected, onClick, onDragMove, draggable }) {
         />
         {selected && (
           <Shape
-            sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, radius: radius + 8, corner: 6 })}
+            sceneFunc={(ctx, s) => roundedTriangleScene({ ctx, shape: s, pts: outerPts, corner: 6 })}
             stroke="#c8553d"
             strokeWidth={2}
             dash={[4, 4]}
@@ -667,15 +675,15 @@ function ShapePreview({ shape }) {
         className="flex-shrink-0 rounded-[10px] flex items-center justify-center"
         style={{ width: 36, height: 36, background: 'var(--bg-sunken)' }}
       >
-        <svg width="28" height="28" viewBox="-12 -12 24 24">
+        <svg width="32" height="32" viewBox="-14 -14 28 28">
           <path
-            d="M 0 -10 L 8.66 5 L -8.66 5 Z"
+            d="M 0 -12 L 9 6 L -9 6 Z"
             fill={fill}
             stroke="#1a1814"
             strokeWidth="1"
             strokeLinejoin="round"
           />
-          <text x="0" y="2.5" fontSize="6.5" fontWeight="600" fill="#ffffff" textAnchor="middle">
+          <text x="0" y="2" fontSize="7" fontWeight="600" fill="#ffffff" textAnchor="middle">
             {shape.label || 'D'}
           </text>
         </svg>
@@ -689,8 +697,8 @@ function ShapePreview({ shape }) {
         className="flex-shrink-0 rounded-[10px] flex items-center justify-center"
         style={{ width: 36, height: 36, background: 'var(--bg-sunken)' }}
       >
-        <svg width="26" height="26" viewBox="-12 -12 24 24">
-          <path d="M 0 -10 L 8.66 5 L -8.66 5 Z" fill={body} stroke="#1a1814" strokeWidth="1" strokeLinejoin="round" />
+        <svg width="28" height="28" viewBox="-14 -14 28 28">
+          <path d="M 0 -12 L 9 6 L -9 6 Z" fill={body} stroke="#1a1814" strokeWidth="1" strokeLinejoin="round" />
           <ellipse cx="0" cy="-4" rx="4" ry="1.4" fill={darken(body, 0.4)} stroke="#1a1814" strokeWidth="0.6" />
         </svg>
       </div>
