@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import AppearancePicker from './AppearancePicker';
 import AIAssistantSection from './AIAssistantSection';
+import SyncDiagnostics, { isDiagnosticsVisible } from './SyncDiagnostics';
 
 // Settings — Appearance, Cloud sync, Storage, Account, Privacy.
 // Reads existing hooks. No new API surface; sync/account actions defer
@@ -45,9 +46,6 @@ function formatBytes(n) {
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
   return `${v.toFixed(v >= 10 ? 0 : 1)} ${units[i]}`;
 }
-
-// The account tier — real account auth isn't wired yet. Locked as "coming soon".
-const HAS_ACCOUNT = false;
 
 function SyncStateLine({ status, online }) {
   const tone = !online ? 'var(--ink-3)' : status === 'syncing' ? 'var(--warn)' : status === 'error' ? 'var(--danger)' : 'var(--good)';
@@ -101,12 +99,25 @@ function TierRow({ active, completed, title, body, cta }) {
   );
 }
 
-export default function Settings({ teamsContext, syncContext, onShowLinkDevice }) {
+export default function Settings({ teamsContext, syncContext, accountContext, libraryHook, diagramLibrary, onShowLinkDevice, onShowAccount }) {
   const teams = teamsContext?.teamsData?.teams || [];
   const syncOn = Boolean(syncContext?.isSyncEnabled);
   const isOnline = syncContext?.isOnline ?? true;
   const syncStatus = syncContext?.syncStatus || 'idle';
-  const hasAccount = HAS_ACCOUNT;
+  const hasAccount = Boolean(accountContext?.isSignedIn);
+  const accountEmail = accountContext?.account?.email || '';
+
+  // Downgrade helpers — confirm before destructive transitions
+  const unlinkThisDevice = () => {
+    if (window.confirm('Unlink this device from cloud sync? Other linked devices keep their data, and your local copy on this device stays here.')) {
+      syncContext?.resetSync?.();
+    }
+  };
+  const signOutOfAccount = () => {
+    if (window.confirm('Sign out? Cloud sync stays on; you can sign back in any time.')) {
+      accountContext?.signOut?.();
+    }
+  };
 
   const storage = useStorageEstimate();
   const usedPct = storage.quota > 0 ? Math.min(100, Math.round((storage.used / storage.quota) * 100)) : 0;
@@ -130,12 +141,110 @@ export default function Settings({ teamsContext, syncContext, onShowLinkDevice }
 
         <div className="hairline my-8" />
 
-        {/* AI Assistant */}
-        <AIAssistantSection />
+        {/* Sync + Account progression — three tiers the user can move through */}
+        <section>
+          <div className="eyebrow mb-2">YOUR ACCOUNT</div>
+          <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>
+            {hasAccount ? 'Signed in' : syncOn ? 'Synced across devices' : 'On this device only'}
+          </h2>
+          <p className="text-[13px] mb-4 max-w-[540px]" style={{ color: 'var(--ink-2)' }}>
+            PlayBall meets you where you are. Start as a guest; turn on cloud sync when you want a second device; add a free account when you want discovery and recovery.
+          </p>
 
-        <div className="hairline my-8" />
+          <div className="flex flex-col gap-2">
+            {/* Tier 1 — On this device */}
+            <TierRow
+              tier="offline"
+              active={!syncOn && !hasAccount}
+              completed={syncOn || hasAccount}
+              title="On this device"
+              body={
+                !syncOn && !hasAccount
+                  ? 'No account, no tracking — your work lives in this browser.'
+                  : 'Available any time. Unlink this device to go back to local-only.'
+              }
+              cta={
+                (syncOn || hasAccount) ? (
+                  hasAccount ? null : (
+                    <button
+                      onClick={unlinkThisDevice}
+                      className="btn btn-ghost"
+                      style={{ color: 'var(--danger)' }}
+                    >
+                      Switch back
+                    </button>
+                  )
+                ) : null
+              }
+            />
 
-        {/* Teams & co-coaches */}
+            {/* Tier 2 — Cloud sync */}
+            <TierRow
+              tier="sync"
+              active={syncOn && !hasAccount}
+              completed={hasAccount}
+              title="Cloud sync"
+              body={
+                syncOn
+                  ? <SyncStateLine status={syncStatus} online={isOnline} />
+                  : 'Pair another device with a one-time code and they stay in lockstep.'
+              }
+              cta={
+                hasAccount ? (
+                  <span
+                    className="font-mono uppercase"
+                    style={{ fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.08em' }}
+                  >
+                    On with account
+                  </span>
+                ) : syncOn ? (
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => onShowLinkDevice && onShowLinkDevice()} className="btn btn-secondary">
+                      Manage devices
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => onShowLinkDevice && onShowLinkDevice()} className="btn btn-primary">
+                    Turn on sync
+                  </button>
+                )
+              }
+            />
+
+            {/* Tier 3 — Free account */}
+            <TierRow
+              tier="account"
+              active={hasAccount}
+              completed={false}
+              title="Free account"
+              body={
+                hasAccount
+                  ? <span style={{ color: 'var(--ink-2)' }}>Signed in as <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{accountEmail}</span></span>
+                  : 'Discover other coaches’ sessions and recover your library if you lose every device. Anonymous coach id stays the only identifier we hold.'
+              }
+              cta={
+                hasAccount ? (
+                  <button
+                    onClick={signOutOfAccount}
+                    className="btn btn-ghost"
+                    style={{ color: 'var(--danger)' }}
+                  >
+                    Sign out
+                  </button>
+                ) : (
+                  <button onClick={() => onShowAccount && onShowAccount()} className="btn btn-primary">
+                    Create account
+                  </button>
+                )
+              }
+            />
+          </div>
+        </section>
+
+        {(syncOn || hasAccount) && <div className="hairline my-8" />}
+
+        {/* Teams & co-coaches — only meaningful once sync (or an account) is on */}
+        {(syncOn || hasAccount) && (
         <section>
           <div className="eyebrow mb-2">TEAMS &amp; CO-COACHES</div>
           <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>Share a whole team</h2>
@@ -204,6 +313,7 @@ export default function Settings({ teamsContext, syncContext, onShowLinkDevice }
             </div>
           )}
         </section>
+        )}
 
         <div className="hairline my-8" />
 
@@ -247,74 +357,20 @@ export default function Settings({ teamsContext, syncContext, onShowLinkDevice }
 
         <div className="hairline my-8" />
 
-        {/* Sync + Account progression — three tiers the user can move through */}
-        <section>
-          <div className="eyebrow mb-2">YOUR ACCOUNT</div>
-          <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>
-            {hasAccount ? 'Signed in' : syncOn ? 'Synced across devices' : 'On this device only'}
-          </h2>
-          <p className="text-[13px] mb-4 max-w-[540px]" style={{ color: 'var(--ink-2)' }}>
-            PlayBall meets you where you are. Start as a guest; turn on cloud sync when you want a second device; add a free account when you want discovery and recovery.
-          </p>
+        {/* AI Assistant */}
+        <AIAssistantSection />
 
-          <div className="flex flex-col gap-2">
-            <TierRow
-              tier="offline"
-              active={!syncOn}
-              completed={syncOn || hasAccount}
-              title="On this device"
-              body="No account, no tracking — your work lives in this browser."
-              cta={null}
+        {syncOn && isDiagnosticsVisible() && (
+          <>
+            <div className="hairline my-8" />
+            <SyncDiagnostics
+              teamsContext={teamsContext}
+              libraryHook={libraryHook}
+              diagramLibrary={diagramLibrary}
+              syncContext={syncContext}
             />
-            <TierRow
-              tier="sync"
-              active={syncOn && !hasAccount}
-              completed={hasAccount}
-              title="Cloud sync"
-              body={
-                syncOn
-                  ? <SyncStateLine status={syncStatus} online={isOnline} />
-                  : 'Pair another device with a one-time code and they stay in lockstep.'
-              }
-              cta={
-                syncOn ? (
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => onShowLinkDevice && onShowLinkDevice()} className="btn btn-secondary">
-                      Manage devices
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (window.confirm('Reset sync identity? This unlinks every device; your local data stays here.')) {
-                          syncContext?.resetSync?.();
-                        }
-                      }}
-                      className="btn btn-ghost"
-                      style={{ color: 'var(--danger)' }}
-                    >
-                      Reset
-                    </button>
-                  </div>
-                ) : (
-                  <button onClick={() => onShowLinkDevice && onShowLinkDevice()} className="btn btn-primary">
-                    Turn on sync
-                  </button>
-                )
-              }
-            />
-            <TierRow
-              tier="account"
-              active={hasAccount}
-              completed={false}
-              title="Free account"
-              body="Discover other coaches' sessions and get your library back if you lose every device. Coming soon — anonymous coach id stays the only identifier we hold."
-              cta={
-                <button className="btn btn-ghost" disabled style={{ opacity: 0.6 }}>
-                  Coming soon
-                </button>
-              }
-            />
-          </div>
-        </section>
+          </>
+        )}
 
         <div className="hairline my-8" />
 

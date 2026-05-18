@@ -50,7 +50,7 @@ function RailLink({ icon, label, active, onClick }) {
   );
 }
 
-export default function NavRail({ teamsContext, syncContext, onShowAbout }) {
+export default function NavRail({ teamsContext, syncContext, accountContext, onShowAbout }) {
   const {
     currentView,
     navigateToTeams,
@@ -62,7 +62,8 @@ export default function NavRail({ teamsContext, syncContext, onShowAbout }) {
   const syncEnabled = Boolean(syncContext?.isSyncEnabled);
   const syncStatus = syncContext?.syncStatus || 'idle';
   const isOnline = syncContext?.isOnline ?? true;
-  const hasAccount = false; // real account tier not implemented yet
+  const hasAccount = Boolean(accountContext?.isSignedIn);
+  const accountInitial = (accountContext?.account?.email || '?').trim().charAt(0).toUpperCase() || 'A';
 
   // Three explicit progression tiers the user moves through:
   //   1. offline    — nothing leaves this browser
@@ -93,7 +94,7 @@ export default function NavRail({ teamsContext, syncContext, onShowAbout }) {
   }
 
   const chipMeta = tier === 'account'
-    ? { letter: 'A', label: 'Account', sub: 'Signed in' }
+    ? { letter: accountInitial, label: 'Account', sub: accountContext?.account?.email || 'Signed in' }
     : tier === 'sync'
       ? { letter: 'C', label: 'Coach', sub: 'Synced device' }
       : { letter: 'G', label: 'Guest', sub: 'No account · no tracking' };
@@ -200,11 +201,11 @@ export default function NavRail({ teamsContext, syncContext, onShowAbout }) {
           >
             {chipMeta.letter}
           </span>
-          <div className="text-left min-w-0">
-            <div className="text-[12.5px]" style={{ color: 'var(--ink)', fontWeight: 500 }}>
+          <div className="text-left min-w-0 flex-1">
+            <div className="text-[12.5px] truncate" style={{ color: 'var(--ink)', fontWeight: 500 }}>
               {chipMeta.label}
             </div>
-            <div className="text-[10.5px]" style={{ color: 'var(--ink-3)' }}>
+            <div className="text-[10.5px] truncate" style={{ color: 'var(--ink-3)' }}>
               {chipMeta.sub}
             </div>
           </div>

@@ -76,7 +76,15 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
     return true; // 'all'
   });
 
-  // Sort sessions by date (scheduled first, then by date, then templates by updated date)
+  // Sort sessions by date (scheduled first, then by date, then templates by
+  // updated date). Falls back across updatedAt → createdAt → 0 so an undefined
+  // timestamp (e.g. a session reassembled by an older server build) doesn't
+  // poison the comparator and leave the list looking unsorted.
+  const ts = (s) => {
+    const v = s?.updatedAt || s?.createdAt || s?.summary?.updatedAt || s?.summary?.createdAt;
+    const n = v ? new Date(v).getTime() : 0;
+    return Number.isFinite(n) ? n : 0;
+  };
   const sortedSessions = [...filteredSessions].sort((a, b) => {
     const aHasDate = a.summary.date && a.summary.date.length > 0;
     const bHasDate = b.summary.date && b.summary.date.length > 0;
@@ -85,10 +93,11 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
     if (!aHasDate && bHasDate) return 1;
 
     if (aHasDate && bHasDate) {
-      return new Date(a.summary.date) - new Date(b.summary.date);
+      // Most-recent scheduled date first (descending).
+      return new Date(b.summary.date) - new Date(a.summary.date);
     }
 
-    return new Date(b.updatedAt) - new Date(a.updatedAt);
+    return ts(b) - ts(a);
   });
 
   const scheduledCount = sessions.filter(s => s.summary.date && s.summary.date.length > 0).length;

@@ -109,7 +109,7 @@ function ShareTag({ share = 'private', compact }) {
 // Sharing scope is per-team in the data model, so the popover mutates the
 // row's source team. Read-only fallback (no editing) is returned for items
 // without a known team (e.g. manual library entries with no origin).
-function ShareControl({ team, sharingContext, syncContext, onOpenShareModal, onShowLinkDevice, compact }) {
+function ShareControl({ team, sharingContext, syncContext, onOpenShareModal, onShowLinkDevice, hasAccount = false, compact }) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef(null);
 
@@ -170,7 +170,7 @@ function ShareControl({ team, sharingContext, syncContext, onOpenShareModal, onS
         onClose={() => setOpen(false)}
         current={share}
         syncEnabled={syncEnabled}
-        hasAccount={false}
+        hasAccount={hasAccount}
         exerciseCount={team?.sessions?.reduce((sum, s) => sum + (s.sections?.length || 0), 0) || 0}
         diagramCount={team?.sessions?.reduce((sum, s) => sum + (s.sections?.reduce((dc, sec) => dc + (sec.diagramData || sec.imageDataUrl ? 1 : 0), 0) || 0), 0) || 0}
         onMakePrivate={handleMakePrivate}
@@ -181,7 +181,7 @@ function ShareControl({ team, sharingContext, syncContext, onOpenShareModal, onS
   );
 }
 
-export default function Library({ teamsContext, libraryHook, diagramLibrary, syncContext, sharingContext, isSignedIn = false, onShowLinkDevice }) {
+export default function Library({ teamsContext, libraryHook, diagramLibrary, syncContext, sharingContext, isSignedIn = false, hasAccount = false, onShowSignIn, onShowLinkDevice }) {
   const {
     teamsData,
     selectedTeamId,
@@ -793,6 +793,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
                             syncContext={syncContext}
                             onOpenShareModal={handleOpenShareModal}
                             onShowLinkDevice={onShowLinkDevice}
+                            hasAccount={hasAccount}
                             compact
                           />
                           <SyncDot synced={syncOn} />
@@ -938,7 +939,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
 
         {/* ===== COMMUNITY TAB ===== */}
         {activeTabLabel === 'Community' && (
-          <CommunityTab isSignedIn={isSignedIn} onSignIn={() => alert('Sign-in flow is not wired up yet.')} />
+          <CommunityTab isSignedIn={isSignedIn} onSignIn={() => onShowSignIn?.()} />
         )}
 
         {/* ===== SESSIONS TAB ===== */}
@@ -1035,6 +1036,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
                             syncContext={syncContext}
                             onOpenShareModal={handleOpenShareModal}
                             onShowLinkDevice={onShowLinkDevice}
+                            hasAccount={hasAccount}
                             compact
                           />
                           <SyncDot synced={syncOn} />
@@ -1205,40 +1207,11 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
   );
 }
 
-// Community tab — locked for guests with an inline CTA, otherwise an empty
-// state until the discovery layer is implemented. Per the design handoff,
-// Community is the carrot that earns the optional account.
+// Community tab — anyone can browse. Publishing is the only thing gated:
+// guests see a small hint pointing to the (optional, free) account.
 function CommunityTab({ isSignedIn, onSignIn }) {
   return (
     <>
-      {!isSignedIn ? (
-        <div
-          className="rounded-[14px] p-5 mb-5 flex items-center gap-4"
-          style={{ background: 'var(--accent-soft)', border: '1px solid rgb(var(--accent-rgb) / 0.35)' }}
-        >
-          <div
-            style={{
-              width: 42, height: 42, borderRadius: 11, background: 'var(--accent)',
-              color: 'var(--accent-ink)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="9" />
-              <path d="M3 12h18M12 3a13 13 0 010 18M12 3a13 13 0 000 18" />
-            </svg>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[16px] font-semibold" style={{ color: 'var(--ink)', letterSpacing: '-0.015em' }}>
-              See what other coaches are running.
-            </div>
-            <div className="mt-1 text-[13px]" style={{ color: 'var(--ink-2)' }}>
-              Optional free account — no tracking, no email spam. Just so we can show you who you&rsquo;re following.
-            </div>
-          </div>
-          <button className="btn btn-primary" onClick={onSignIn}>Create free account</button>
-        </div>
-      ) : null}
-
       <div className="card p-12 text-center" style={{ background: 'var(--bg-elev)' }}>
         <div className="eyebrow mb-3">COMING SOON</div>
         <h3 className="text-[18px] font-semibold mb-2" style={{ letterSpacing: '-0.015em' }}>
@@ -1248,6 +1221,33 @@ function CommunityTab({ isSignedIn, onSignIn }) {
           Coaches will be able to publish sessions, exercises, and diagrams here — and decide per item what to share. We&rsquo;re building this carefully so privacy stays the default.
         </p>
       </div>
+
+      {!isSignedIn && (
+        <div
+          className="rounded-[14px] p-4 mt-4 flex items-center gap-3"
+          style={{ background: 'var(--bg-elev)', border: '1px solid var(--line)' }}
+        >
+          <div
+            style={{
+              width: 32, height: 32, borderRadius: 9, background: 'var(--accent-soft)',
+              color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 19V5M5 12l7-7 7 7" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[13.5px] font-semibold" style={{ color: 'var(--ink)', letterSpacing: '-0.01em' }}>
+              Want to publish your own sessions?
+            </div>
+            <div className="text-[12.5px]" style={{ color: 'var(--ink-2)' }}>
+              Browsing is free; publishing needs a free account so other coaches can find your work.
+            </div>
+          </div>
+          <button className="btn btn-secondary" onClick={onSignIn}>Create account</button>
+        </div>
+      )}
     </>
   );
 }

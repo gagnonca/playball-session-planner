@@ -37,6 +37,10 @@ export const COACH_IDENTITY_KEY = 'ppp_coach_identity_v1';
 export const SHARED_TEAMS_KEY = 'ppp_shared_teams_v1';
 export const FOLLOWED_SHARES_KEY = 'ppp_followed_shares_v1';
 
+// Account (stubbed — UI flow exists, real auth not yet wired).
+// Shape: { email, signedInAt } | null
+export const ACCOUNT_KEY = 'ppp_account_v1';
+
 // AI Configuration (user's own OpenAI API key)
 export const AI_CONFIG_KEY = 'ppp_ai_config_v1';
 

@@ -87,11 +87,16 @@ function BenefitCard({ icon, title, body }) {
   );
 }
 
-export default function Welcome({ teamsContext }) {
+export default function Welcome({ teamsContext, onDismiss, onShowPair }) {
   const { navigateToTeams, navigateToSessionBuilder } = teamsContext;
   const [createOpen, setCreateOpen] = useState(false);
+  const [tab, setTab] = useState('new'); // 'new' | 'returning'
 
+  // Always go through the parent's onDismiss so AppShell's hasSeenWelcome
+  // state flips and we actually re-render off this view. Fall back to the
+  // raw localStorage write only if no parent handler is wired.
   const dismiss = () => {
+    if (typeof onDismiss === 'function') return onDismiss();
     try { localStorage.setItem(HAS_SEEN_WELCOME_KEY, 'true'); } catch { /* ignore */ }
   };
 
@@ -154,30 +159,104 @@ export default function Welcome({ teamsContext }) {
           no account, no tracking. Turn on cloud sync only when you want it.
         </p>
 
-        {/* CTAs */}
-        <div className="mt-8 flex flex-wrap items-center gap-3">
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="btn btn-primary"
-            style={{ padding: '12px 22px', fontSize: 15 }}
+        {/* New here / Returning tab + content card */}
+        <div
+          className="mt-8 rounded-[14px] p-5"
+          style={{ background: 'var(--bg-elev)', border: '1px solid var(--line)' }}
+        >
+          {/* Segmented control */}
+          <div
+            className="flex gap-1 p-1 rounded-[10px] mb-4"
+            style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)', width: 'fit-content' }}
           >
-            Create my first team
-          </button>
-          <button
-            onClick={handleTrySample}
-            className="btn btn-ghost"
-            style={{ padding: '12px 18px', fontSize: 14 }}
-          >
-            Try a sample session
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
+            {[
+              { id: 'new', label: 'New here' },
+              { id: 'returning', label: 'Returning' },
+            ].map(t => {
+              const active = tab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  className="px-3.5 py-1.5 rounded-[8px] transition-colors"
+                  style={{
+                    background: active ? 'var(--bg-elev)' : 'transparent',
+                    border: active ? '1px solid var(--line)' : '1px solid transparent',
+                    color: active ? 'var(--ink)' : 'var(--ink-2)',
+                    fontSize: 13,
+                    fontWeight: active ? 500 : 400,
+                    boxShadow: active ? 'var(--shadow-sm)' : 'none',
+                  }}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {tab === 'new' ? (
+            <>
+              <p className="text-[13.5px] leading-snug mb-4" style={{ color: 'var(--ink-2)' }}>
+                Start fresh with your own team — or see the app in action with a sample session.
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => setCreateOpen(true)}
+                  className="btn btn-primary"
+                  style={{ padding: '12px 22px', fontSize: 15 }}
+                >
+                  Create my first team
+                </button>
+                <button
+                  onClick={handleTrySample}
+                  className="btn btn-ghost"
+                  style={{ padding: '12px 18px', fontSize: 14 }}
+                >
+                  Try a sample session
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-[13.5px] leading-snug mb-4" style={{ color: 'var(--ink-2)' }}>
+                Already use PlayBall on another device? Pair this one with a 6-digit code and your teams come right over.
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => onShowPair && onShowPair()}
+                  className="btn btn-primary"
+                  style={{ padding: '12px 22px', fontSize: 15 }}
+                >
+                  Pair with a code
+                </button>
+                <button
+                  disabled
+                  className="btn btn-ghost inline-flex items-center gap-2"
+                  style={{ padding: '12px 14px', fontSize: 14, opacity: 0.55, cursor: 'not-allowed' }}
+                  title="Sign in is coming soon"
+                >
+                  Sign in
+                  <span
+                    className="font-mono uppercase px-1.5 py-0.5 rounded-full"
+                    style={{ fontSize: 9.5, background: 'var(--bg-sunken)', border: '1px solid var(--line)', color: 'var(--ink-3)', letterSpacing: '0.08em' }}
+                  >
+                    Coming soon
+                  </span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="mt-4">
           <button
             onClick={() => { dismiss(); navigateToTeams(); }}
             className="btn btn-ghost"
-            style={{ padding: '12px 14px', fontSize: 13, color: 'var(--ink-3)' }}
-            title="Skip this and explore the app empty"
+            style={{ padding: '8px 12px', fontSize: 12.5, color: 'var(--ink-3)' }}
+            title="Dismiss and explore the app empty"
           >
             Skip
           </button>
