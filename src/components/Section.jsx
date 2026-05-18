@@ -15,22 +15,64 @@ function getKindTone(type) {
   return { fg: 'var(--accent)', bg: 'var(--accent-soft)' };
 }
 
-function FieldThumbnail({ src, label = 'TAP TO DRAW', onClick, dashed = false }) {
+// A section's diagram is "classic" (legacy) when it has a saved image but no
+// editable Konva shapes — that's anything saved with the old DiagramBuilder
+// or anything whose shape data was wiped before today's fixes landed.
+function isSectionLegacyDiagram(section) {
+  if (!section?.imageDataUrl) return false;
+  const shapes = section.diagramData?.shapes;
+  return !(Array.isArray(shapes) && shapes.length > 0);
+}
+
+function FieldThumbnail({ src, label = 'TAP TO DRAW', onClick, dashed = false, legacy = false }) {
   return (
     <button
       onClick={onClick}
       className="relative w-full overflow-hidden rounded-[14px]"
       style={{
         aspectRatio: '16 / 9',
-        background: src ? 'transparent' : 'color-mix(in oklab, #6aa365 30%, var(--bg-sunken))',
+        // Matches the editor's pitch color (same CSS mix as the playground
+        // container) so any letterboxing blends seamlessly with the embedded
+        // pitch background. Theme-aware via the CSS variables.
+        background: src
+          ? 'color-mix(in oklab, #6aa365 55%, var(--bg-elev))'
+          : 'color-mix(in oklab, #6aa365 30%, var(--bg-sunken))',
         border: dashed ? '1.5px dashed var(--line-2)' : '1px solid var(--line)',
         cursor: 'pointer',
         padding: 0,
       }}
-      title={src ? 'Edit diagram' : 'Draw a diagram'}
+      title={src ? (legacy ? 'Classic diagram — open to convert or start over' : 'Edit diagram') : 'Draw a diagram'}
     >
       {src ? (
-        <img src={src} alt="Section diagram" className="w-full h-full object-cover" />
+        // object-contain so non-16:9 diagrams (half-field, vertical) aren't
+        // cropped — used to be object-cover which zoomed in and cut shapes.
+        <>
+          <img
+            src={src}
+            alt="Section diagram"
+            className="w-full h-full object-contain"
+            style={legacy ? { opacity: 0.7, filter: 'grayscale(0.15)' } : undefined}
+          />
+          {legacy && (
+            <div
+              className="font-mono uppercase"
+              style={{
+                position: 'absolute',
+                top: 12,
+                left: 12,
+                background: 'rgba(20, 20, 20, 0.78)',
+                color: '#fff',
+                fontSize: 10,
+                letterSpacing: '0.1em',
+                padding: '4px 9px',
+                borderRadius: 999,
+                pointerEvents: 'none',
+              }}
+            >
+              Classic
+            </div>
+          )}
+        </>
       ) : (
         <>
           <svg viewBox="0 0 320 180" preserveAspectRatio="none" style={{ width: '100%', height: '100%', display: 'block' }}>
@@ -311,6 +353,7 @@ export default function Section({
         <FieldThumbnail
           src={section.imageDataUrl}
           label={section.diagramData ? 'TAP TO EDIT' : 'TAP TO DRAW'}
+          legacy={isSectionLegacyDiagram(section)}
           onClick={handleOpenDiagramBuilder}
         />
         <div className="flex flex-wrap gap-2 mt-2 no-print">

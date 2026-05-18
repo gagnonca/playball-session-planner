@@ -112,9 +112,40 @@ export default function Variation({
       />
 
       {/* Diagram surface — small, optional */}
-      <div className="rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--line)' }}>
+      <div className="relative rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--line)', background: variation.imageDataUrl ? 'color-mix(in oklab, #6aa365 55%, var(--bg-elev))' : undefined }}>
         {variation.imageDataUrl ? (
-          <img src={variation.imageDataUrl} alt="Variation diagram" className="block w-full" style={{ aspectRatio: '16 / 9', objectFit: 'cover' }} />
+          (() => {
+            const legacy = !(Array.isArray(variation.diagramData?.shapes) && variation.diagramData.shapes.length > 0);
+            return (
+              <>
+                <img
+                  src={variation.imageDataUrl}
+                  alt="Variation diagram"
+                  className="block w-full"
+                  style={{ aspectRatio: '16 / 9', objectFit: 'contain', opacity: legacy ? 0.7 : 1, filter: legacy ? 'grayscale(0.15)' : undefined }}
+                />
+                {legacy && (
+                  <div
+                    className="font-mono uppercase"
+                    style={{
+                      position: 'absolute',
+                      top: 8,
+                      left: 8,
+                      background: 'rgba(20, 20, 20, 0.78)',
+                      color: '#fff',
+                      fontSize: 9.5,
+                      letterSpacing: '0.1em',
+                      padding: '3px 7px',
+                      borderRadius: 999,
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    Classic
+                  </div>
+                )}
+              </>
+            );
+          })()
         ) : (
           <button
             onClick={() => handleOpenDiagramBuilder(false)}

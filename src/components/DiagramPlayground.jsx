@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text, Path, Shape, Image as KImage, Transformer } from 'react-konva';
 import useKonvaImage from '../hooks/useKonvaImage';
+import { migrateLegacyToShapes } from '../utils/diagramMigration';
 import ballSvg from '../assets/ball.svg';
 import coneOrangeSvg from '../assets/cone_orange.svg';
 import coneBlueSvg from '../assets/cone_blue.svg';
@@ -172,13 +173,20 @@ function isMarkerKind(kind) {
 // center-circle dimensions) and a VIEW (full / half / third, dictates how
 // much of the pitch is shown and which markings appear). Both axes are
 // orthogonal — every combination renders sensibly.
-function FieldBackground({ w, h, size, view }) {
+function FieldBackground({ w, h, size, view, bg = '#ccdad1' }) {
   const m = 30; // pitch padding inset
   const lineColor = 'rgba(255,255,255,0.65)';
   const stripeStroke = 'rgba(255,255,255,0.04)';
   const stripeCount = 10;
   const stripeW = w / stripeCount;
 
+  // Konva-drawn pitch fill so toDataURL exports the green. Previously the
+  // green came from a CSS background on the container, which the Konva export
+  // could not see — saved diagrams were transparent. Color is the live
+  // computed background of the editor container so editor + export match.
+  const pitchFill = (
+    <Rect x={0} y={0} width={w} height={h} fill={bg} listening={false} />
+  );
   const stripes = (
     <>
       {Array.from({ length: stripeCount }).map((_, i) => (
@@ -227,6 +235,7 @@ function FieldBackground({ w, h, size, view }) {
   if (view === 'full') {
     return (
       <Group listening={false}>
+        {pitchFill}
         {stripes}
         {boundary}
         {halfway}
@@ -243,6 +252,7 @@ function FieldBackground({ w, h, size, view }) {
     // For 4v4, the open side gets the tiny goal marker only.
     return (
       <Group listening={false}>
+        {pitchFill}
         {stripes}
         {boundary}
         {cr > 0 && (
@@ -262,6 +272,7 @@ function FieldBackground({ w, h, size, view }) {
   // Useful for tactical channel work that doesn't care about goal-line markings.
   return (
     <Group listening={false}>
+      {pitchFill}
       {stripes}
       {boundary}
       <Line points={[m + (w - 2 * m) / 3, m, m + (w - 2 * m) / 3, h - m]} stroke={lineColor} strokeWidth={2} dash={[8, 6]} opacity={0.6} listening={false} />
@@ -764,7 +775,7 @@ function kindPluralLabel(kind) {
 
 function Inspector({
   shape, multiCount,
-  onLabel, onColor, onNotes, onDelete,
+  onLabel, onColor, onDelete,
   onSelectAll, onSelectAllOfKind, onDeselect,
   onSize, onRotation,
   applyToAllOfKind, onApplyToAllOfKindChange,
@@ -839,7 +850,7 @@ function Inspector({
   return (
     <aside
       className="overflow-y-auto"
-      style={{ width: 280, background: 'var(--bg-elev)', borderLeft: '1px solid var(--line)', padding: 22 }}
+      style={{ width: 280, flexShrink: 0, boxSizing: 'border-box', scrollbarGutter: 'stable', background: 'var(--bg-elev)', borderLeft: '1px solid var(--line)', padding: 22 }}
     >
       <div className="eyebrow mb-3" style={{ fontSize: 10.5 }}>
         {shape.pending ? 'NEXT STAMP' : 'SELECTION'}
@@ -848,9 +859,14 @@ function Inspector({
         <ShapePreview shape={shape} />
         <div className="flex-1 min-w-0">
           <div className="text-[13.5px] font-medium capitalize" style={{ color: 'var(--ink)' }}>{shape.kind}</div>
-          <div className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+          {/* Single-line, no-wrap meta line — pending hint used to wrap to two
+              lines and bump every downstream element. */}
+          <div
+            className="font-mono"
+            style={{ fontSize: 11, color: 'var(--ink-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+          >
             {shape.pending
-              ? 'Click the field to place'
+              ? 'Click to place'
               : isLineKind(shape.kind)
                 ? `${Math.round(shape.x1)},${Math.round(shape.y1)} → ${Math.round(shape.x2)},${Math.round(shape.y2)}`
                 : `x:${Math.round(shape.x)} y:${Math.round(shape.y)}`}
@@ -962,17 +978,6 @@ function Inspector({
           Select all {kindPluralLabel(shape.kind)}
         </button>
       )}
-
-      <div className="hairline my-4" />
-
-      <div className="eyebrow mb-2" style={{ fontSize: 10.5 }}>NOTES</div>
-      <textarea
-        value={shape.notes || ''}
-        onChange={(e) => onNotes(e.target.value)}
-        rows={4}
-        placeholder="What's happening in this picture?"
-        className="input-field resize-none"
-      />
 
       {onDelete && (
         <>
@@ -1126,12 +1131,24 @@ function defaultPendingFor(tool, shapes) {
 
 // Initial diagrams from the legacy DiagramBuilder carry `elements`+`lines`
 // arrays but never a `shapes` field. We can render their PNG as a read-only
-// backdrop but not edit them — coach can "Start over" to discard.
+// backdrop but not edit them — coach can Convert or Start over.
+//
+// Detection rule: any non-empty `shapes` array means "new playground" (real
+// editable state). Otherwise, the presence of legacy markers, legacy lines,
+// OR a saved image URL counts as legacy. The old check returned false as
+// soon as `shapes` was an array, even empty — so a previous accidental save
+// that wrote `shapes: []` made the diagram look "blank" instead of legacy.
 function isLegacyDiagram(d) {
   if (!d) return false;
-  if (Array.isArray(d.shapes)) return false;
-  return Array.isArray(d.elements) || Array.isArray(d.lines) || !!d.dataUrl;
+  if (Array.isArray(d.shapes) && d.shapes.length > 0) return false;
+  const hasLegacyMarkers = Array.isArray(d.elements) && d.elements.length > 0;
+  const hasLegacyLines = Array.isArray(d.lines) && d.lines.length > 0;
+  const hasImage = !!(d.dataUrl || d.imageDataUrl);
+  return hasLegacyMarkers || hasLegacyLines || hasImage;
 }
+
+// Migrator moved to ../utils/diagramMigration.js so the Library can run bulk
+// conversions without depending on this component file.
 
 export default function DiagramPlayground({
   initialDiagram = null,
@@ -1162,7 +1179,10 @@ export default function DiagramPlayground({
   // into past and clears future; undo/redo just trade between the three
   // slots. Capped at HISTORY_LIMIT to keep memory bounded for big sessions.
   const [shapeHistory, setShapeHistory] = useState({
-    shapes: Array.isArray(initialDiagram?.shapes) ? initialDiagram.shapes : (startsLegacy ? [] : STARTER_SHAPES),
+    // New diagrams start empty. STARTER_SHAPES used to load by default and
+    // got accidentally saved as the user's "diagram" if they hit Save without
+    // editing anything — surfacing later as a template-y look.
+    shapes: Array.isArray(initialDiagram?.shapes) ? initialDiagram.shapes : [],
     past: [],
     future: [],
   });
@@ -1215,6 +1235,9 @@ export default function DiagramPlayground({
   const stageRef = useRef(null);
   const transformerRef = useRef(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+  // Resolved background color from the editor container so the Konva pitch
+  // fill exactly matches what the user sees (handles theme + accent changes).
+  const [pitchBg, setPitchBg] = useState('#ccdad1');
 
   const sizeCfg = findSize(pitchSize);
   const viewCfg = findView(pitchView);
@@ -1250,6 +1273,25 @@ export default function DiagramPlayground({
     obs.observe(el);
     return () => obs.disconnect();
   }, [displayAspect]);
+
+  // Resolve the editor's computed pitch background once on mount. The CSS
+  // mix is theme-dependent (`color-mix(... var(--good), var(--bg-elev))`),
+  // so reading the computed color matches whatever the coach sees. We also
+  // watch the documentElement for theme attribute changes to re-resolve.
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const read = () => {
+      const bg = getComputedStyle(containerRef.current).backgroundColor;
+      if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
+        setPitchBg(bg);
+      }
+    };
+    read();
+    // Theme toggle rewrites inline style on <html>; observe attribute changes.
+    const obs = new MutationObserver(read);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class', 'data-theme'] });
+    return () => obs.disconnect();
+  }, []);
 
   // The field is always drawn in HORIZONTAL orientation internally. In
   // vertical mode we wrap the rendering in a 90° rotation, so the "long"
@@ -1608,31 +1650,32 @@ export default function DiagramPlayground({
             // still savable without a thumbnail.
             dataUrl = '';
           }
-          if (typeof onSave === 'function') {
-            onSave({
-              name: title || 'Diagram',
-              description,
-              dataUrl: dataUrl || legacyImage || '',
-              // New-format payload — what the playground edits.
-              shapes,
-              pitchSize,
-              pitchView,
-              orientation,
-              // Legacy-shape fields kept in the payload so older code paths
-              // (mobile sync, library readers) don't see undefined.
-              elements: [],
-              lines: [],
-              fieldType: pitchView === 'full' ? 'full' : 'small',
-              tags: {
-                ageGroup,
-                moments: moment ? [moment] : [],
-                type: sectionType,
-              },
-            });
-          } else {
-            // Playground/standalone mode.
+          if (typeof onSave !== 'function') {
             alert(`(playground) save "${title}" — ${shapes.length} shapes`);
+            return;
           }
+          // While still in legacy mode (no Convert / Start over taken), the
+          // user hasn't replaced the legacy data. Preserve the original
+          // elements/lines so a stray Save doesn't wipe their diagram into
+          // an empty shell.
+          const stillLegacy = isLegacy && shapes.length === 0;
+          onSave({
+            name: title || 'Diagram',
+            description,
+            dataUrl: dataUrl || legacyImage || '',
+            shapes,
+            pitchSize,
+            pitchView,
+            orientation,
+            elements: stillLegacy ? (initialDiagram?.elements || []) : [],
+            lines: stillLegacy ? (initialDiagram?.lines || []) : [],
+            fieldType: pitchView === 'full' ? 'full' : 'small',
+            tags: {
+              ageGroup,
+              moments: moment ? [moment] : [],
+              type: sectionType,
+            },
+          });
         }}
         onExport={() => {
           try {
@@ -1674,7 +1717,7 @@ export default function DiagramPlayground({
               width: '100%',
               maxWidth: isVertical ? PITCH_MAX_WIDTH / fieldAspect : PITCH_MAX_WIDTH,
               aspectRatio: displayAspect,
-              background: 'color-mix(in oklab, var(--good, #4a7c59) 28%, var(--bg-elev))',
+              background: 'color-mix(in oklab, #6aa365 55%, var(--bg-elev))',
               borderRadius: 14,
               border: '1px solid var(--line-2)',
               boxShadow: 'var(--shadow-md)',
@@ -1727,8 +1770,31 @@ export default function DiagramPlayground({
                   }}
                 >
                   <span style={{ flex: 1 }}>
-                    This diagram was made with the legacy editor and can&rsquo;t be edited here.
+                    This diagram was made with the legacy editor. Convert to edit
+                    here, or start over.
                   </span>
+                  <button
+                    onClick={() => {
+                      const migrated = migrateLegacyToShapes(
+                        initialDiagram?.elements,
+                        initialDiagram?.lines,
+                      );
+                      if (migrated.length === 0) {
+                        alert('Nothing converted — this diagram has no editable shapes. Use "Start over" instead.');
+                        return;
+                      }
+                      const msg =
+                        `Found ${migrated.length} editable shape${migrated.length === 1 ? '' : 's'}. ` +
+                        'Bring them in? Labels and line curves may need touch-ups.';
+                      if (!window.confirm(msg)) return;
+                      setShapeHistory({ shapes: migrated, past: [], future: [] });
+                      setLegacyImage(null);
+                    }}
+                    className="btn btn-primary"
+                    style={{ fontSize: 12.5, whiteSpace: 'nowrap' }}
+                  >
+                    Convert
+                  </button>
                   <button
                     onClick={() => {
                       if (window.confirm('Discard the existing diagram and start fresh?')) {
@@ -1769,7 +1835,7 @@ export default function DiagramPlayground({
                     x={isVertical ? stageSize.width : 0}
                     y={0}
                   >
-                    <FieldBackground w={fieldW} h={fieldH} size={pitchSize} view={pitchView} />
+                    <FieldBackground w={fieldW} h={fieldH} size={pitchSize} view={pitchView} bg={pitchBg} />
                     {renderedShapes}
                     {previewLine}
                     {pendingShape && cursorLogical && isMarkerKind(tool) && (
@@ -1816,10 +1882,6 @@ export default function DiagramPlayground({
             if (pendingShape && isMarkerKind(pendingShape.kind)) {
               setPendingShape(p => ({ ...p, color: v }));
             }
-          }}
-          onNotes={(v) => {
-            if (selected) updateShape(selected.id, { notes: v });
-            else if (pendingShape) setPendingShape(p => ({ ...p, notes: v }));
           }}
           onDelete={
             selectedIds.size === 1 && selected
