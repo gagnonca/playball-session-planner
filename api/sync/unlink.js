@@ -1,4 +1,5 @@
 import { redis } from '../_lib/redis.js';
+import { mirrorDeviceUnlink } from '../_lib/dualWrite.js';
 
 /**
  * POST /api/sync/unlink
@@ -47,6 +48,9 @@ export default async function handler(req, res) {
     if (updatedDevices.length === 0) {
       // No devices left - purge all coach data
       await redis.del(`coach:${coachId}`);
+      // Mirror the unlink into Postgres (sets devices to []). We don't purge
+      // the Postgres rows here — that's a separate, deliberate operation.
+      await mirrorDeviceUnlink({ coachId, deviceId });
 
       return res.status(200).json({
         success: true,
@@ -64,6 +68,9 @@ export default async function handler(req, res) {
     };
 
     await redis.set(`coach:${coachId}`, JSON.stringify(updatedCoachData));
+    // Mirror the unlink into Postgres so verifyDevice rejects this device
+    // immediately on its next call.
+    await mirrorDeviceUnlink({ coachId, deviceId });
 
     return res.status(200).json({
       success: true,

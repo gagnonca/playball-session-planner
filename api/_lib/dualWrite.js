@@ -17,6 +17,50 @@ export async function mirrorCoachInit({ coachId, deviceId }) {
   }
 }
 
+// Add a device to an existing coach's Postgres devices array. Used by pair
+// confirm — without this, the newly-paired device fails verifyDevice (which
+// reads from Postgres) on its very next API call.
+export async function mirrorDeviceLink({ coachId, deviceId }) {
+  try {
+    const { data, error } = await supabase
+      .from('coaches').select('devices').eq('coach_id', coachId).maybeSingle();
+    if (error) { console.error('[dualWrite.mirrorDeviceLink.read]', error); return; }
+    const current = Array.isArray(data?.devices) ? data.devices : [];
+    if (current.includes(deviceId)) return;
+    const next = [...current, deviceId];
+    const { error: upErr } = await supabase.from('coaches').upsert({
+      coach_id: coachId,
+      devices: next,
+      updated_at: new Date().toISOString(),
+    });
+    if (upErr) console.error('[dualWrite.mirrorDeviceLink.upsert]', upErr);
+  } catch (e) {
+    console.error('[dualWrite.mirrorDeviceLink] threw', e);
+  }
+}
+
+// Remove a device from a coach's Postgres devices array. Used by unlink.
+// Returns the number of devices remaining post-unlink (best-effort).
+export async function mirrorDeviceUnlink({ coachId, deviceId }) {
+  try {
+    const { data, error } = await supabase
+      .from('coaches').select('devices').eq('coach_id', coachId).maybeSingle();
+    if (error) { console.error('[dualWrite.mirrorDeviceUnlink.read]', error); return null; }
+    const current = Array.isArray(data?.devices) ? data.devices : [];
+    const next = current.filter(d => d !== deviceId);
+    const { error: upErr } = await supabase.from('coaches').upsert({
+      coach_id: coachId,
+      devices: next,
+      updated_at: new Date().toISOString(),
+    });
+    if (upErr) { console.error('[dualWrite.mirrorDeviceUnlink.upsert]', upErr); return null; }
+    return next.length;
+  } catch (e) {
+    console.error('[dualWrite.mirrorDeviceUnlink] threw', e);
+    return null;
+  }
+}
+
 export async function mirrorTeamsBlob({ coachId, coachData }) {
   try {
     const devices = Array.isArray(coachData.devices) ? coachData.devices : [];

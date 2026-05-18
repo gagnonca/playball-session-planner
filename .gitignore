@@ -27,4 +27,8 @@ dist-ssr
 # Local documentation (not tracked)
 CODEBASE_AUDIT.md
 DEPLOY.md
+COMMUNITY_PLAN.md
 .env*.local
+
+# Playwright MCP scratch (browser snapshots, console logs from dev)
+.playwright-mcp/

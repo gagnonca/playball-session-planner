@@ -1,4 +1,5 @@
 import { redis } from '../_lib/redis.js';
+import { mirrorDeviceLink } from '../_lib/dualWrite.js';
 
 /**
  * POST /api/sync/pair
@@ -85,6 +86,11 @@ async function handleConfirm(req, res) {
       coachData.lastUpdatedAt = new Date().toISOString();
       await redis.set(`coach:${coachId}`, JSON.stringify(coachData));
     }
+
+    // Mirror the link into Postgres — verifyDevice reads from there, so without
+    // this the new device gets 403 device_not_linked on its very next call and
+    // useSync clears the identity locally (sync silently turns back off).
+    await mirrorDeviceLink({ coachId, deviceId });
 
     await redis.del(`pairing:${code}`);
 

@@ -20,12 +20,16 @@ export async function buildTeamsBlob(coachId) {
   const sessionsByTeam = new Map();
   for (const s of sessionsRes.data) {
     const list = sessionsByTeam.get(s.team_id) || [];
-    // Reassemble session: spread summary, then id/sections/isTemplate back on top.
+    // Reassemble session: spread summary, then id/sections/isTemplate back on
+    // top. Also surface the DB row's updated_at as updatedAt — clients use it
+    // to sort "most-recent first" and without it any synced session falls
+    // back to undefined → NaN compare → unsorted.
     list.push({
       ...(s.summary || {}),
       id: s.id,
       sections: s.sections || [],
       isTemplate: s.is_template,
+      updatedAt: s.updated_at,
     });
     sessionsByTeam.set(s.team_id, list);
   }
