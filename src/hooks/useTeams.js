@@ -303,6 +303,49 @@ function putSessionNow(teamId, session) {
   });
 }
 
+// Push every team + session currently in teamsData to Postgres via the
+// per-entity v2 API. Used when sync is first enabled — without this, teams
+// created in local-only mode never make it to the server and the next pull
+// wipes them locally.
+async function putAllToPostgres(teamsData) {
+  const headers = syncHeaders();
+  if (!headers) return;
+  const teams = teamsData?.teams || [];
+  for (const team of teams) {
+    try {
+      await fetch(`/api/v2/teams/${encodeURIComponent(team.id)}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          name: team.name ?? 'Untitled Team',
+          ageGroup: team.ageGroup ?? null,
+          defaultDuration: team.defaultDuration ?? null,
+          sharing: team.sharing ?? { isShared: false },
+        }),
+      });
+    } catch (err) {
+      console.warn('putAllToPostgres team failed', team.id, err);
+    }
+    for (const session of team.sessions || []) {
+      const { id, sections, isTemplate, ...summary } = session;
+      try {
+        await fetch(`/api/v2/sessions/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({
+            teamId: team.id,
+            summary,
+            sections: sections ?? [],
+            isTemplate: !!isTemplate,
+          }),
+        });
+      } catch (err) {
+        console.warn('putAllToPostgres session failed', id, err);
+      }
+    }
+  }
+}
+
 // Flush on tab hide / browser close
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
@@ -311,21 +354,12 @@ if (typeof document !== 'undefined') {
   window.addEventListener('beforeunload', () => flushDirtyEntities());
 }
 
-function makeStorageReplacer(syncActive) {
-  if (syncActive) {
-    // Synced: strip diagramData objects (heavy Konva shapes). Keep imageDataUrl
-    // (both CDN URLs and base64) so thumbnails always display.
-    // Base64 imageDataUrl is intentionally kept — stripping it before CDN upload
-    // destroys the only copy of the image. The CDN upload path
-    // (handleDiagramSave / v2 stripBase64FromSections) replaces base64 with CDN
-    // URLs; once that happens the storage footprint shrinks naturally.
-    return (key, value) => {
-      if (key === 'diagramData') return undefined;
-      return value;
-    };
-  }
-  // Offline: strip dataUrl from diagramData (redundant with imageDataUrl),
-  // but always keep imageDataUrl itself — it's the canonical image source.
+function makeStorageReplacer(_syncActive) {
+  // Strip the base64 `dataUrl` from diagramData (redundant with `imageDataUrl`
+  // and historically huge), but keep the rest of diagramData intact — the
+  // Konva playground stores its editable state (`shapes`, `pitchSize`, etc.)
+  // there. Used to nuke the whole `diagramData` when sync was on, which lost
+  // every saved diagram on reload.
   return (key, value) => {
     if (key === 'diagramData' && value && typeof value === 'object' && value.dataUrl) {
       const { dataUrl: _strip, ...rest } = value;
@@ -921,6 +955,7 @@ export default function useTeams() {
 
     // Sync
     flushDirtyEntities,
+    pushAllToPostgres: () => putAllToPostgres(teamsData),
 
     // Navigation
     navigateToTeams,

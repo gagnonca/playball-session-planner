@@ -4,6 +4,7 @@ import useDiagramLibrary from '../hooks/useDiagramLibrary';
 import useLibrary from '../hooks/useLibrary';
 import useSync from '../hooks/useSync';
 import useSharing from '../hooks/useSharing';
+import useAccount from '../hooks/useAccount';
 import { VIEWS } from '../constants/navigation';
 import { TEAMS_KEY, HAS_SEEN_WELCOME_KEY } from '../constants/storage';
 import { uploadDiagramImage } from '../utils/uploadImage';
@@ -19,6 +20,7 @@ import Welcome from './Welcome';
 import AboutModal from './AboutModal';
 import NavRail from './NavRail';
 import LinkDeviceModal from './LinkDeviceModal';
+import AccountModal from './AccountModal';
 import StorageLimitModal from './StorageLimitModal';
 import ImportLanding from './ImportLanding';
 
@@ -70,6 +72,17 @@ function readInitialUrl() {
   return { path, params };
 }
 
+// Legacy diagrams (elements/lines) saved via uploadDiagramImage have their
+// dataUrl stripped — the image lives on the section's imageDataUrl instead.
+// When opening a saved diagram for edit, fold the section/variation image
+// back in so the Konva playground's legacy fallback can display it.
+function withLegacyImageFallback(diagramData, fallbackImageUrl) {
+  if (!diagramData) return diagramData ?? null;
+  if (diagramData.dataUrl || diagramData.imageDataUrl) return diagramData;
+  if (!fallbackImageUrl) return diagramData;
+  return { ...diagramData, dataUrl: fallbackImageUrl };
+}
+
 
 export default function AppShell() {
   // Read URL synchronously before useTeams can rewrite it
@@ -90,9 +103,11 @@ export default function AppShell() {
     }, []),
   });
   const sharingContext = useSharing();
+  const accountContext = useAccount();
 
   const [showLinkDeviceModal, setShowLinkDeviceModal] = useState(false);
   const [linkDeviceDefaultMode, setLinkDeviceDefaultMode] = useState(null);
+  const [showAccountModal, setShowAccountModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [iosReferral, setIosReferral] = useState(false);
   const [importCode, setImportCode] = useState(() => {
@@ -110,7 +125,29 @@ export default function AppShell() {
     if (initialUrl.path === '/support') return 'support';
     return null;
   });
+  // Held in state (not just localStorage) so dismissing the Welcome screen
+  // forces a re-render even when currentView is already TEAMS — without this,
+  // setCurrentView(TEAMS) bails and the gate keeps showing Welcome.
+  const [hasSeenWelcome, setHasSeenWelcome] = useState(() => {
+    try { return localStorage.getItem(HAS_SEEN_WELCOME_KEY) === 'true'; } catch { return false; }
+  });
+  const dismissWelcome = () => {
+    try { localStorage.setItem(HAS_SEEN_WELCOME_KEY, 'true'); } catch { /* ignore */ }
+    setHasSeenWelcome(true);
+  };
   const hasCheckedForUpdates = useRef(false);
+
+  // First-sync activation: create the identity, push every existing local
+  // team/session to Postgres via the per-entity v2 API, and mark the
+  // image-restore migration done so the auto-pull effect doesn't force-replace
+  // local with the (still-empty) server snapshot.
+  const enableSyncForFirstTime = async () => {
+    await syncContext.initializeIdentity();
+    try { localStorage.setItem('ppp_image_restore_v1', '1'); } catch { /* ignore */ }
+    if (teamsContext.pushAllToPostgres) {
+      await teamsContext.pushAllToPostgres();
+    }
+  };
 
   const {
     currentView,
@@ -190,7 +227,17 @@ export default function AppShell() {
           console.log('[image-restore] pull result:', result ? 'ok' : 'null');
         }
         if (result && (needsImageRestore || result.version > (syncContext.identity?.localVersion || 0))) {
-          // Server has newer data (or we need to restore images) - hydrate and set state
+          // Safety: never replace a non-empty local with an empty server snapshot.
+          // This used to wipe teams created in local-only mode when sync was
+          // first enabled, because the brand-new server record has no teams yet.
+          const serverTeamCount = result.teams?.teams?.length || 0;
+          const localTeamCount = teamsData?.teams?.length || 0;
+          if (serverTeamCount === 0 && localTeamCount > 0) {
+            if (needsImageRestore) {
+              localStorage.setItem('ppp_image_restore_v1', '1');
+            }
+            return;
+          }
           if (needsImageRestore) {
             // Log image status from server data to help debug
             let total = 0, withImage = 0;
@@ -305,6 +352,64 @@ export default function AppShell() {
     pullLibraryFromServer();
   }, [syncContext.isSyncEnabled, syncContext.isOnline, teamsData]);
 
+  // Pull diagrams from server when sync is enabled. Mirrors the library pull
+  // above — diagram library now syncs per-entity via /api/v2/diagrams.
+  // Marks "pulled" only after a successful fetch, so pairing later (which
+  // flips isSyncEnabled true) does trigger a retry.
+  const diagramsPulledRef = useRef(false);
+  useEffect(() => {
+    if (diagramsPulledRef.current) return;
+    if (!syncContext.isSyncEnabled || !syncContext.isOnline) return;
+    if (!diagramLibrary.isLoaded) return;
+
+    const identityRaw = localStorage.getItem('ppp_coach_identity_v1');
+    if (!identityRaw) return;
+    let identity;
+    try { identity = JSON.parse(identityRaw); } catch { return; }
+    if (!identity?.coachId || !identity?.deviceId) return;
+
+    (async () => {
+      try {
+        const res = await fetch('/api/v2/diagrams', {
+          headers: {
+            'x-coach-id': identity.coachId,
+            'x-device-id': identity.deviceId,
+          },
+        });
+        const data = await res.json();
+        if (!data?.success || !Array.isArray(data.diagrams)) return;
+        diagramsPulledRef.current = true;
+
+        // Each Postgres row is { id, coach_id, name, payload, updated_at }.
+        // The payload IS the diagram object we stored. Merge by id + recency.
+        const incoming = data.diagrams
+          .map(row => row.payload && typeof row.payload === 'object'
+            ? { ...row.payload, id: row.id, updatedAt: row.payload.updatedAt || row.updated_at }
+            : null
+          )
+          .filter(Boolean);
+        if (incoming.length > 0) {
+          diagramLibrary.setDiagramsRaw(incoming);
+        }
+
+        // One-shot migration: push every local diagram that the server doesn't
+        // know about. Pre-sync diagrams live only in localStorage; this gets
+        // them into Postgres so they're available on every paired device.
+        const MIGRATION_FLAG = 'ppp_diagrams_migrated_v1';
+        if (!localStorage.getItem(MIGRATION_FLAG)) {
+          const serverIds = incoming.map(d => d.id);
+          const pushed = diagramLibrary.pushAllToServer(serverIds);
+          if (pushed > 0) {
+            console.log(`[diagram-migrate] pushed ${pushed} local diagrams to server`);
+          }
+          localStorage.setItem(MIGRATION_FLAG, '1');
+        }
+      } catch (err) {
+        console.error('Failed to pull diagrams from server:', err);
+      }
+    })();
+  }, [syncContext.isSyncEnabled, syncContext.isOnline, diagramLibrary.isLoaded, diagramLibrary]);
+
   // Track pending share pushes so we can flush them on pagehide / periodic max-age.
   // lastPushedAt tracks the last *successful* push per token so continuously editing
   // users still get a push at least every MAX_SHARE_PUSH_INTERVAL.
@@ -357,6 +462,12 @@ export default function AppShell() {
       elements: cleanDiagram.elements || [],
       lines: cleanDiagram.lines || [],
       fieldType: cleanDiagram.fieldType || 'full',
+      // Preserve Konva playground state on the library copy so a future edit
+      // loads editable shapes instead of falling back to legacy mode.
+      shapes: cleanDiagram.shapes,
+      pitchSize: cleanDiagram.pitchSize,
+      pitchView: cleanDiagram.pitchView,
+      orientation: cleanDiagram.orientation,
     };
 
     if (selectedTeamId && selectedSessionId && selectedSectionId && selectedVariationId) {
@@ -424,6 +535,12 @@ export default function AppShell() {
         elements: cleanDiagram.elements || [],
         lines: cleanDiagram.lines || [],
         fieldType: cleanDiagram.fieldType || 'full',
+        // Konva state — keep the editable shapes on the library copy so the
+        // next Edit click loads them instead of falling back to legacy.
+        shapes: cleanDiagram.shapes,
+        pitchSize: cleanDiagram.pitchSize,
+        pitchView: cleanDiagram.pitchView,
+        orientation: cleanDiagram.orientation,
         tags: diagramData.tags || {},
       });
     } else {
@@ -459,9 +576,13 @@ export default function AppShell() {
 
       // Use parent diagram as base if USE_PARENT flag is set, or if variation has no diagram
       const useParentAsBase = editingDiagramId === 'USE_PARENT';
-      const initialDiagram = useParentAsBase
-        ? section?.diagramData || null
-        : (variation?.diagramData || section?.diagramData || null);
+      const sourceDiagram = useParentAsBase
+        ? section?.diagramData
+        : (variation?.diagramData || section?.diagramData);
+      const fallbackImage = useParentAsBase
+        ? section?.imageDataUrl
+        : (variation?.imageDataUrl || section?.imageDataUrl);
+      const initialDiagram = withLegacyImageFallback(sourceDiagram, fallbackImage);
 
       return {
         initialDiagram,
@@ -477,7 +598,7 @@ export default function AppShell() {
       const session = getSession(selectedTeamId, selectedSessionId);
       const section = session?.sections.find(s => s.id === selectedSectionId);
       return {
-        initialDiagram: section?.diagramData || null,
+        initialDiagram: withLegacyImageFallback(section?.diagramData, section?.imageDataUrl),
         defaultName: section?.name || '',
         defaultDescription: section?.objective || '',
         ageGroup: team?.ageGroup || '',
@@ -615,9 +736,6 @@ export default function AppShell() {
   // the welcome screen land on /welcome instead of an empty Home. The /welcome
   // route also renders this view when reached directly (e.g. from About's
   // "Restart tutorial").
-  const hasSeenWelcome = (() => {
-    try { return localStorage.getItem(HAS_SEEN_WELCOME_KEY) === 'true'; } catch { return false; }
-  })();
   const teamCount = teamsData?.teams?.length || 0;
   const shouldShowWelcome =
     currentView === VIEWS.WELCOME
@@ -626,7 +744,40 @@ export default function AppShell() {
     return (
       <ViewErrorBoundary onRecover={navigateToTeams}>
         <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
-          <Welcome teamsContext={teamsContext} />
+          <Welcome
+            teamsContext={teamsContext}
+            onDismiss={dismissWelcome}
+            onShowPair={() => {
+              setLinkDeviceDefaultMode('join');
+              setShowLinkDeviceModal(true);
+            }}
+          />
+          {showLinkDeviceModal && (
+            <LinkDeviceModal
+              onClose={() => {
+                setShowLinkDeviceModal(false);
+                setLinkDeviceDefaultMode(null);
+              }}
+              hasIdentity={syncContext.isSyncEnabled}
+              defaultMode={linkDeviceDefaultMode}
+              onRequestCode={syncContext.requestPairingCode}
+              onConfirmCode={async (code) => {
+                const teams = await syncContext.confirmPairingCode(code);
+                if (teams) {
+                  teamsContext.loadTeamsFromServer(teams);
+                  dismissWelcome();
+                  setShowLinkDeviceModal(false);
+                  setLinkDeviceDefaultMode(null);
+                }
+              }}
+              onInitialize={enableSyncForFirstTime}
+              onReset={() => {
+                syncContext.resetSync();
+                setShowLinkDeviceModal(false);
+                setLinkDeviceDefaultMode(null);
+              }}
+            />
+          )}
         </div>
       </ViewErrorBoundary>
     );
@@ -643,6 +794,7 @@ export default function AppShell() {
             libraryHook={libraryHook}
             syncContext={syncContext}
             sharingContext={sharingContext}
+            accountContext={accountContext}
             onShowLinkDevice={() => setShowLinkDeviceModal(true)}
           />
           {showLinkDeviceModal && (
@@ -662,12 +814,7 @@ export default function AppShell() {
                   setLinkDeviceDefaultMode(null);
                 }
               }}
-              onInitialize={async () => {
-                await syncContext.initializeIdentity();
-                if (teamsData) {
-                  await syncContext.forcePush(teamsData);
-                }
-              }}
+              onInitialize={enableSyncForFirstTime}
               onReset={() => {
                 syncContext.resetSync();
                 setShowLinkDeviceModal(false);
@@ -698,6 +845,7 @@ export default function AppShell() {
         <NavRail
           teamsContext={teamsContext}
           syncContext={syncContext}
+          accountContext={accountContext}
           onShowAbout={() => setShowAboutModal(true)}
         />
         <div className="flex-1 min-w-0">
@@ -728,7 +876,9 @@ export default function AppShell() {
             diagramLibrary={diagramLibrary}
             syncContext={syncContext}
             sharingContext={sharingContext}
-            isSignedIn={Boolean(syncContext?.isSyncEnabled)}
+            isSignedIn={Boolean(accountContext?.isSignedIn)}
+            hasAccount={Boolean(accountContext?.isSignedIn)}
+            onShowSignIn={() => setShowAccountModal(true)}
             onShowLinkDevice={() => setShowLinkDeviceModal(true)}
           />
         )}
@@ -736,7 +886,11 @@ export default function AppShell() {
           <Settings
             teamsContext={teamsContext}
             syncContext={syncContext}
+            accountContext={accountContext}
+            libraryHook={libraryHook}
+            diagramLibrary={diagramLibrary}
             onShowLinkDevice={() => setShowLinkDeviceModal(true)}
+            onShowAccount={() => setShowAccountModal(true)}
           />
         )}
         </div>
@@ -760,17 +914,26 @@ export default function AppShell() {
               setLinkDeviceDefaultMode(null);
             }
           }}
-          onInitialize={async () => {
-            await syncContext.initializeIdentity();
-            // Push current local teams to server
-            if (teamsData) {
-              await syncContext.forcePush(teamsData);
-            }
-          }}
+          onInitialize={enableSyncForFirstTime}
           onReset={() => {
             syncContext.resetSync();
             setShowLinkDeviceModal(false);
             setLinkDeviceDefaultMode(null);
+          }}
+        />
+      )}
+
+      {/* Account Modal — stub sign-in. Turns on cloud sync if it isn't already. */}
+      {showAccountModal && (
+        <AccountModal
+          onClose={() => setShowAccountModal(false)}
+          hasSync={syncContext.isSyncEnabled}
+          onSignIn={async (email) => {
+            // If sync isn't on yet, turn it on first — tier 3 implies tier 2.
+            if (!syncContext.isSyncEnabled) {
+              await enableSyncForFirstTime();
+            }
+            await accountContext.signIn(email);
           }}
         />
       )}
@@ -792,6 +955,7 @@ export default function AppShell() {
           onRestartTutorial={() => {
             setShowAboutModal(false);
             try { localStorage.removeItem(HAS_SEEN_WELCOME_KEY); } catch { /* ignore */ }
+            setHasSeenWelcome(false);
             teamsContext.navigateToWelcome?.();
           }}
         />

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import { migrateLegacyToShapes, canMigrateDiagram } from '../utils/diagramMigration';
 
 export default function DiagramLibrary({ teamsContext, diagramLibrary, embedded = false }) {
   const {
@@ -89,6 +90,37 @@ export default function DiagramLibrary({ teamsContext, diagramLibrary, embedded 
 
   const handleDuplicate = (diagramId) => {
     duplicateDiagram(diagramId);
+  };
+
+  // Diagrams that can be auto-converted from legacy to new format.
+  const convertibleDiagrams = useMemo(
+    () => diagrams.filter(canMigrateDiagram),
+    [diagrams],
+  );
+
+  const handleConvertAllClassic = () => {
+    const count = convertibleDiagrams.length;
+    if (count === 0) {
+      alert('No classic diagrams here that can be converted automatically.');
+      return;
+    }
+    const ok = window.confirm(
+      `Convert ${count} classic diagram${count === 1 ? '' : 's'} to the new format? ` +
+      'Positions and lines carry over; labels reset to A1/A2/D1… (easy to edit after).',
+    );
+    if (!ok) return;
+    let migrated = 0;
+    for (const d of convertibleDiagrams) {
+      const shapes = migrateLegacyToShapes(d.elements, d.lines);
+      if (shapes.length === 0) continue;
+      diagramLibrary.updateDiagram(d.id, {
+        shapes,
+        elements: [],
+        lines: [],
+      });
+      migrated += 1;
+    }
+    alert(`Converted ${migrated} diagram${migrated === 1 ? '' : 's'}. Open any of them to fine-tune.`);
   };
 
   const handleInsert = (diagram) => {
@@ -208,6 +240,17 @@ export default function DiagramLibrary({ teamsContext, diagramLibrary, embedded 
               className="px-3 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
             >
               Clear filters
+            </button>
+          )}
+          {convertibleDiagrams.length > 0 && (
+            <button
+              onClick={handleConvertAllClassic}
+              className="btn btn-secondary ml-auto"
+              style={{ fontSize: 12.5 }}
+              title={`Auto-convert ${convertibleDiagrams.length} classic diagram${convertibleDiagrams.length === 1 ? '' : 's'} to the new format`}
+            >
+              <span aria-hidden style={{ marginRight: 6 }}>✦</span>
+              Convert {convertibleDiagrams.length} classic
             </button>
           )}
         </div>
