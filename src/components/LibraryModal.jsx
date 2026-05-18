@@ -1,9 +1,15 @@
 import React, { useState, useMemo } from 'react';
 
+// Library popup for the Session Builder. Lets the coach pick a saved or
+// auto-tracked section to Insert / Replace into the current session, or Delete
+// (hide auto items, hard-delete manual ones). Callers pass an already-merged
+// `items` list (manual + auto) and receive the full item object back so they
+// don't have to look it up by id.
+
 export default function LibraryModal({
   isOpen,
   onClose,
-  library,
+  items = [],
   openedFromSectionId,
   insertMode,
   onInsert,
@@ -15,19 +21,31 @@ export default function LibraryModal({
   onClearLibrary,
 }) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
 
-  // Filter and sort library items
+  const uniqueTypes = useMemo(() => {
+    const set = new Set();
+    for (const item of items) {
+      const t = item.type || item.tags?.type;
+      if (t) set.add(t);
+    }
+    return Array.from(set).sort();
+  }, [items]);
+
   const filteredItems = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    return library.items
+    const q = searchQuery.trim().toLowerCase();
+    return items
       .filter(item => {
-        if (!query) return true;
-        const nameMatch = (item.name || '').toLowerCase().includes(query);
-        const typeMatch = (item.type || '').toLowerCase().includes(query);
-        return nameMatch || typeMatch;
+        if (typeFilter && (item.type || item.tags?.type) !== typeFilter) return false;
+        if (!q) return true;
+        const name = (item.name || '').toLowerCase();
+        const type = (item.type || '').toLowerCase();
+        const ageGroup = (item.tags?.ageGroup || '').toLowerCase();
+        const moment = (item.tags?.moment || '').toLowerCase();
+        return name.includes(q) || type.includes(q) || ageGroup.includes(q) || moment.includes(q);
       })
       .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-  }, [library.items, searchQuery]);
+  }, [items, searchQuery, typeFilter]);
 
   if (!isOpen) return null;
 
@@ -35,113 +53,187 @@ export default function LibraryModal({
     const file = e.target.files?.[0];
     if (file) {
       onImportLibrary(file);
-      e.target.value = ''; // Reset input
+      e.target.value = '';
     }
   };
 
   return (
     <>
-      {/* Backdrop */}
       <div className="modal-backdrop" onClick={onClose} />
-
-      {/* Modal Content */}
       <div className="modal-content">
-        {/* Header */}
-        <div className="flex justify-between items-start mb-4 pb-4 border-b border-slate-700">
+        <div className="flex items-start justify-between mb-4">
           <div>
-            <div className="inline-block px-3 py-1 bg-blue-600/20 text-blue-400 text-xs font-semibold rounded-full mb-2">
-              LIBRARY
-            </div>
-            <h2 className="text-2xl font-bold">Saved sections</h2>
-            <p className="text-sm text-slate-400 mt-1">
-              Insert reusable blocks like "Free Play" and "The Game".
+            <div className="eyebrow mb-1">LIBRARY</div>
+            <h2 className="text-[20px] font-semibold leading-tight" style={{ letterSpacing: '-0.02em' }}>
+              {openedFromSectionId ? 'Replace or insert from library' : 'Insert from library'}
+            </h2>
+            <p className="text-[12.5px] mt-1" style={{ color: 'var(--ink-2)' }}>
+              {openedFromSectionId
+                ? 'Replace this section with a saved one, or insert another below.'
+                : 'Pick a saved or auto-tracked section to add to this session.'}
             </p>
           </div>
-          <button onClick={onClose} className="btn btn-subtle">
-            Close
+          <button
+            onClick={onClose}
+            className="btn btn-ghost"
+            style={{ padding: '6px 8px' }}
+            aria-label="Close"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
           </button>
         </div>
 
+        <div className="hairline mb-4" />
+
         {/* Toolbar */}
-        <div className="flex flex-wrap gap-3 items-end mb-4 pb-4 border-b border-slate-700">
-          <div className="flex-1 min-w-[200px]">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search saved sections..."
-              className="input-field"
-            />
-          </div>
-          <div>
-            <label className="label-text">Insert as</label>
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by name, type, age, moment…"
+            className="flex-1 min-w-[200px] rounded-[10px] py-2 px-3 text-[13px] focus:outline-none"
+            style={{
+              background: 'var(--bg-sunken)',
+              border: '1px solid var(--line)',
+              color: 'var(--ink)',
+            }}
+          />
+          {uniqueTypes.length > 0 && (
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="rounded-[10px] py-2 px-3 text-[13px] focus:outline-none"
+              style={{
+                background: 'var(--bg-sunken)',
+                border: '1px solid var(--line)',
+                color: 'var(--ink)',
+              }}
+            >
+              <option value="">All types</option>
+              {uniqueTypes.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          )}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11.5px]" style={{ color: 'var(--ink-3)' }}>Insert</span>
             <select
               value={insertMode}
               onChange={(e) => onSetInsertMode(e.target.value)}
-              className="input-field w-auto"
+              className="rounded-[10px] py-2 px-3 text-[13px] focus:outline-none"
+              style={{
+                background: 'var(--bg-sunken)',
+                border: '1px solid var(--line)',
+                color: 'var(--ink)',
+              }}
             >
-              <option value="append">Append to end</option>
-              <option value="after-selected">After selected section</option>
+              <option value="append">at the end</option>
+              <option value="after-selected">after selected</option>
             </select>
           </div>
         </div>
 
-        {/* Library List */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 max-h-96 overflow-y-auto scrollbar-thin">
+        {/* List */}
+        <div
+          className="overflow-y-auto -mx-1 px-1"
+          style={{ maxHeight: '50vh' }}
+        >
           {filteredItems.length === 0 ? (
-            <div className="col-span-2 text-center py-8 text-slate-400">
-              {searchQuery ? 'No matching sections found.' : 'No saved sections yet. Use "Save to Library" on any section.'}
+            <div className="text-center py-12" style={{ color: 'var(--ink-2)' }}>
+              {searchQuery || typeFilter
+                ? 'No matching items.'
+                : 'No library items yet. Save a section, or it will auto-track once your sessions have content.'}
             </div>
           ) : (
-            filteredItems.map(item => (
-              <div key={item.id} className="p-4 bg-slate-900/30 border border-slate-700 rounded-lg">
-                <div className="flex justify-between items-start mb-2">
-                  <div className="font-bold">{item.name || 'Untitled'}</div>
-                  <span className="px-2 py-1 bg-slate-700 text-slate-300 text-xs font-semibold rounded-full">
-                    {(item.type || 'Other').toUpperCase()}
-                  </span>
-                </div>
-                <div className="text-xs text-slate-400 mb-3">
-                  Updated: {new Date(item.updatedAt || Date.now()).toLocaleString()}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => onInsert(item.id)}
-                    className="btn btn-primary text-sm"
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {filteredItems.map(item => {
+                const isAuto = item.source === 'auto';
+                const ageGroup = item.tags?.ageGroup;
+                const moment = item.tags?.moment;
+                return (
+                  <div
+                    key={item.id}
+                    className="card p-3 flex flex-col gap-2"
                   >
-                    Insert
-                  </button>
-                  {openedFromSectionId && (
-                    <button
-                      onClick={() => onReplace(item.id)}
-                      className="btn btn-secondary text-sm"
-                      title="Replace the current section with this library item"
-                    >
-                      Replace
-                    </button>
-                  )}
-                  <button
-                    onClick={() => {
-                      const ok = confirm(`Delete "${item.name}" from your library?`);
-                      if (ok) onDelete(item.id);
-                    }}
-                    className="btn btn-danger text-sm"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))
+                    <div className="flex items-start justify-between gap-2 min-w-0">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[13.5px] font-semibold truncate" style={{ letterSpacing: '-0.01em', color: 'var(--ink)' }}>
+                          {item.name || 'Untitled'}
+                        </div>
+                        <div className="text-[11.5px] mt-0.5 flex flex-wrap items-center gap-1" style={{ color: 'var(--ink-3)' }}>
+                          {(item.type || item.tags?.type) && (
+                            <span
+                              className="font-mono uppercase px-1.5 py-0.5 rounded-full"
+                              style={{ background: 'var(--bg-sunken)', color: 'var(--ink-2)', fontSize: 10, letterSpacing: '0.06em' }}
+                            >
+                              {item.type || item.tags?.type}
+                            </span>
+                          )}
+                          {ageGroup && <span>· {ageGroup}</span>}
+                          {moment && <span>· {moment}</span>}
+                        </div>
+                      </div>
+                      <span
+                        className="font-mono uppercase px-1.5 py-0.5 rounded-full flex-shrink-0"
+                        style={{
+                          background: isAuto ? 'var(--bg-sunken)' : 'var(--accent-soft)',
+                          color: isAuto ? 'var(--ink-3)' : 'var(--accent)',
+                          fontSize: 9.5,
+                          letterSpacing: '0.08em',
+                        }}
+                      >
+                        {isAuto ? 'Auto' : 'Saved'}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5 mt-auto">
+                      <button
+                        onClick={() => onInsert(item)}
+                        className="btn btn-primary"
+                        style={{ padding: '4px 10px', fontSize: 12 }}
+                      >
+                        Insert
+                      </button>
+                      {openedFromSectionId && (
+                        <button
+                          onClick={() => onReplace(item)}
+                          className="btn btn-secondary"
+                          style={{ padding: '4px 10px', fontSize: 12 }}
+                          title="Replace the current section with this item"
+                        >
+                          Replace
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          const label = item.name || 'this item';
+                          const msg = isAuto
+                            ? `Hide "${label}" from the library? It stays in its session.`
+                            : `Delete the saved "${label}" from your library?`;
+                          if (window.confirm(msg)) onDelete(item);
+                        }}
+                        className="btn btn-ghost ml-auto"
+                        style={{ padding: '4px 8px', fontSize: 12, color: 'var(--danger)' }}
+                        title={isAuto ? 'Hide from library' : 'Delete saved entry'}
+                      >
+                        {isAuto ? 'Hide' : 'Delete'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex flex-wrap gap-2 justify-end pt-4 border-t border-slate-700">
-          <button onClick={onExportLibrary} className="btn btn-subtle text-sm">
-            Export Library JSON
+        <div className="hairline mt-4 mb-3" />
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          <button onClick={onExportLibrary} className="btn btn-ghost" style={{ fontSize: 12 }}>
+            Export JSON
           </button>
-          <label className="btn btn-subtle text-sm cursor-pointer">
-            Import Library JSON
+          <label className="btn btn-ghost cursor-pointer" style={{ fontSize: 12 }}>
+            Import JSON
             <input
               type="file"
               accept="application/json"
@@ -149,9 +241,11 @@ export default function LibraryModal({
               className="hidden"
             />
           </label>
-          <button onClick={onClearLibrary} className="btn btn-danger text-sm">
-            Clear library
-          </button>
+          {onClearLibrary && (
+            <button onClick={onClearLibrary} className="btn btn-ghost" style={{ fontSize: 12, color: 'var(--danger)' }}>
+              Clear saved
+            </button>
+          )}
         </div>
       </div>
     </>

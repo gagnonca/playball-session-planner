@@ -92,16 +92,17 @@ function SummaryTile({ summary, sectionCount, active, onClick }) {
   );
 }
 
-function SectionTile({ section, index, active, onClick, dragAttributes, dragListeners, isDragging }) {
+function SectionTile({ section, index, active, onClick, onDelete, dragAttributes, dragListeners, isDragging }) {
   const tone = getKindTone(section.type);
   const minutes = parseMinutes(section.time);
+  const [hovered, setHovered] = React.useState(false);
   return (
     <div
       onClick={onClick}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter') onClick(); }}
-      className="rounded-[10px] transition-colors cursor-pointer"
+      className="rounded-[10px] transition-colors cursor-pointer group"
       style={{
         padding: '8px 10px',
         background: active ? 'var(--bg-elev)' : 'transparent',
@@ -113,8 +114,14 @@ function SectionTile({ section, index, active, onClick, dragAttributes, dragList
         alignItems: 'center',
         gap: 8,
       }}
-      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'rgb(var(--ink-rgb) / 0.04)'; }}
-      onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+      onMouseEnter={(e) => {
+        setHovered(true);
+        if (!active) e.currentTarget.style.background = 'rgb(var(--ink-rgb) / 0.04)';
+      }}
+      onMouseLeave={(e) => {
+        setHovered(false);
+        if (!active) e.currentTarget.style.background = 'transparent';
+      }}
     >
       <button
         {...dragAttributes}
@@ -154,7 +161,33 @@ function SectionTile({ section, index, active, onClick, dragAttributes, dragList
           {section.name || 'Untitled'}
         </div>
       </div>
-      {minutes > 0 && (
+      {onDelete && (hovered || active) ? (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (window.confirm(`Delete "${section.name || 'Untitled section'}"?`)) {
+              onDelete();
+            }
+          }}
+          className="flex-shrink-0"
+          title="Delete section"
+          aria-label="Delete section"
+          style={{
+            padding: 3,
+            background: 'transparent',
+            border: 'none',
+            color: 'var(--ink-3)',
+            cursor: 'pointer',
+            borderRadius: 6,
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--danger)'; e.currentTarget.style.background = 'rgb(var(--danger-rgb) / 0.1)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--ink-3)'; e.currentTarget.style.background = 'transparent'; }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 6L6 18M6 6l12 12" />
+          </svg>
+        </button>
+      ) : minutes > 0 && (
         <span className="font-mono flex-shrink-0" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
           {minutes}&prime;
         </span>
@@ -163,7 +196,7 @@ function SectionTile({ section, index, active, onClick, dragAttributes, dragList
   );
 }
 
-function SortableSectionTile({ section, index, active, onClick }) {
+function SortableSectionTile({ section, index, active, onClick, onDelete }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: section.id });
   const style = { transform: CSS.Transform.toString(transform), transition };
   return (
@@ -173,6 +206,7 @@ function SortableSectionTile({ section, index, active, onClick }) {
         index={index}
         active={active}
         onClick={onClick}
+        onDelete={onDelete}
         dragAttributes={attributes}
         dragListeners={listeners}
         isDragging={isDragging}
@@ -189,6 +223,7 @@ export default function SessionRail({
   onSelectSection,
   onReorderSections,
   onAddSection,
+  onDeleteSection,
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -229,9 +264,6 @@ export default function SessionRail({
         <span className="eyebrow" style={{ fontSize: 10.5 }}>
           PLAN ({sections.length})
         </span>
-        <button onClick={onAddSection} className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }}>
-          + Add
-        </button>
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -244,6 +276,7 @@ export default function SessionRail({
                 index={idx}
                 active={selectedSectionId === s.id}
                 onClick={() => onSelectSection(s.id)}
+                onDelete={onDeleteSection ? () => onDeleteSection(s.id) : undefined}
               />
             ))}
             {sections.length === 0 && (
@@ -260,6 +293,42 @@ export default function SessionRail({
           </div>
         </SortableContext>
       </DndContext>
+
+      {sections.length > 0 && (
+        <button
+          onClick={onAddSection}
+          className="rounded-[10px] mt-1 transition-colors"
+          style={{
+            padding: '10px 12px',
+            border: '1px dashed var(--line-2)',
+            background: 'transparent',
+            color: 'var(--ink-2)',
+            fontSize: 13,
+            fontWeight: 500,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = 'var(--accent)';
+            e.currentTarget.style.color = 'var(--accent)';
+            e.currentTarget.style.background = 'var(--accent-soft)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = 'var(--line-2)';
+            e.currentTarget.style.color = 'var(--ink-2)';
+            e.currentTarget.style.background = 'transparent';
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          Add section
+        </button>
+      )}
     </aside>
   );
 }

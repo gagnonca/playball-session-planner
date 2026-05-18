@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import { pdf } from '@react-pdf/renderer';
 import SessionSummary from '../SessionSummary';
 import Section from '../Section';
@@ -10,9 +10,12 @@ import SessionRail from './SessionRail';
 import SharePopover from './SharePopover';
 import { planTotal, parseMinutes, countReferenced } from '../../utils/sessionDuration';
 import useAI from '../../hooks/useAI';
+import { useLocalStorage } from '../../hooks/useLocalStorage';
+import { LIBRARY_HIDDEN_KEY } from '../../constants/storage';
 import {
   defaultSection,
   libraryPayloadToSection,
+  sectionToLibraryPayload,
   toast,
   downloadJson,
 } from '../../utils/helpers';
@@ -61,7 +64,7 @@ function DurationChip({ current, target }) {
   );
 }
 
-export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHook, syncContext, sharingContext, onShowLinkDevice }) {
+export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHook, syncContext, sharingContext, accountContext, onShowLinkDevice }) {
   const {
     selectedTeamId,
     selectedSessionId,
@@ -275,62 +278,98 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
     toast('Practice added ✅');
   }, [session.sections, setSession]);
 
-  // Library handlers
-  const handleInsertLibraryItem = useCallback((itemId) => {
-    const item = libraryHook.exercises.items.find(x => x.id === itemId);
-    if (!item) return;
+  // Hidden ids — mirrors what Library.jsx tracks so the modal lists the same items.
+  const [hiddenIds, setHiddenIds] = useLocalStorage(LIBRARY_HIDDEN_KEY, { exercises: [], sessions: [] });
+  const hideExerciseId = useCallback((id) => {
+    setHiddenIds(prev => ({ ...prev, exercises: Array.from(new Set([...(prev.exercises || []), id])) }));
+  }, [setHiddenIds]);
 
+  // Merged exercise items for the LibraryModal: every section across every team
+  // (auto-tracked) plus any manually saved entries. Same shape Library.jsx uses
+  // so coaches see the same list whether they open the modal or the tab.
+  const libraryModalItems = useMemo(() => {
+    const teams = teamsContext.teamsData?.teams || [];
+    const byId = new Map();
+    for (const team of teams) {
+      for (const sess of (team.sessions || [])) {
+        for (const sec of (sess.sections || [])) {
+          if (!sec?.id) continue;
+          byId.set(sec.id, {
+            id: sec.id,
+            name: sec.name || 'Untitled exercise',
+            type: sec.type || 'Other',
+            tags: {
+              type: sec.type || '',
+              ageGroup: sess.summary?.ageGroup || '',
+              moment: sess.summary?.moment || '',
+            },
+            payload: sectionToLibraryPayload(sec),
+            updatedAt: sess.updatedAt || team.updatedAt || '',
+            source: 'auto',
+          });
+        }
+      }
+    }
+    for (const item of libraryHook.exercises.items || []) {
+      byId.set(item.id, { ...item, source: 'manual' });
+    }
+    const hidden = new Set(hiddenIds.exercises || []);
+    return Array.from(byId.values()).filter(i => !hidden.has(i.id));
+  }, [teamsContext.teamsData, libraryHook.exercises.items, hiddenIds.exercises]);
+
+  // Library handlers — now receive the full item object so callers don't have
+  // to do an id lookup (which used to silently fail for auto items).
+  const handleInsertLibraryItem = useCallback((item) => {
+    if (!item) return;
     const newSection = libraryPayloadToSection(item.payload, item.id);
 
-    if (libraryInsertMode === 'after-selected' && session.selectedSectionId) {
-      const idx = session.sections.findIndex(s => s.id === session.selectedSectionId);
-      if (idx >= 0) {
-        setSession(prev => ({
-          ...prev,
-          sections: [
-            ...prev.sections.slice(0, idx + 1),
-            newSection,
-            ...prev.sections.slice(idx + 1)
-          ]
-        }));
-      } else {
-        setSession(prev => ({
-          ...prev,
-          sections: [...prev.sections, newSection]
-        }));
-      }
-    } else {
-      setSession(prev => ({
+    setSession(prev => {
+      const targetId = libraryInsertMode === 'after-selected' ? prev.selectedSectionId : null;
+      if (!targetId) return { ...prev, sections: [...prev.sections, newSection] };
+      const idx = prev.sections.findIndex(s => s.id === targetId);
+      if (idx < 0) return { ...prev, sections: [...prev.sections, newSection] };
+      return {
         ...prev,
-        sections: [...prev.sections, newSection]
-      }));
-    }
+        sections: [
+          ...prev.sections.slice(0, idx + 1),
+          newSection,
+          ...prev.sections.slice(idx + 1),
+        ],
+      };
+    });
 
+    setIsLibraryModalOpen(false);
+    setLibraryOpenedFromSectionId(null);
     toast('Section inserted ✅');
-  }, [libraryHook.exercises.items, libraryInsertMode, session.selectedSectionId, session.sections, setSession]);
+  }, [libraryInsertMode, setSession]);
 
-  const handleReplaceWithLibraryItem = useCallback((itemId) => {
-    if (!libraryOpenedFromSectionId) return;
-
-    const item = libraryHook.exercises.items.find(x => x.id === itemId);
-    if (!item) return;
-
+  const handleReplaceWithLibraryItem = useCallback((item) => {
+    if (!libraryOpenedFromSectionId || !item) return;
     // Replace: section now carries the library item's id, so edits flow to that library entry.
     const newSection = libraryPayloadToSection(item.payload, item.id);
 
     setSession(prev => ({
       ...prev,
-      sections: prev.sections.map(s => s.id === libraryOpenedFromSectionId ? newSection : s)
+      sections: prev.sections.map(s => s.id === libraryOpenedFromSectionId ? newSection : s),
     }));
 
     setIsLibraryModalOpen(false);
+    setLibraryOpenedFromSectionId(null);
     toast('Section replaced ✅');
-  }, [libraryOpenedFromSectionId, libraryHook.exercises.items, setSession]);
+  }, [libraryOpenedFromSectionId, setSession]);
 
-  const handleDeleteLibraryItem = useCallback((itemId) => {
-    libraryHook.deleteExercise(itemId);
-    toast('Library item deleted ✅');
-  }, [libraryHook]);
+  // Delete vs hide depending on source — auto items live on a session, hiding
+  // just removes them from the library view. Manual saves get hard-deleted.
+  const handleDeleteLibraryItem = useCallback((item) => {
+    if (!item) return;
+    if (item.source === 'manual') {
+      libraryHook.deleteExercise(item.id);
+      toast('Saved entry deleted ✅');
+    } else {
+      hideExerciseId(item.id);
+      toast('Hidden from library');
+    }
+  }, [libraryHook, hideExerciseId]);
 
   const handleExportLibrary = useCallback(() => {
     libraryHook.exportLibrary();
@@ -461,7 +500,7 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
   // Share state — derived from the parent team's sharing flag. Per-item share
   // scope isn't in the data model yet; sharing a session is sharing its team.
   const syncEnabled = Boolean(syncContext?.isSyncEnabled);
-  const hasAccount = false; // Account tier isn't wired yet; popover treats Public as locked.
+  const hasAccount = Boolean(accountContext?.isSignedIn);
   const isTeamShared = Boolean(team?.sharing?.isShared && team?.sharing?.shareToken);
   const shareScope = isTeamShared ? 'coaches' : 'private';
   const refCounts = countReferenced(session.sections);
@@ -617,6 +656,7 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
           onSelectSection={handleSelectSection}
           onReorderSections={handleReorderSections}
           onAddSection={handleAddSection}
+          onDeleteSection={handleRemoveSection}
         />
 
         <main className="flex-1 min-w-0 px-8 py-8 overflow-x-hidden">
@@ -697,7 +737,7 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
           setIsLibraryModalOpen(false);
           setLibraryOpenedFromSectionId(null);
         }}
-        library={libraryHook.exercises}
+        items={libraryModalItems}
         openedFromSectionId={libraryOpenedFromSectionId}
         insertMode={libraryInsertMode}
         onInsert={handleInsertLibraryItem}
