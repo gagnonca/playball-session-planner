@@ -57,7 +57,8 @@ export default function Schedule({ teamsContext }) {
   const [view, setView] = useState('month'); // 'month' | 'list'
   const [filterTeamId, setFilterTeamId] = useState('all');
 
-  // Flatten every dated session into an event list.
+  // Flatten every dated session AND game into a unified event list. Game
+  // events carry `kind: 'game'` so the views can render them differently.
   const events = useMemo(() => {
     const out = [];
     for (const team of teams) {
@@ -66,6 +67,7 @@ export default function Schedule({ teamsContext }) {
         const date = parseSessionDate(session.summary?.date);
         if (!date) continue;
         out.push({
+          kind: 'session',
           id: session.id,
           teamId: team.id,
           teamName: team.name,
@@ -75,6 +77,26 @@ export default function Schedule({ teamsContext }) {
           duration: session.summary?.duration || '',
           moment: session.summary?.moment || '',
           sectionCount: session.sections?.length || 0,
+        });
+      }
+      for (const game of team.games || []) {
+        const date = parseSessionDate(game.date);
+        if (!date) continue;
+        const periods = game.payload?.numberOfPeriods;
+        const periodLen = game.payload?.periodLengthMinutes;
+        // Reuse the existing `duration` slot for a compact "4×10m" tag in
+        // the Month view, plus a friendlier label in the List view.
+        const compactDuration = (periods && periodLen) ? `${periods}×${periodLen}m` : '';
+        out.push({
+          kind: 'game',
+          id: game.id,
+          teamId: team.id,
+          teamName: team.name,
+          teamColor: tone,
+          title: game.name || 'Game',
+          date,
+          duration: compactDuration,
+          isHome: !!game.is_home,
         });
       }
     }
@@ -93,8 +115,7 @@ export default function Schedule({ teamsContext }) {
             <div className="eyebrow mb-2">SCHEDULE · {monthLabel(cursor).toUpperCase()}</div>
             <h1 className="text-[40px] font-semibold leading-[1.04]" style={{ letterSpacing: '-0.02em' }}>The weeks ahead.</h1>
             <p className="mt-2 text-[14.5px] max-w-[540px]" style={{ color: 'var(--ink-2)' }}>
-              Practices and games for every team you coach.{' '}
-              <span style={{ color: 'var(--ink-3)' }}>iOS app sync coming soon &mdash; for now this view aggregates every session that has a date.</span>
+              Practices and games for every team you coach &mdash; sessions you've scheduled and games synced from the PlayBall iOS app.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -183,13 +204,17 @@ export default function Schedule({ teamsContext }) {
           <MonthView
             cursor={cursor}
             events={filteredEvents}
-            onOpenEvent={(e) => navigateToSessionBuilder(e.teamId, e.id)}
+            onOpenEvent={(e) => e.kind === 'game'
+              ? navigateToTeamDetail(e.teamId)
+              : navigateToSessionBuilder(e.teamId, e.id)}
           />
         ) : (
           <ListView
             cursor={cursor}
             events={filteredEvents}
-            onOpenEvent={(e) => navigateToSessionBuilder(e.teamId, e.id)}
+            onOpenEvent={(e) => e.kind === 'game'
+              ? navigateToTeamDetail(e.teamId)
+              : navigateToSessionBuilder(e.teamId, e.id)}
             onOpenTeam={(teamId) => navigateToTeamDetail(teamId)}
           />
         )}
@@ -325,34 +350,51 @@ function MonthView({ cursor, events, onOpenEvent }) {
               {c.date.getDate()}
             </div>
             <div className="flex flex-col gap-[3px]">
-              {c.events.slice(0, 3).map((e, k) => (
-                <button
-                  key={k}
-                  onClick={() => onOpenEvent && onOpenEvent(e)}
-                  className="w-full text-left rounded-[4px] overflow-hidden whitespace-nowrap"
-                  style={{
-                    background: `color-mix(in oklab, ${e.teamColor} 18%, var(--bg-elev))`,
-                    color: 'var(--ink)',
-                    padding: '3px 6px',
-                    fontSize: 11,
-                    border: 'none',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 5,
-                  }}
-                  title={e.title}
-                >
-                  <span
-                    className="inline-block flex-shrink-0 rounded-full"
-                    style={{ width: 4, height: 4, background: e.teamColor }}
-                  />
-                  <span className="font-mono" style={{ fontSize: 9.5, opacity: 0.7, flexShrink: 0 }}>
-                    {e.duration ? `${String(e.duration).match(/\d+/)?.[0] || ''}m` : ''}
-                  </span>
-                  <span className="overflow-hidden" style={{ textOverflow: 'ellipsis' }}>{e.title}</span>
-                </button>
-              ))}
+              {c.events.slice(0, 3).map((e, k) => {
+                const isGame = e.kind === 'game';
+                // Sessions: pull the minutes out of summary.duration (often
+                // "60 min"). Games already arrive pre-formatted as "4×10m".
+                const subtitle = isGame
+                  ? e.duration
+                  : (e.duration ? `${String(e.duration).match(/\d+/)?.[0] || ''}m` : '');
+                return (
+                  <button
+                    key={k}
+                    onClick={() => onOpenEvent && onOpenEvent(e)}
+                    className="w-full text-left rounded-[4px] overflow-hidden whitespace-nowrap"
+                    style={{
+                      background: isGame
+                        ? `color-mix(in oklab, ${e.teamColor} 28%, var(--bg-elev))`
+                        : `color-mix(in oklab, ${e.teamColor} 18%, var(--bg-elev))`,
+                      color: 'var(--ink)',
+                      padding: '3px 6px',
+                      fontSize: 11,
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 5,
+                    }}
+                    title={`${isGame ? 'Game · ' : ''}${e.title}${isGame && e.isHome != null ? ` (${e.isHome ? 'Home' : 'Away'})` : ''}`}
+                  >
+                    <span
+                      className="inline-block flex-shrink-0"
+                      style={{
+                        width: 5,
+                        height: 5,
+                        background: e.teamColor,
+                        borderRadius: isGame ? 1 : '50%',
+                      }}
+                    />
+                    {subtitle && (
+                      <span className="font-mono" style={{ fontSize: 9.5, opacity: 0.7, flexShrink: 0 }}>
+                        {subtitle}
+                      </span>
+                    )}
+                    <span className="overflow-hidden" style={{ textOverflow: 'ellipsis' }}>{e.title}</span>
+                  </button>
+                );
+              })}
               {c.events.length > 3 && (
                 <span className="text-[10.5px] font-mono uppercase" style={{ color: 'var(--ink-3)', letterSpacing: '0.08em' }}>
                   +{c.events.length - 3} more
@@ -382,12 +424,12 @@ function ListView({ cursor, events, onOpenEvent }) {
   if (groups.length === 0) {
     return (
       <div className="card p-12 text-center">
-        <div className="eyebrow mb-3">NO SESSIONS</div>
+        <div className="eyebrow mb-3">NOTHING SCHEDULED</div>
         <h3 className="text-[18px] font-semibold mb-2" style={{ letterSpacing: '-0.015em' }}>
-          No scheduled sessions yet
+          No upcoming sessions or games
         </h3>
         <p className="text-[13.5px] max-w-md mx-auto" style={{ color: 'var(--ink-2)' }}>
-          Schedule a session in any team and it&rsquo;ll show up here, grouped by week.
+          Schedule a session, or add a game to any linked team &mdash; it&rsquo;ll show up here, grouped by week.
         </p>
       </div>
     );
@@ -434,7 +476,20 @@ function ListView({ cursor, events, onOpenEvent }) {
                     <span className="text-[15px] font-semibold truncate" style={{ letterSpacing: '-0.015em' }}>
                       {e.title}
                     </span>
-                    {e.moment && (
+                    {e.kind === 'game' && (
+                      <span
+                        className="px-2 py-0.5 rounded-full text-[11px] font-mono uppercase"
+                        style={{
+                          background: 'var(--bg-sunken)',
+                          color: 'var(--ink-2)',
+                          border: '1px solid var(--line)',
+                          letterSpacing: '0.08em',
+                        }}
+                      >
+                        Game · {e.isHome ? 'Home' : 'Away'}
+                      </span>
+                    )}
+                    {e.kind !== 'game' && e.moment && (
                       <span className="px-2 py-0.5 rounded-full text-[11px]" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
                         {e.moment}
                       </span>
@@ -457,7 +512,7 @@ function ListView({ cursor, events, onOpenEvent }) {
 
       <div style={{ marginTop: 4 }} className="text-[12px] text-center" >
         <span className="font-mono uppercase" style={{ color: 'var(--ink-3)', letterSpacing: '0.08em' }}>
-          Showing {events.length} session{events.length === 1 ? '' : 's'} across all dates · {monthLabel(cursor)} cursor
+          Showing {events.length} event{events.length === 1 ? '' : 's'} across all dates · {monthLabel(cursor)} cursor
         </span>
       </div>
     </div>

@@ -5,14 +5,15 @@ import { supabase } from './supabase.js';
 // sees backup-imported data without any client change.
 
 export async function buildTeamsBlob(coachId) {
-  const [coachRes, teamsRes, sessionsRes] = await Promise.all([
+  const [coachRes, teamsRes, sessionsRes, gamesRes] = await Promise.all([
     supabase.from('coaches').select('*').eq('coach_id', coachId).maybeSingle(),
     supabase.from('teams').select('*').eq('coach_id', coachId).is('deleted_at', null),
     supabase.from('sessions').select('*').eq('coach_id', coachId).is('deleted_at', null),
+    supabase.from('games').select('*').eq('coach_id', coachId).is('deleted_at', null),
   ]);
 
-  if (coachRes.error || teamsRes.error || sessionsRes.error) {
-    console.error('[pgToBlob.teams]', coachRes.error || teamsRes.error || sessionsRes.error);
+  if (coachRes.error || teamsRes.error || sessionsRes.error || gamesRes.error) {
+    console.error('[pgToBlob.teams]', coachRes.error || teamsRes.error || sessionsRes.error || gamesRes.error);
     return null;
   }
   if (!coachRes.data) return null;
@@ -34,6 +35,23 @@ export async function buildTeamsBlob(coachId) {
     sessionsByTeam.set(s.team_id, list);
   }
 
+  const gamesByTeam = new Map();
+  for (const g of gamesRes.data || []) {
+    const list = gamesByTeam.get(g.team_id) || [];
+    // Carry both the table columns the Schedule view reads (id, name, date,
+    // is_home) and the full payload so consumers can show captain / available
+    // players without an extra fetch.
+    list.push({
+      id: g.id,
+      name: g.name,
+      date: g.date,
+      is_home: g.is_home,
+      payload: g.payload || {},
+      updatedAt: g.updated_at,
+    });
+    gamesByTeam.set(g.team_id, list);
+  }
+
   const teams = (teamsRes.data || []).map(t => ({
     id: t.id,
     name: t.name,
@@ -43,6 +61,7 @@ export async function buildTeamsBlob(coachId) {
     iosShareCode: t.ios_share_code ?? null,
     players: Array.isArray(t.players) ? t.players : [],
     sessions: sessionsByTeam.get(t.id) || [],
+    games: gamesByTeam.get(t.id) || [],
   }));
 
   // Latest updated_at across all rows (for freshness comparison).
@@ -50,6 +69,7 @@ export async function buildTeamsBlob(coachId) {
     coachRes.data.updated_at,
     ...(teamsRes.data || []).map(t => t.updated_at),
     ...(sessionsRes.data || []).map(s => s.updated_at),
+    ...(gamesRes.data || []).map(g => g.updated_at),
   ].filter(Boolean);
   const lastUpdatedAt = stamps.length ? stamps.sort().at(-1) : null;
 
