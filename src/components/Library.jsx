@@ -756,6 +756,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
                   const isMulti = group.versions.length > 1;
                   const isOpen = expandedGroups.has(group.key);
                   const team = rep.origin?.teamId ? getTeam(rep.origin.teamId) : null;
+                  const exerciseThumb = getDiagramThumb(rep.payload);
                   const typeTone = rep.type === 'Play'
                     ? { bg: 'var(--accent-soft)', fg: 'var(--accent)' }
                     : rep.type === 'Warm-up'
@@ -763,6 +764,23 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
                     : { bg: 'rgb(var(--good-rgb) / 0.18)', fg: 'var(--good)' };
                   return (
                     <div key={group.key} className={`card card-hover p-4 flex flex-col gap-3 ${isMulti && isOpen ? 'sm:col-span-2 lg:col-span-3' : ''}`}>
+                      {exerciseThumb && (
+                        <div
+                          className="overflow-hidden rounded-[10px]"
+                          style={{
+                            background: 'var(--bg-sunken)',
+                            border: '1px solid var(--line)',
+                            aspectRatio: '16 / 9',
+                          }}
+                        >
+                          <img
+                            src={exerciseThumb}
+                            alt=""
+                            className="w-full h-full"
+                            style={{ objectFit: 'cover', display: 'block' }}
+                          />
+                        </div>
+                      )}
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                           <div className="font-semibold truncate" style={{ letterSpacing: '-0.015em' }}>{group.name}</div>
