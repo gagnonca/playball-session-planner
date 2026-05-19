@@ -14,9 +14,15 @@ import { mirrorTeamsBlob, mirrorLibraryBlob } from './_lib/dualWrite.js';
 //   GET    /teams                            list
 //   PUT    /teams/:id                        upsert
 //   DELETE /teams/:id
+//   POST   /teams/:id/link-ios               body: { shareCode } — attach an
+//                                            iOS-shared (anon) team's games
+//                                            to the caller's web team.
 //   GET    /sessions                         list (optionally ?teamId=)
 //   PUT    /sessions/:id                     upsert
 //   DELETE /sessions/:id
+//   GET    /games                            list (requires ?teamId=)
+//   PUT    /games/:id                        upsert
+//   DELETE /games/:id
 //   GET    /library/exercises                list
 //   PUT    /library/exercises/:id            upsert
 //   DELETE /library/exercises/:id
@@ -60,8 +66,9 @@ export default async function handler(req, res) {
     if (!auth.ok) return res.status(auth.status).json(auth.body);
 
     if (root === 'coaches') return routeCoach(a, req, res, auth);
-    if (root === 'teams') return routeTeams(a, req, res, auth);
+    if (root === 'teams') return routeTeams(a, b, req, res, auth);
     if (root === 'sessions') return routeSessions(a, req, res, auth);
+    if (root === 'games') return routeGames(a, req, res, auth);
     if (root === 'diagrams') return routeDiagrams(a, req, res, auth);
     if (root === 'library') return routeLibrary(a, b, c, req, res, auth);
 
@@ -100,7 +107,7 @@ async function routeCoach(coachId, req, res, auth) {
 
 // ---------- teams ----------
 
-async function routeTeams(id, req, res, auth) {
+async function routeTeams(id, action, req, res, auth) {
   if (!id) {
     if (req.method !== 'GET') return sendError(res, 405, 'method_not_allowed');
     const { data, error } = await supabase
@@ -108,6 +115,8 @@ async function routeTeams(id, req, res, auth) {
     if (error) return sendError(res, 500, 'server_error');
     return res.status(200).json({ success: true, teams: data });
   }
+
+  if (action === 'link-ios') return linkIosShareToTeam(id, req, res, auth);
 
   if (req.method === 'PUT') {
     const { name, ageGroup, defaultDuration, sharing } = req.body || {};
@@ -190,6 +199,167 @@ async function routeSessions(id, req, res, auth) {
   }
 
   return sendError(res, 405, 'method_not_allowed');
+}
+
+// ---------- games ----------
+
+async function routeGames(id, req, res, auth) {
+  if (!id) {
+    if (req.method !== 'GET') return sendError(res, 405, 'method_not_allowed');
+    const teamId = req.query.teamId;
+    if (!teamId) return sendError(res, 400, 'missing_teamId');
+    // Confirm the team belongs to the caller before returning any games.
+    const { data: team, error: teamErr } = await supabase
+      .from('teams').select('id')
+      .eq('id', teamId).eq('coach_id', auth.coachId).is('deleted_at', null)
+      .maybeSingle();
+    if (teamErr) return sendError(res, 500, 'server_error');
+    if (!team) return sendError(res, 403, 'team_not_owned');
+
+    const { data, error } = await supabase
+      .from('games').select('*')
+      .eq('team_id', teamId).eq('coach_id', auth.coachId).is('deleted_at', null);
+    if (error) return sendError(res, 500, 'server_error');
+    return res.status(200).json({ success: true, games: data });
+  }
+
+  if (req.method === 'PUT') {
+    const { teamId, name, date, isHome, payload } = req.body || {};
+    if (!teamId || !name) return sendError(res, 400, 'missing_fields');
+
+    const { data: team, error: teamErr } = await supabase
+      .from('teams').select('id')
+      .eq('id', teamId).eq('coach_id', auth.coachId)
+      .maybeSingle();
+    if (teamErr) return sendError(res, 500, 'server_error');
+    if (!team) return sendError(res, 403, 'team_not_owned');
+
+    const { data, error } = await supabase.from('games').upsert({
+      id,
+      team_id: teamId,
+      coach_id: auth.coachId,
+      name,
+      date: date ?? null,
+      is_home: !!isHome,
+      payload: payload ?? {},
+      updated_at: new Date().toISOString(),
+      deleted_at: null,
+    }).select().single();
+    if (error) { console.error('[games.put]', error); return sendError(res, 500, 'server_error'); }
+    return res.status(200).json({ success: true, game: data });
+  }
+
+  if (req.method === 'DELETE') {
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from('games')
+      .update({ deleted_at: now, updated_at: now })
+      .eq('id', id).eq('coach_id', auth.coachId);
+    if (error) return sendError(res, 500, 'server_error');
+    await touchCoach(auth.coachId);
+    return res.status(200).json({ success: true });
+  }
+
+  return sendError(res, 405, 'method_not_allowed');
+}
+
+// ---------- link iOS share to an existing web team ----------
+
+// POST /teams/:id/link-ios — body: { shareCode }
+// Attach an iOS-shared (anon) team's games to the caller's existing web
+// team. Games are reparented to the web team and the share code is stamped
+// onto the web team so subsequent team-share/push calls land directly on it.
+//
+// Refuses if:
+//  - the share code doesn't exist
+//  - the share code is already owned by a different real coach
+//  - the caller's team is already linked to a different share code
+async function linkIosShareToTeam(webTeamId, req, res, auth) {
+  if (req.method !== 'POST') return sendError(res, 405, 'method_not_allowed');
+  const { shareCode } = req.body || {};
+  if (!shareCode || typeof shareCode !== 'string') return sendError(res, 400, 'missing_shareCode');
+
+  // Confirm caller owns the target web team.
+  const { data: webTeam, error: webErr } = await supabase
+    .from('teams').select('id, coach_id, ios_share_code')
+    .eq('id', webTeamId).eq('coach_id', auth.coachId).is('deleted_at', null)
+    .maybeSingle();
+  if (webErr) return sendError(res, 500, 'server_error');
+  if (!webTeam) return sendError(res, 404, 'team_not_found');
+  if (webTeam.ios_share_code && webTeam.ios_share_code !== shareCode) {
+    return sendError(res, 409, 'already_linked', 'This team is already linked to a different iOS share code.');
+  }
+
+  // Find the iOS-side team carrying this share code.
+  const { data: iosTeam, error: iosErr } = await supabase
+    .from('teams').select('id, coach_id')
+    .eq('ios_share_code', shareCode).is('deleted_at', null)
+    .maybeSingle();
+  if (iosErr) return sendError(res, 500, 'server_error');
+
+  const now = new Date().toISOString();
+
+  // No prior team-share/push has landed for this code yet (or its row was
+  // deleted). Just stamp the code onto the web team — the next iOS push
+  // will land directly here via the mirror.
+  if (!iosTeam) {
+    const { error: stampErr } = await supabase
+      .from('teams')
+      .update({ ios_share_code: shareCode, updated_at: now })
+      .eq('id', webTeamId).eq('coach_id', auth.coachId);
+    if (stampErr) return sendError(res, 500, 'server_error');
+    await touchCoach(auth.coachId);
+    return res.status(200).json({ success: true, linkedTeamId: webTeamId, gamesTransferred: 0 });
+  }
+
+  // Same row already — idempotent.
+  if (iosTeam.id === webTeamId) {
+    return res.status(200).json({ success: true, linkedTeamId: webTeamId, gamesTransferred: 0 });
+  }
+
+  // Owned by another real coach — refuse.
+  if (!iosTeam.coach_id.startsWith('anon:')) {
+    return sendError(res, 409, 'already_claimed', 'This share code is owned by another coach.');
+  }
+
+  const oldCoachId = iosTeam.coach_id;
+  const oldTeamId = iosTeam.id;
+
+  // Reparent games from the anon team to the caller's web team. Guard on
+  // the old coach_id so a concurrent link cannot double-process.
+  const { data: movedGames, error: gamesErr } = await supabase
+    .from('games')
+    .update({ team_id: webTeamId, coach_id: auth.coachId, updated_at: now })
+    .eq('team_id', oldTeamId).eq('coach_id', oldCoachId)
+    .select('id');
+  if (gamesErr) { console.error('[link-ios.games]', gamesErr); return sendError(res, 500, 'server_error'); }
+
+  // Stamp the share code onto the web team. Clear it from the anon team
+  // first so the unique index doesn't collide on the same value.
+  const { error: clearErr } = await supabase
+    .from('teams')
+    .update({ ios_share_code: null, updated_at: now })
+    .eq('id', oldTeamId).eq('coach_id', oldCoachId);
+  if (clearErr) { console.error('[link-ios.clear]', clearErr); return sendError(res, 500, 'server_error'); }
+
+  const { error: stampErr } = await supabase
+    .from('teams')
+    .update({ ios_share_code: shareCode, updated_at: now })
+    .eq('id', webTeamId).eq('coach_id', auth.coachId);
+  if (stampErr) { console.error('[link-ios.stamp]', stampErr); return sendError(res, 500, 'server_error'); }
+
+  // Soft-delete the now-empty anon team and drop the orphaned anon coach.
+  await supabase.from('teams')
+    .update({ deleted_at: now, updated_at: now })
+    .eq('id', oldTeamId).eq('coach_id', oldCoachId);
+  await supabase.from('coaches').delete().eq('coach_id', oldCoachId);
+
+  await touchCoach(auth.coachId);
+  return res.status(200).json({
+    success: true,
+    linkedTeamId: webTeamId,
+    gamesTransferred: movedGames?.length || 0,
+  });
 }
 
 // ---------- diagrams ----------

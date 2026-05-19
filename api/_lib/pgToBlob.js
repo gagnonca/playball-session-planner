@@ -40,6 +40,7 @@ export async function buildTeamsBlob(coachId) {
     ageGroup: t.age_group ?? '',
     defaultDuration: t.default_duration ?? '',
     sharing: t.sharing || { isShared: false },
+    iosShareCode: t.ios_share_code ?? null,
     sessions: sessionsByTeam.get(t.id) || [],
   }));
 

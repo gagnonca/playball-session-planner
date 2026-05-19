@@ -25,6 +25,16 @@ export async function verifyDevice(req) {
     };
   }
 
+  // Anon coaches are created by the team-share/push mirror for unclaimed
+  // iOS shares. They have no real owner and must never authenticate.
+  if (typeof coachId === 'string' && coachId.startsWith('anon:')) {
+    return {
+      ok: false,
+      status: 403,
+      body: { success: false, error: 'anon_coach', message: 'Anonymous shares cannot be used to sign in' },
+    };
+  }
+
   const { data: coach, error } = await supabase
     .from('coaches')
     .select('coach_id, devices, default_team_id')

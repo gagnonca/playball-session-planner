@@ -1,5 +1,6 @@
 import { redis } from '../_lib/redis.js';
 import { put, del } from '@vercel/blob';
+import { mirrorTeamSharePush } from '../_lib/dualWrite.js';
 
 const VALID_CODE = /^[A-Z2-9]{6}$/;
 
@@ -70,6 +71,11 @@ export default async function handler(req, res) {
     };
 
     await redis.set(`team-share:${code}`, JSON.stringify(payload));
+
+    // Best-effort Postgres mirror. Never blocks the iOS request — if the
+    // mirror throws or rejects, the Redis write above remains the source
+    // of truth for iOS-to-iOS sharing.
+    await mirrorTeamSharePush({ shareCode: code, team });
 
     return res.status(200).json({ success: true });
   } catch (error) {

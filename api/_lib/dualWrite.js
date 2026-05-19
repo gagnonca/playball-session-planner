@@ -129,6 +129,104 @@ export async function mirrorTeamsBlob({ coachId, coachData }) {
   }
 }
 
+// Mirror an iOS team-share push into Postgres. Source of truth for iOS
+// stays in Redis during the transition; this is best-effort additive.
+//
+// Behavior:
+//  - Look up an existing teams row by ios_share_code. If found, keep its
+//    coach_id (anon or claimed) — never silently rewrite coach ownership here.
+//  - If no row exists yet, create an anon coach (`anon:{code}`) and a new team
+//    under it. The web "Link iOS team" flow rewrites coach_id later.
+//  - Upsert each incoming game; soft-delete games that disappeared from the push.
+export async function mirrorTeamSharePush({ shareCode, team }) {
+  try {
+    if (!shareCode || !team?.id) return;
+    const now = new Date().toISOString();
+
+    // Resolve coach_id: existing team's coach wins; otherwise anon.
+    const { data: existingTeam, error: lookupErr } = await supabase
+      .from('teams')
+      .select('id, coach_id')
+      .eq('ios_share_code', shareCode)
+      .maybeSingle();
+    if (lookupErr) { console.error('[dualWrite.teamShare.lookup]', lookupErr); return; }
+
+    const coachId = existingTeam?.coach_id || `anon:${shareCode}`;
+    const teamId = existingTeam?.id || team.id;
+    const isAnon = coachId.startsWith('anon:');
+
+    // Only touch the coaches row for anon coaches. Real (claimed) coaches
+    // own their devices array and must not be clobbered by a push.
+    if (isAnon) {
+      const { error: coachErr } = await supabase.from('coaches').upsert({
+        coach_id: coachId,
+        devices: [],
+        updated_at: now,
+      });
+      if (coachErr) { console.error('[dualWrite.teamShare.coach]', coachErr); return; }
+    }
+
+    // Upsert the team row. For anon teams we take the iOS metadata; for
+    // a linked (real-coach) team we only refresh updated_at — the web user
+    // owns the canonical name / age group / duration and an iOS push must
+    // not clobber their edits.
+    const teamRow = isAnon
+      ? {
+          id: teamId,
+          coach_id: coachId,
+          name: team.name ?? 'Untitled Team',
+          age_group: team.ageGroup ?? null,
+          default_duration: team.defaultDuration ?? null,
+          sharing: team.sharing ?? { isShared: false },
+          ios_share_code: shareCode,
+          updated_at: now,
+        }
+      : { id: teamId, coach_id: coachId, updated_at: now };
+    const { error: teamErr } = await supabase.from('teams').upsert(teamRow);
+    if (teamErr) { console.error('[dualWrite.teamShare.team]', teamErr); return; }
+
+    // Diff incoming games[] against live Postgres rows.
+    const incoming = Array.isArray(team.games) ? team.games.filter(g => g?.id) : [];
+    const incomingIds = new Set(incoming.map(g => g.id));
+
+    if (incoming.length) {
+      const rows = incoming.map(g => ({
+        id: g.id,
+        team_id: teamId,
+        coach_id: coachId,
+        name: g.name ?? 'Untitled Game',
+        date: g.date ?? null,
+        is_home: !!g.isHome,
+        payload: g,
+        updated_at: now,
+        deleted_at: null,
+      }));
+      const { error: gameErr } = await supabase.from('games').upsert(rows);
+      if (gameErr) console.error('[dualWrite.teamShare.games]', gameErr);
+    }
+
+    // Soft-delete games that were in Postgres but no longer in the push.
+    const { data: liveGames, error: liveErr } = await supabase
+      .from('games')
+      .select('id')
+      .eq('team_id', teamId)
+      .is('deleted_at', null);
+    if (liveErr) { console.error('[dualWrite.teamShare.liveGames]', liveErr); return; }
+    const toDelete = (liveGames || [])
+      .map(r => r.id)
+      .filter(id => !incomingIds.has(id));
+    if (toDelete.length) {
+      const { error: delErr } = await supabase
+        .from('games')
+        .update({ deleted_at: now, updated_at: now })
+        .in('id', toDelete);
+      if (delErr) console.error('[dualWrite.teamShare.softDelete]', delErr);
+    }
+  } catch (e) {
+    console.error('[dualWrite.mirrorTeamSharePush] threw', e);
+  }
+}
+
 export async function mirrorLibraryBlob({ coachId, library }) {
   try {
     const now = new Date().toISOString();

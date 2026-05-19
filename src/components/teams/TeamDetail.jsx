@@ -3,8 +3,9 @@ import SessionCard from './SessionCard';
 import ScheduleSessionModal from './ScheduleSessionModal';
 import ShareModal from './ShareModal';
 import SessionLibraryModal from './SessionLibraryModal';
+import TeamGames from './TeamGames';
 import { toast, sessionToLibraryPayload, libraryPayloadToSession, uid, nowIso, downloadJson } from '../../utils/helpers';
-import { SESSION_LIBRARY_KEY } from '../../constants/storage';
+import { COACH_IDENTITY_KEY, SESSION_LIBRARY_KEY } from '../../constants/storage';
 
 const TEAM_TONES = ['#c8553d', '#3d7a4a', '#3d5a8a', '#9a5a3a', '#6a4a8a', '#3a6a7a'];
 function teamTone(team) {
@@ -41,6 +42,9 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
   const [showSessionLibrary, setShowSessionLibrary] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [filterType, setFilterType] = useState('all'); // 'all', 'scheduled'
+  const [linkCode, setLinkCode] = useState('');
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [gamesRefreshKey, setGamesRefreshKey] = useState(0);
   const [sessionLibrary, setSessionLibrary] = useState(() => {
     try {
       const lib = JSON.parse(localStorage.getItem(SESSION_LIBRARY_KEY)) || { version: 1, items: [] };
@@ -358,6 +362,75 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
                 >
                   Done
                 </button>
+                <div className="w-full pt-3 mt-1" style={{ borderTop: '1px solid var(--line)' }}>
+                  <label className="label-text">Link iOS team</label>
+                  {team.iosShareCode ? (
+                    <p className="text-[13px] mt-1" style={{ color: 'var(--ink-2)' }}>
+                      Linked to iOS share code <span style={{ fontFamily: 'monospace' }}>{team.iosShareCode}</span>. Games pushed from the iOS app will appear below.
+                    </p>
+                  ) : (
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <input
+                        type="text"
+                        value={linkCode}
+                        onChange={(e) => setLinkCode(e.target.value.toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 6))}
+                        placeholder="ABC123"
+                        className="input-field w-32"
+                        style={{ fontFamily: 'monospace', letterSpacing: '0.1em' }}
+                      />
+                      <button
+                        disabled={linkBusy || linkCode.length !== 6}
+                        onClick={async () => {
+                          setLinkBusy(true);
+                          try {
+                            const raw = localStorage.getItem(COACH_IDENTITY_KEY);
+                            const id = raw ? JSON.parse(raw) : null;
+                            if (!id?.coachId || !id?.deviceId) {
+                              toast('Pair this device before linking an iOS team.');
+                              return;
+                            }
+                            const res = await fetch(
+                              `/api/v2/teams/${encodeURIComponent(selectedTeamId)}/link-ios`,
+                              {
+                                method: 'POST',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                  'x-coach-id': id.coachId,
+                                  'x-device-id': id.deviceId,
+                                },
+                                body: JSON.stringify({ shareCode: linkCode }),
+                              }
+                            );
+                            const data = await res.json();
+                            if (!data.success) {
+                              toast(data.message || 'Could not link iOS team.');
+                              return;
+                            }
+                            updateTeam(selectedTeamId, { iosShareCode: linkCode });
+                            setLinkCode('');
+                            setGamesRefreshKey(k => k + 1);
+                            toast(
+                              data.gamesTransferred
+                                ? `Linked — ${data.gamesTransferred} game${data.gamesTransferred === 1 ? '' : 's'} imported.`
+                                : 'Linked — games will appear after the next iOS push.'
+                            );
+                          } catch (err) {
+                            toast('Network error linking iOS team.');
+                            console.error(err);
+                          } finally {
+                            setLinkBusy(false);
+                          }
+                        }}
+                        className="btn btn-secondary"
+                      >
+                        {linkBusy ? 'Linking…' : 'Link'}
+                      </button>
+                      <span className="text-[12px]" style={{ color: 'var(--ink-3)' }}>
+                        Paste the 6-char share code from the PlayBall iOS app.
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -439,6 +512,19 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
               />
             ))}
           </div>
+        )}
+
+        {team.iosShareCode && (
+          <>
+            <div className="hairline mt-12 mb-8" />
+            <div className="mb-6">
+              <div className="text-[11px] font-mono uppercase" style={{ color: 'var(--ink-3)', letterSpacing: '0.1em' }}>GAMES</div>
+              <h2 className="text-[24px] font-semibold mt-1" style={{ letterSpacing: '-0.02em' }}>
+                From the PlayBall iOS app
+              </h2>
+            </div>
+            <TeamGames key={gamesRefreshKey} teamId={selectedTeamId} />
+          </>
         )}
       </main>
 
