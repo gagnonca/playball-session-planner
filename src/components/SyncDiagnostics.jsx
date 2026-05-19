@@ -113,7 +113,6 @@ export default function SyncDiagnostics({ teamsContext, libraryHook, diagramLibr
       identity: {
         coachId: identity?.coachId,
         deviceId: identity?.deviceId,
-        localVersion: identity?.localVersion,
         lastSyncAt: identity?.lastSyncAt,
       },
       counts: {

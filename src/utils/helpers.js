@@ -277,10 +277,9 @@ export function aggregateSectionKeywords(sections) {
   return Array.from(keywordSet).join(", ");
 }
 
-// Merge two teamsData snapshots for conflict resolution.
-// Per-session last-write-wins by updatedAt; sessions only present on one side are kept.
-// Used when the server rejects a push with version_conflict, and when multiple tabs
-// race on the same coach identity.
+// Per-entity last-write-wins merge by updatedAt. Used on every pull so a stale
+// tab picks up other-device edits without overwriting its own unflushed work
+// (writes flush to the server on a 30s debounce).
 export function mergeTeamsData(local, remote) {
   const localTeams = (local && local.teams) || [];
   const remoteTeams = (remote && remote.teams) || [];

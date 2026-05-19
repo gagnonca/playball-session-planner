@@ -9,6 +9,7 @@ import { VIEWS } from '../constants/navigation';
 import { TEAMS_KEY, HAS_SEEN_WELCOME_KEY } from '../constants/storage';
 import { uploadDiagramImage } from '../utils/uploadImage';
 import { getTeamsData } from '../utils/indexedDBHelper';
+import { mergeTeamsData } from '../utils/helpers';
 import TeamList from './teams/TeamList';
 import TeamDetail from './teams/TeamDetail';
 import SessionBuilder from './session-builder/SessionBuilder';
@@ -92,11 +93,11 @@ export default function AppShell() {
   const diagramLibrary = useDiagramLibrary();
   const libraryHook = useLibrary();
   const loadTeamsFromServerRef = useRef(null);
+  const teamsDataRef = useRef(null);
   const tabIdRef = useRef(Math.random().toString(36).slice(2));
   const broadcastingRef = useRef(false);
   const channelRef = useRef(null);
   const syncContext = useSync({
-    // Called by useSync on version_conflict merges or cross-tab broadcasts.
     // Using a ref so useSync doesn't rebind on every render of AppShell.
     onRemoteUpdate: useCallback((teams) => {
       if (loadTeamsFromServerRef.current) loadTeamsFromServerRef.current(teams);
@@ -138,12 +139,9 @@ export default function AppShell() {
   const hasCheckedForUpdates = useRef(false);
 
   // First-sync activation: create the identity, push every existing local
-  // team/session to Postgres via the per-entity v2 API, and mark the
-  // image-restore migration done so the auto-pull effect doesn't force-replace
-  // local with the (still-empty) server snapshot.
+  // team/session to Postgres via the per-entity v2 API.
   const enableSyncForFirstTime = async () => {
     await syncContext.initializeIdentity();
-    try { localStorage.setItem('ppp_image_restore_v1', '1'); } catch { /* ignore */ }
     if (teamsContext.pushAllToPostgres) {
       await teamsContext.pushAllToPostgres();
     }
@@ -164,7 +162,6 @@ export default function AppShell() {
     updateSession,
     navigateToTeams,
     navigateBackFromDiagramBuilder,
-    loadTeamsFromServer,
   } = teamsContext;
 
   // Expose test function for storage limit modal (development only)
@@ -203,55 +200,36 @@ export default function AppShell() {
   // Teams now write to Postgres via per-entity PUT/DELETE in useTeams.js.
   // No blob push — the old path caused merge/version-conflict resurrections.
 
-  // Keep a live ref to loadTeamsFromServer so sync callbacks (conflict merges,
-  // BroadcastChannel messages, visibility pulls) always call the current one.
+  // Keep a live ref to loadTeamsFromServer so sync callbacks (BroadcastChannel
+  // messages, visibility pulls) always call the current one.
   useEffect(() => { loadTeamsFromServerRef.current = teamsContext.loadTeamsFromServer; }, [teamsContext.loadTeamsFromServer]);
 
-  // Auto-pull from server on app load when sync is enabled
+  // Keep a live ref to the current teamsData so the visibility-refresh effect
+  // (whose listeners persist across renders) always merges against the latest
+  // local state instead of a stale captured value.
+  useEffect(() => { teamsDataRef.current = teamsContext.teamsData; }, [teamsContext.teamsData]);
+
+  // Auto-pull from server on app load when sync is enabled. Pulls are merged
+  // per-entity by updatedAt (mergeTeamsData) so a stale tab picks up other-device
+  // edits without overwriting its own unflushed local work (writes flush on a
+  // 30s debounce). One additional safety: don't adopt anything when the server
+  // is empty but local is not — protects users who just enabled sync and
+  // haven't finished pushing yet.
   useEffect(() => {
     const checkForServerUpdates = async () => {
-      // Only check once per app load
       if (hasCheckedForUpdates.current) return;
       if (!syncContext.isSyncEnabled || !syncContext.isOnline) return;
       if (!teamsData) return;
 
       hasCheckedForUpdates.current = true;
 
-      // One-time migration: base64 imageDataUrl was previously stripped from
-      // IndexedDB. Force a full pull from Postgres to restore images.
-      const needsImageRestore = !localStorage.getItem('ppp_image_restore_v1');
-
       try {
         const result = await syncContext.pullTeams();
-        if (needsImageRestore) {
-          console.log('[image-restore] pull result:', result ? 'ok' : 'null');
-        }
-        if (result && (needsImageRestore || result.version > (syncContext.identity?.localVersion || 0))) {
-          // Safety: never replace a non-empty local with an empty server snapshot.
-          // This used to wipe teams created in local-only mode when sync was
-          // first enabled, because the brand-new server record has no teams yet.
-          const serverTeamCount = result.teams?.teams?.length || 0;
-          const localTeamCount = teamsData?.teams?.length || 0;
-          if (serverTeamCount === 0 && localTeamCount > 0) {
-            if (needsImageRestore) {
-              localStorage.setItem('ppp_image_restore_v1', '1');
-            }
-            return;
-          }
-          if (needsImageRestore) {
-            // Log image status from server data to help debug
-            let total = 0, withImage = 0;
-            result.teams?.teams?.forEach(t => t.sessions?.forEach(s => s.sections?.forEach(sec => {
-              total++;
-              if (sec.imageDataUrl) withImage++;
-            })));
-            console.log(`[image-restore] server sections: ${total} total, ${withImage} with imageDataUrl`);
-          }
-          teamsContext.loadTeamsFromServer(result.teams);
-          if (needsImageRestore) {
-            localStorage.setItem('ppp_image_restore_v1', '1');
-          }
-        }
+        if (!result) return;
+        const serverTeamCount = result.teams?.teams?.length || 0;
+        const localTeamCount = teamsData?.teams?.length || 0;
+        if (serverTeamCount === 0 && localTeamCount > 0) return;
+        teamsContext.loadTeamsFromServer(mergeTeamsData(teamsData, result.teams));
       } catch (err) {
         console.error('Failed to check for server updates:', err);
       }
@@ -261,9 +239,9 @@ export default function AppShell() {
   }, [teamsData, syncContext.isSyncEnabled, syncContext.isOnline]);
 
   // Pull on visibility change / window focus so a tab that was in the background
-  // (or was left open from a prior session) reconciles with the server before the
-  // user edits anything. Without this, a stale tab's next write trips a
-  // version_conflict that can wipe newer work.
+  // (or was left open from a prior session) reconciles with the server before
+  // the user edits anything. Merged per-entity by updatedAt to preserve any
+  // unflushed local edits in this tab.
   useEffect(() => {
     if (!syncContext.isSyncEnabled) return;
 
@@ -272,8 +250,10 @@ export default function AppShell() {
       if (!syncContext.isOnline) return;
       try {
         const result = await syncContext.pullTeams();
-        if (result && result.version > (syncContext.identity?.localVersion || 0)) {
-          teamsContext.loadTeamsFromServer(result.teams);
+        if (!result) return;
+        const current = teamsDataRef.current;
+        if (loadTeamsFromServerRef.current) {
+          loadTeamsFromServerRef.current(mergeTeamsData(current, result.teams));
         }
       } catch (err) {
         console.error('Visibility pull failed:', err);
@@ -286,7 +266,7 @@ export default function AppShell() {
       document.removeEventListener('visibilitychange', refresh);
       window.removeEventListener('focus', refresh);
     };
-  }, [syncContext.isSyncEnabled, syncContext.isOnline, syncContext.identity?.localVersion]);
+  }, [syncContext.isSyncEnabled, syncContext.isOnline]);
 
   // Cross-tab mirror: notify other tabs when teamsData changes so they can
   // reload from IndexedDB. Sends a lightweight signal (NO data payload) to

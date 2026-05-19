@@ -29,11 +29,9 @@ async function handleGet(req, res) {
     return res.status(200).json({
       success: true,
       teams: {
-        version: 1,
         teams: pg.teams,
         defaultTeamId: pg.defaultTeamId,
       },
-      version: 1,
       lastUpdatedAt: pg.lastUpdatedAt,
     });
   } catch (error) {

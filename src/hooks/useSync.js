@@ -1,15 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { COACH_IDENTITY_KEY } from '../constants/storage';
 import { generateCoachId, generateDeviceId } from '../utils/tokens';
-import { mergeTeamsData } from '../utils/helpers';
 
 /**
  * Hook for managing device sync across multiple devices.
- * Handles coach identity, device pairing, and two-way sync.
+ * Handles coach identity, device pairing, and pulling teams from the server.
+ * Writes go through per-entity PUT/DELETE under /api/v2/* (see useTeams.js);
+ * this hook only handles identity and reads.
  *
  * @param {object} options
- * @param {(teams) => void} [options.onRemoteUpdate] - called when server (or conflict
- *   resolution) produces a newer teamsData that the caller should adopt locally.
+ * @param {(teams) => void} [options.onRemoteUpdate] - called when cross-tab
+ *   broadcasts produce a newer teamsData that the caller should adopt locally.
  */
 export default function useSync(options = {}) {
   const onRemoteUpdateRef = useRef(options.onRemoteUpdate);
@@ -18,8 +19,6 @@ export default function useSync(options = {}) {
   const [syncStatus, setSyncStatus] = useState('idle'); // idle | syncing | synced | error | offline
   const [lastSyncAt, setLastSyncAt] = useState(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const syncTimeoutRef = useRef(null);
-  const pendingPushRef = useRef(null);
 
   // Load identity from localStorage on mount
   useEffect(() => {
@@ -75,7 +74,6 @@ export default function useSync(options = {}) {
         deviceId,
         linkedAt: new Date().toISOString(),
         lastSyncAt: null,
-        localVersion: 1,
       };
 
       localStorage.setItem(COACH_IDENTITY_KEY, JSON.stringify(newIdentity));
@@ -136,7 +134,6 @@ export default function useSync(options = {}) {
       deviceId,
       linkedAt: data.linkedAt,
       lastSyncAt: new Date().toISOString(),
-      localVersion: data.teams?.version || 1,
     };
 
     localStorage.setItem(COACH_IDENTITY_KEY, JSON.stringify(newIdentity));
@@ -148,7 +145,6 @@ export default function useSync(options = {}) {
 
   /**
    * Fetch latest teams from server.
-   * Returns { teams, version } for comparison with local version.
    */
   const pullTeams = useCallback(async () => {
     if (!identity?.coachId || !identity?.deviceId) {
@@ -181,206 +177,15 @@ export default function useSync(options = {}) {
       }
 
       const now = new Date().toISOString();
-      const updatedIdentity = {
-        ...identity,
-        lastSyncAt: now,
-        localVersion: data.version,
-      };
+      const updatedIdentity = { ...identity, lastSyncAt: now };
       localStorage.setItem(COACH_IDENTITY_KEY, JSON.stringify(updatedIdentity));
       setIdentity(updatedIdentity);
       setLastSyncAt(now);
       setSyncStatus('synced');
 
-      // Return both teams and version for caller to compare
-      return { teams: data.teams, version: data.version };
+      return { teams: data.teams };
     } catch (error) {
       console.error('Failed to pull teams:', error);
-      setSyncStatus('error');
-      throw error;
-    }
-  }, [identity, isOnline]);
-
-  /**
-   * Push teams to server.
-   * Debounced to avoid too many requests.
-   */
-  const pushTeams = useCallback(async (teams) => {
-    if (!identity?.coachId || !identity?.deviceId) {
-      return;
-    }
-
-    // Store pending push
-    pendingPushRef.current = teams;
-
-    // Clear existing timeout
-    if (syncTimeoutRef.current) {
-      clearTimeout(syncTimeoutRef.current);
-    }
-
-    // Debounce: wait 2 seconds before actually pushing
-    syncTimeoutRef.current = setTimeout(async () => {
-      if (!isOnline) {
-        setSyncStatus('offline');
-        return;
-      }
-
-      const teamsToSync = pendingPushRef.current;
-      if (!teamsToSync) return;
-
-      setSyncStatus('syncing');
-
-      try {
-        const response = await fetch('/api/sync/teams', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            coachId: identity.coachId,
-            deviceId: identity.deviceId,
-            teams: teamsToSync,
-            localVersion: identity.localVersion,
-          }),
-        });
-
-        const data = await response.json();
-
-        if (!data.success) {
-          if (data.error === 'version_conflict' && data.serverTeams) {
-            // Server has newer data. Merge locally-staged changes with server truth,
-            // hydrate the UI, and retry the push. Retry a few times because racing
-            // pushes from multiple tabs can cause successive conflicts.
-            let workingTeams = teamsToSync;
-            let workingData = data;
-            let attempts = 0;
-            const MAX_ATTEMPTS = 4;
-            while (workingData && workingData.error === 'version_conflict' && workingData.serverTeams && attempts < MAX_ATTEMPTS) {
-              attempts += 1;
-              const merged = mergeTeamsData(workingTeams, workingData.serverTeams);
-              const serverVersion = workingData.serverVersion || workingData.version || 0;
-              const patchedIdentity = { ...identity, localVersion: serverVersion };
-              localStorage.setItem(COACH_IDENTITY_KEY, JSON.stringify(patchedIdentity));
-              setIdentity(patchedIdentity);
-              if (onRemoteUpdateRef.current) onRemoteUpdateRef.current(merged);
-
-              const retry = await fetch('/api/sync/teams', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  coachId: identity.coachId,
-                  deviceId: identity.deviceId,
-                  teams: merged,
-                  localVersion: serverVersion,
-                }),
-              });
-              workingData = await retry.json();
-              workingTeams = merged;
-              if (workingData.success) {
-                const now = new Date().toISOString();
-                const updatedIdentity = { ...patchedIdentity, lastSyncAt: now, localVersion: workingData.version };
-                localStorage.setItem(COACH_IDENTITY_KEY, JSON.stringify(updatedIdentity));
-                setIdentity(updatedIdentity);
-                setLastSyncAt(now);
-                setSyncStatus('synced');
-                pendingPushRef.current = null;
-                return { success: true, merged: true };
-              }
-            }
-            // Ran out of retries — leave status at 'syncing' and let the next
-            // push cycle try again. Do NOT surface as error; the data is safe locally.
-            console.warn('Version conflict exhausted retries; will retry on next edit');
-            setSyncStatus('synced');
-            return { conflict: true };
-          }
-          throw new Error(data.message || 'Failed to push teams');
-        }
-
-        const now = new Date().toISOString();
-        const updatedIdentity = {
-          ...identity,
-          lastSyncAt: now,
-          localVersion: data.version,
-        };
-        localStorage.setItem(COACH_IDENTITY_KEY, JSON.stringify(updatedIdentity));
-        setIdentity(updatedIdentity);
-        setLastSyncAt(now);
-        setSyncStatus('synced');
-        pendingPushRef.current = null;
-
-        return { success: true };
-      } catch (error) {
-        console.error('Failed to push teams:', error);
-        setSyncStatus('error');
-        throw error;
-      }
-    }, 2000);
-  }, [identity, isOnline]);
-
-  /**
-   * Force an immediate sync (no debounce).
-   */
-  const forcePush = useCallback(async (teams) => {
-    if (syncTimeoutRef.current) {
-      clearTimeout(syncTimeoutRef.current);
-      syncTimeoutRef.current = null;
-    }
-    pendingPushRef.current = null;
-
-    if (!identity?.coachId || !identity?.deviceId || !isOnline) {
-      return;
-    }
-
-    setSyncStatus('syncing');
-
-    try {
-      const response = await fetch('/api/sync/teams', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          coachId: identity.coachId,
-          deviceId: identity.deviceId,
-          teams,
-          localVersion: identity.localVersion,
-        }),
-      });
-
-      let data = await response.json();
-      let pushedTeams = teams;
-
-      if (!data.success && data.error === 'version_conflict' && data.serverTeams) {
-        const merged = mergeTeamsData(teams, data.serverTeams);
-        const serverVersion = data.serverVersion || data.version || 0;
-        if (onRemoteUpdateRef.current) onRemoteUpdateRef.current(merged);
-        const retry = await fetch('/api/sync/teams', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            coachId: identity.coachId,
-            deviceId: identity.deviceId,
-            teams: merged,
-            localVersion: serverVersion,
-          }),
-        });
-        data = await retry.json();
-        pushedTeams = merged;
-      }
-
-      if (!data.success) {
-        throw new Error(data.message || 'Failed to push');
-      }
-
-      const now = new Date().toISOString();
-      const updatedIdentity = {
-        ...identity,
-        lastSyncAt: now,
-        localVersion: data.version,
-      };
-      localStorage.setItem(COACH_IDENTITY_KEY, JSON.stringify(updatedIdentity));
-      setIdentity(updatedIdentity);
-      setLastSyncAt(now);
-      setSyncStatus('synced');
-
-      return { success: true, teams: pushedTeams };
-    } catch (error) {
-      console.error('Force push failed:', error);
       setSyncStatus('error');
       throw error;
     }
@@ -398,7 +203,7 @@ export default function useSync(options = {}) {
       );
       const data = await response.json();
       if (!data.success) return null;
-      return { library: data.library, version: data.version };
+      return { library: data.library };
     } catch (error) {
       console.error('Failed to pull library:', error);
       return null;
@@ -432,13 +237,6 @@ export default function useSync(options = {}) {
    * Also notifies the server to unlink this device.
    */
   const resetSync = useCallback(async () => {
-    // Clear pending syncs
-    if (syncTimeoutRef.current) {
-      clearTimeout(syncTimeoutRef.current);
-      syncTimeoutRef.current = null;
-    }
-    pendingPushRef.current = null;
-
     // Notify server to unlink this device (fire and forget)
     if (identity?.coachId && identity?.deviceId) {
       try {
@@ -481,8 +279,6 @@ export default function useSync(options = {}) {
     requestPairingCode,
     confirmPairingCode,
     pullTeams,
-    pushTeams,
-    forcePush,
     resetSync,
     pullLibrary,
     pushLibrary,
