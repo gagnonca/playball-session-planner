@@ -27,7 +27,7 @@ const MOMENT_OPTIONS = [
   { value: 'Transition to Defense', label: 'Trans→Def', emoji: '↩️' },
 ];
 
-export default function SessionSummary({ summary, onUpdate }) {
+export default function SessionSummary({ summary, sections = [], onUpdate }) {
   const [titleOverride, setTitleOverride] = useState(false);
   const [showMomentsHelp, setShowMomentsHelp] = useState(false);
   const handleAutoGrow = useAutoGrow();
@@ -60,20 +60,36 @@ export default function SessionSummary({ summary, onUpdate }) {
 
   const moment = summary.moment || '';
 
-  // Auto-generate title based on selections
+  // Pick the Practice section's name to tail onto the auto-title — that's the
+  // drill the coach actually distinguishes sessions by ("Go to Goal" vs
+  // "Pass and Move"). Skip it when the section name is empty or contains the
+  // moment word (e.g. the default "Attacking Practice"), since "Attacking —
+  // Pass — Attacking Practice" adds noise rather than information.
+  const practiceName = (() => {
+    const practice = (sections || []).find(s => (s?.type || '').toLowerCase() === 'practice');
+    const name = (practice?.name || '').trim();
+    if (!name) return '';
+    if (moment && name.toLowerCase().includes(moment.toLowerCase())) return '';
+    return name;
+  })();
+
+  // Auto-generate title based on selections.
+  // Format: <Moment> — <Skill(s)> — <Practice name>. Each tail segment is
+  // appended only when present, so "Attacking" alone still works.
   useEffect(() => {
     if (!titleOverride && moment) {
       const momentText = moment.charAt(0).toUpperCase() + moment.slice(1);
       const actionsText = playerActions.length > 0
         ? ` — ${playerActions.slice(0, 2).join(', ')}`
         : '';
-      const autoTitle = `${momentText}${actionsText}`;
+      const practiceText = practiceName ? ` — ${practiceName}` : '';
+      const autoTitle = `${momentText}${actionsText}${practiceText}`;
 
       if (summary.title !== autoTitle) {
         onUpdate({ ...summary, title: autoTitle });
       }
     }
-  }, [moment, playerActions, titleOverride]);
+  }, [moment, playerActions, practiceName, titleOverride]);
 
   const handleChange = (field, value) => {
     onUpdate({ ...summary, [field]: value });

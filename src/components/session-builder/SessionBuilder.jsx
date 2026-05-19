@@ -687,6 +687,7 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
           ) : (
             <SessionSummary
               summary={session.summary}
+              sections={session.sections}
               onUpdate={handleUpdateSummary}
             />
           )}
