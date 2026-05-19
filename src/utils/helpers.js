@@ -296,7 +296,17 @@ export function mergeTeamsData(local, remote) {
       sessionsById.set(ls.id, (ls.updatedAt || '') >= (rs.updatedAt || '') ? ls : rs);
     }
     const teamPick = (lt.updatedAt || '') >= (rt.updatedAt || '') ? lt : rt;
-    byId.set(lt.id, { ...teamPick, sessions: Array.from(sessionsById.values()) });
+    // Server-owned fields (mirrored from iOS team-share/push or set by the
+    // link-ios endpoint) are not edited on the web — always prefer what the
+    // remote returned. Without this, a tie or any local-wins case wipes the
+    // newly-merged roster, games, or iOS share linkage from state.
+    byId.set(lt.id, {
+      ...teamPick,
+      iosShareCode: rt.iosShareCode ?? teamPick.iosShareCode ?? null,
+      players: Array.isArray(rt.players) ? rt.players : (teamPick.players || []),
+      games: Array.isArray(rt.games) ? rt.games : (teamPick.games || []),
+      sessions: Array.from(sessionsById.values()),
+    });
   }
   return {
     ...remote,

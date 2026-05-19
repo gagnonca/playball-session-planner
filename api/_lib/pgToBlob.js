@@ -62,6 +62,11 @@ export async function buildTeamsBlob(coachId) {
     players: Array.isArray(t.players) ? t.players : [],
     sessions: sessionsByTeam.get(t.id) || [],
     games: gamesByTeam.get(t.id) || [],
+    // Surface the row's updated_at so the client's mergeTeamsData has a real
+    // tiebreaker. Without this both sides have undefined updatedAt and the
+    // merge always picks local — meaning server-only fields like players,
+    // games, and iosShareCode never reach the client after the first cache.
+    updatedAt: t.updated_at,
   }));
 
   // Latest updated_at across all rows (for freshness comparison).
