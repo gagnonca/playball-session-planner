@@ -36,7 +36,7 @@ function dateInputToIso(dateStr) {
   return d.toISOString();
 }
 
-export default function GameEditorModal({ teamId, game, onClose, onSaved, onDeleted }) {
+export default function GameEditorModal({ teamId, teamPlayers = [], game, onClose, onSaved, onDeleted }) {
   const isEdit = !!game;
   const [name, setName] = useState(game?.name ?? '');
   const [date, setDate] = useState(isoToDateInput(game?.date));
@@ -44,7 +44,23 @@ export default function GameEditorModal({ teamId, game, onClose, onSaved, onDele
   const [playersOnField, setPlayersOnField] = useState(game?.payload?.playersOnField ?? 4);
   const [periodLengthMinutes, setPeriodLengthMinutes] = useState(game?.payload?.periodLengthMinutes ?? 10);
   const [numberOfPeriods, setNumberOfPeriods] = useState(game?.payload?.numberOfPeriods ?? 4);
+  const [captainID, setCaptainID] = useState(game?.payload?.captainID ?? '');
+  // availablePlayers in the iOS payload is the FULL player object per game;
+  // we track just the picked id set in the editor and reassemble objects
+  // (preferring teamPlayers as the source of truth) on save.
+  const initialAvail = Array.isArray(game?.payload?.availablePlayers)
+    ? game.payload.availablePlayers.map(p => p?.id).filter(Boolean)
+    : teamPlayers.map(p => p.id);
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState(new Set(initialAvail));
   const [busy, setBusy] = useState(false);
+
+  const togglePlayer = (id) => {
+    setSelectedPlayerIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const handleSave = async () => {
     if (!name.trim()) { toast('Name is required'); return; }
@@ -55,6 +71,17 @@ export default function GameEditorModal({ teamId, game, onClose, onSaved, onDele
     try {
       const id = game?.id || uid();
       const existingPayload = game?.payload || {};
+      // Build availablePlayers as the iOS-shaped objects ({id,name,tintHex})
+      // so iOS-side decoders see what they expect. Prefer teamPlayers as
+      // source of truth; fall back to whatever was on the existing game row
+      // for ids no longer in the roster (so we don't silently drop them).
+      const teamPlayerById = new Map(teamPlayers.map(p => [p.id, p]));
+      const existingAvailById = new Map(
+        (existingPayload.availablePlayers || []).filter(p => p?.id).map(p => [p.id, p])
+      );
+      const availablePlayers = Array.from(selectedPlayerIds).map(pid => {
+        return teamPlayerById.get(pid) ?? existingAvailById.get(pid) ?? { id: pid, name: 'Unknown', tintHex: null };
+      });
       const payload = {
         ...existingPayload,
         id,
@@ -64,6 +91,8 @@ export default function GameEditorModal({ teamId, game, onClose, onSaved, onDele
         playersOnField: Number(playersOnField) || 0,
         periodLengthMinutes: Number(periodLengthMinutes) || 0,
         numberOfPeriods: Number(numberOfPeriods) || 0,
+        captainID: captainID || null,
+        availablePlayers,
         // Default substitutionStyle so iOS-side decoders don't choke when
         // they eventually pull a web-created game. Edit-existing keeps whatever
         // the iOS app set.
@@ -226,6 +255,74 @@ export default function GameEditorModal({ teamId, game, onClose, onSaved, onDele
                   />
                 </div>
               </div>
+
+              {teamPlayers.length > 0 && (
+                <>
+                  <div>
+                    <label className="label-text">Captain</label>
+                    <select
+                      value={captainID || ''}
+                      onChange={(e) => setCaptainID(e.target.value)}
+                      className="input-field"
+                    >
+                      <option value="">No captain</option>
+                      {teamPlayers
+                        .filter(p => selectedPlayerIds.has(p.id))
+                        .map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="label-text mb-0">Available players</label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[12px]" style={{ color: 'var(--ink-3)' }}>
+                          {selectedPlayerIds.size} / {teamPlayers.length}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPlayerIds(new Set(teamPlayers.map(p => p.id)))}
+                          className="text-[12px]"
+                          style={{ color: 'var(--accent)' }}
+                        >
+                          All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPlayerIds(new Set())}
+                          className="text-[12px]"
+                          style={{ color: 'var(--ink-3)' }}
+                        >
+                          None
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {teamPlayers.map(p => {
+                        const on = selectedPlayerIds.has(p.id);
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => togglePlayer(p.id)}
+                            className="px-2.5 py-1 rounded-full text-[12.5px] transition-all"
+                            style={{
+                              background: on ? (p.tintHex || 'var(--accent-soft)') : 'transparent',
+                              color: on ? '#fff' : 'var(--ink-2)',
+                              border: on ? '1px solid transparent' : '1px solid var(--line)',
+                              opacity: on ? 1 : 0.85,
+                            }}
+                          >
+                            {p.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 

@@ -177,6 +177,14 @@ export async function mirrorTeamSharePush({ shareCode, team }) {
     const teamGames = Array.isArray(team._games) ? team._games
       : Array.isArray(team.games) ? team.games
       : [];
+    const rawPlayers = Array.isArray(team._players) ? team._players
+      : Array.isArray(team.players) ? team.players
+      : [];
+    // Strip to the fields the web actually needs; the editor reads these
+    // and game.payload.captainID / availablePlayers reference id.
+    const teamPlayers = rawPlayers
+      .filter(p => p?.id && p?.name)
+      .map(p => ({ id: p.id, name: p.name, tintHex: p.tintHex ?? null }));
 
     // Anon: row may not exist yet → upsert with all required NOT NULL cols.
     // Linked (real coach): row already exists (we just looked it up) → update
@@ -193,13 +201,17 @@ export async function mirrorTeamSharePush({ shareCode, team }) {
         default_duration: team.defaultDuration ?? null,
         sharing: team.sharing ?? { isShared: false },
         ios_share_code: shareCode,
+        players: teamPlayers,
         updated_at: now,
       });
       if (teamErr) { console.error('[dualWrite.teamShare.team]', teamErr); return; }
     } else {
+      // Linked teams: web owns name/age/duration; iOS owns the roster. So
+      // refresh updated_at and overwrite players (the iOS team is the
+      // source of truth for who's actually on the team).
       const { error: teamErr } = await supabase
         .from('teams')
-        .update({ updated_at: now })
+        .update({ players: teamPlayers, updated_at: now })
         .eq('id', teamId).eq('coach_id', coachId);
       if (teamErr) { console.error('[dualWrite.teamShare.team]', teamErr); return; }
     }

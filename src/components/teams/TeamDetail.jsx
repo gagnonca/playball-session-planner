@@ -523,7 +523,7 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
                 From the PlayBall iOS app
               </h2>
             </div>
-            <TeamGames key={gamesRefreshKey} teamId={selectedTeamId} />
+            <TeamGames key={gamesRefreshKey} teamId={selectedTeamId} players={team.players || []} />
           </>
         )}
       </main>

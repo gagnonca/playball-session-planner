@@ -41,6 +41,7 @@ export async function buildTeamsBlob(coachId) {
     defaultDuration: t.default_duration ?? '',
     sharing: t.sharing || { isShared: false },
     iosShareCode: t.ios_share_code ?? null,
+    players: Array.isArray(t.players) ? t.players : [],
     sessions: sessionsByTeam.get(t.id) || [],
   }));
 

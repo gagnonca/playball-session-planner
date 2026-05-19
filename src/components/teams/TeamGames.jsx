@@ -23,7 +23,7 @@ function formatGameDate(iso) {
   return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-export default function TeamGames({ teamId }) {
+export default function TeamGames({ teamId, players = [] }) {
   const [games, setGames] = useState(null);
   const [error, setError] = useState(null);
   const [editingGame, setEditingGame] = useState(null);   // game row being edited
@@ -103,6 +103,13 @@ export default function TeamGames({ teamId }) {
             const playerCount = Array.isArray(g.payload?.availablePlayers)
               ? g.payload.availablePlayers.length
               : null;
+            // Resolve captain name from the game's stored availablePlayers
+            // first (frozen at game time), then fall back to current team roster.
+            const captainId = g.payload?.captainID;
+            const captain = captainId
+              ? (g.payload?.availablePlayers || []).find(p => p?.id === captainId)
+                ?? players.find(p => p.id === captainId)
+              : null;
             return (
               <button
                 key={g.id}
@@ -129,6 +136,11 @@ export default function TeamGames({ teamId }) {
                   {dateLabel || 'No date set'}
                   {playerCount != null ? ` · ${playerCount} player${playerCount === 1 ? '' : 's'}` : ''}
                 </p>
+                {captain && (
+                  <p className="mt-1 text-[12px]" style={{ color: 'var(--ink-3)' }}>
+                    Captain: <span style={{ color: 'var(--ink-2)' }}>{captain.name}</span>
+                  </p>
+                )}
               </button>
             );
           })}
@@ -138,6 +150,7 @@ export default function TeamGames({ teamId }) {
       {showCreate && (
         <GameEditorModal
           teamId={teamId}
+          teamPlayers={players}
           game={null}
           onClose={() => setShowCreate(false)}
           onSaved={handleSaved}
@@ -146,6 +159,7 @@ export default function TeamGames({ teamId }) {
       {editingGame && (
         <GameEditorModal
           teamId={teamId}
+          teamPlayers={players}
           game={editingGame}
           onClose={() => setEditingGame(null)}
           onSaved={handleSaved}
