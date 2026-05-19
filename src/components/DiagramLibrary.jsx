@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { migrateLegacyToShapes, canMigrateDiagram } from '../utils/diagramMigration';
+import FilterChipGroup from './FilterChipGroup';
 
 export default function DiagramLibrary({ teamsContext, diagramLibrary, embedded = false }) {
   const {
@@ -190,69 +191,41 @@ export default function DiagramLibrary({ teamsContext, diagramLibrary, embedded 
 
       {/* Search and Filters */}
       <div className={embedded ? 'px-0 py-4' : 'max-w-6xl mx-auto px-6 py-4'}>
-        <div className="flex flex-wrap gap-3 items-center">
-          <input
-            type="text"
-            placeholder="Search diagrams..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="flex-1 min-w-[200px] max-w-md px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
-          />
-          {uniqueAgeGroups.length > 0 && (
-            <select
-              value={filterAgeGroup}
-              onChange={(e) => setFilterAgeGroup(e.target.value)}
-              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500"
-            >
-              <option value="">All Ages</option>
-              {uniqueAgeGroups.map(age => (
-                <option key={age} value={age}>{age}</option>
-              ))}
-            </select>
-          )}
-          {uniqueMoments.length > 0 && (
-            <select
-              value={filterMoment}
-              onChange={(e) => setFilterMoment(e.target.value)}
-              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500"
-            >
-              <option value="">All Moments</option>
-              {uniqueMoments.map(m => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
-          )}
-          {uniqueTypes.length > 0 && (
-            <select
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-              className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500"
-            >
-              <option value="">All Types</option>
-              {uniqueTypes.map(t => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-          )}
-          {(filterAgeGroup || filterMoment || filterType) && (
-            <button
-              onClick={() => { setFilterAgeGroup(''); setFilterMoment(''); setFilterType(''); }}
-              className="px-3 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
-            >
-              Clear filters
-            </button>
-          )}
-          {convertibleDiagrams.length > 0 && (
-            <button
-              onClick={handleConvertAllClassic}
-              className="btn btn-secondary ml-auto"
-              style={{ fontSize: 12.5 }}
-              title={`Auto-convert ${convertibleDiagrams.length} classic diagram${convertibleDiagrams.length === 1 ? '' : 's'} to the new format`}
-            >
-              <span aria-hidden style={{ marginRight: 6 }}>✦</span>
-              Convert {convertibleDiagrams.length} classic
-            </button>
-          )}
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              type="text"
+              placeholder="Search diagrams..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="flex-1 min-w-[200px] max-w-md px-4 py-2 input-field"
+            />
+            {(filterAgeGroup || filterMoment || filterType) && (
+              <button
+                onClick={() => { setFilterAgeGroup(''); setFilterMoment(''); setFilterType(''); }}
+                className="text-[12px]"
+                style={{ color: 'var(--ink-3)' }}
+              >
+                Clear filters
+              </button>
+            )}
+            {convertibleDiagrams.length > 0 && (
+              <button
+                onClick={handleConvertAllClassic}
+                className="btn btn-secondary ml-auto"
+                style={{ fontSize: 12.5 }}
+                title={`Auto-convert ${convertibleDiagrams.length} classic diagram${convertibleDiagrams.length === 1 ? '' : 's'} to the new format`}
+              >
+                <span aria-hidden style={{ marginRight: 6 }}>✦</span>
+                Convert {convertibleDiagrams.length} classic
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-x-5 gap-y-2">
+            <FilterChipGroup label="Type" value={filterType} options={uniqueTypes} onChange={setFilterType} />
+            <FilterChipGroup label="Age" value={filterAgeGroup} options={uniqueAgeGroups} onChange={setFilterAgeGroup} />
+            <FilterChipGroup label="Moment" value={filterMoment} options={uniqueMoments} onChange={setFilterMoment} />
+          </div>
         </div>
       </div>
 
