@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import SessionCard from './SessionCard';
 import ScheduleSessionModal from './ScheduleSessionModal';
 import ShareModal from './ShareModal';
@@ -45,6 +45,7 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
   const [linkCode, setLinkCode] = useState('');
   const [linkBusy, setLinkBusy] = useState(false);
   const [gamesRefreshKey, setGamesRefreshKey] = useState(0);
+  const teamGamesRef = useRef(null);
   const [sessionLibrary, setSessionLibrary] = useState(() => {
     try {
       const lib = JSON.parse(localStorage.getItem(SESSION_LIBRARY_KEY)) || { version: 1, items: [] };
@@ -565,13 +566,21 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
         {team.iosShareCode && (
           <>
             <div className="hairline mt-12 mb-8" />
-            <div className="mb-6">
-              <div className="text-[11px] font-mono uppercase" style={{ color: 'var(--ink-3)', letterSpacing: '0.1em' }}>GAMES</div>
-              <h2 className="text-[24px] font-semibold mt-1" style={{ letterSpacing: '-0.02em' }}>
-                From the PlayBall iOS app
-              </h2>
+            <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
+              <div>
+                <div className="text-[11px] font-mono uppercase" style={{ color: 'var(--ink-3)', letterSpacing: '0.1em' }}>GAMES</div>
+                <h2 className="text-[24px] font-semibold mt-1" style={{ letterSpacing: '-0.02em' }}>
+                  From the PlayBall iOS app
+                </h2>
+              </div>
+              <button
+                onClick={() => teamGamesRef.current?.startCreate()}
+                className="btn btn-primary"
+              >
+                + New game
+              </button>
             </div>
-            <TeamGames key={gamesRefreshKey} teamId={selectedTeamId} players={team.players || []} />
+            <TeamGames ref={teamGamesRef} key={gamesRefreshKey} teamId={selectedTeamId} players={team.players || []} />
           </>
         )}
       </main>

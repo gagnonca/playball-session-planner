@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { COACH_IDENTITY_KEY } from '../../constants/storage';
 import GameEditorModal from './GameEditorModal';
 
@@ -23,11 +23,15 @@ function formatGameDate(iso) {
   return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-export default function TeamGames({ teamId, players = [] }) {
+const TeamGames = forwardRef(function TeamGames({ teamId, players = [] }, ref) {
   const [games, setGames] = useState(null);
   const [error, setError] = useState(null);
   const [editingGame, setEditingGame] = useState(null);   // game row being edited
   const [showCreate, setShowCreate] = useState(false);
+  // Parent (TeamDetail) renders the "+ New game" button next to the GAMES
+  // heading so it lines up with the Sessions header. It triggers create
+  // via this imperative handle.
+  useImperativeHandle(ref, () => ({ startCreate: () => setShowCreate(true) }), []);
 
   const load = useCallback(async () => {
     if (!teamId) return;
@@ -77,12 +81,6 @@ export default function TeamGames({ teamId, players = [] }) {
 
   return (
     <>
-      <div className="flex items-center justify-end mb-4">
-        <button onClick={() => setShowCreate(true)} className="btn btn-primary">
-          + New game
-        </button>
-      </div>
-
       {sorted.length === 0 ? (
         <div className="card p-12 text-center">
           <svg className="w-16 h-16 mx-auto mb-4" style={{ color: 'var(--ink-3)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -172,4 +170,6 @@ export default function TeamGames({ teamId, players = [] }) {
       )}
     </>
   );
-}
+});
+
+export default TeamGames;

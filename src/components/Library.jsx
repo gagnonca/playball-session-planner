@@ -432,6 +432,45 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
     });
   };
 
+  // Inline single-select chip group. Click a chip to filter to it; click again
+  // (or click another chip) to switch. Replaces the dropdown <select>s for a
+  // less form-heavy look.
+  const FilterChipGroup = ({ label, value, options, onChange }) => {
+    if (!options || options.length === 0) return null;
+    return (
+      <div className="inline-flex flex-wrap items-center gap-1.5">
+        <span
+          className="font-mono uppercase"
+          style={{ fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.08em', marginRight: 2 }}
+        >
+          {label}
+        </span>
+        {options.map(opt => {
+          const active = value === opt;
+          return (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => onChange(active ? '' : opt)}
+              className="rounded-full transition-colors"
+              style={{
+                padding: '3px 10px',
+                fontSize: 12,
+                background: active ? 'var(--ink)' : 'var(--bg-elev)',
+                color: active ? 'var(--bg)' : 'var(--ink-2)',
+                border: '1px solid',
+                borderColor: active ? 'var(--ink)' : 'var(--line)',
+                fontWeight: active ? 500 : 400,
+              }}
+            >
+              {opt}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
   const getDiagramThumb = (payload) => {
     if (!payload) return '';
     if (payload.imageDataUrl) return payload.imageDataUrl;
@@ -705,42 +744,30 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
         {activeTabLabel === 'Exercises' && (
           <>
             {/* Filters */}
-            <div className="flex flex-wrap gap-3 mb-6">
-              <input
-                type="text"
-                placeholder="Search exercises..."
-                value={exerciseSearch}
-                onChange={e => setExerciseSearch(e.target.value)}
-                className="flex-1 min-w-[180px] max-w-xs px-4 py-2 input-field"
-              />
-              {uniqueExerciseTypes.length > 0 && (
-                <select value={exerciseTypeFilter} onChange={e => setExerciseTypeFilter(e.target.value)}
-                  className="px-3 py-2 input-field">
-                  <option value="">All Types</option>
-                  {uniqueExerciseTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              )}
-              {uniqueExerciseAgeGroups.length > 0 && (
-                <select value={exerciseAgeFilter} onChange={e => setExerciseAgeFilter(e.target.value)}
-                  className="px-3 py-2 input-field">
-                  <option value="">All Ages</option>
-                  {uniqueExerciseAgeGroups.map(a => <option key={a} value={a}>{a}</option>)}
-                </select>
-              )}
-              {uniqueExerciseMoments.length > 0 && (
-                <select value={exerciseMomentFilter} onChange={e => setExerciseMomentFilter(e.target.value)}
-                  className="px-3 py-2 input-field">
-                  <option value="">All Moments</option>
-                  {uniqueExerciseMoments.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-              )}
-              {(exerciseTypeFilter || exerciseAgeFilter || exerciseMomentFilter) && (
-                <button
-                  onClick={() => { setExerciseTypeFilter(''); setExerciseAgeFilter(''); setExerciseMomentFilter(''); }}
-                  className="px-3 py-2 text-sm text-slate-400 hover:text-slate-200">
-                  Clear filters
-                </button>
-              )}
+            <div className="flex flex-col gap-3 mb-6">
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  type="text"
+                  placeholder="Search exercises..."
+                  value={exerciseSearch}
+                  onChange={e => setExerciseSearch(e.target.value)}
+                  className="flex-1 min-w-[180px] max-w-xs px-4 py-2 input-field"
+                />
+                {(exerciseTypeFilter || exerciseAgeFilter || exerciseMomentFilter) && (
+                  <button
+                    onClick={() => { setExerciseTypeFilter(''); setExerciseAgeFilter(''); setExerciseMomentFilter(''); }}
+                    className="text-[12px]"
+                    style={{ color: 'var(--ink-3)' }}
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-x-5 gap-y-2">
+                <FilterChipGroup label="Type" value={exerciseTypeFilter} options={uniqueExerciseTypes} onChange={setExerciseTypeFilter} />
+                <FilterChipGroup label="Age" value={exerciseAgeFilter} options={uniqueExerciseAgeGroups} onChange={setExerciseAgeFilter} />
+                <FilterChipGroup label="Moment" value={exerciseMomentFilter} options={uniqueExerciseMoments} onChange={setExerciseMomentFilter} />
+              </div>
             </div>
 
             {filteredExerciseGroups.length === 0 ? (
@@ -975,35 +1002,29 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
         {activeTabLabel === 'Sessions' && (
           <>
             {/* Filters */}
-            <div className="flex flex-wrap gap-3 mb-6">
-              <input
-                type="text"
-                placeholder="Search sessions..."
-                value={sessionSearch}
-                onChange={e => setSessionSearch(e.target.value)}
-                className="flex-1 min-w-[180px] max-w-xs px-4 py-2 input-field"
-              />
-              {uniqueSessionAgeGroups.length > 0 && (
-                <select value={sessionAgeFilter} onChange={e => setSessionAgeFilter(e.target.value)}
-                  className="px-3 py-2 input-field">
-                  <option value="">All Ages</option>
-                  {uniqueSessionAgeGroups.map(a => <option key={a} value={a}>{a}</option>)}
-                </select>
-              )}
-              {uniqueSessionMoments.length > 0 && (
-                <select value={sessionMomentFilter} onChange={e => setSessionMomentFilter(e.target.value)}
-                  className="px-3 py-2 input-field">
-                  <option value="">All Moments</option>
-                  {uniqueSessionMoments.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-              )}
-              {(sessionAgeFilter || sessionMomentFilter) && (
-                <button
-                  onClick={() => { setSessionAgeFilter(''); setSessionMomentFilter(''); }}
-                  className="px-3 py-2 text-sm text-slate-400 hover:text-slate-200">
-                  Clear filters
-                </button>
-              )}
+            <div className="flex flex-col gap-3 mb-6">
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  type="text"
+                  placeholder="Search sessions..."
+                  value={sessionSearch}
+                  onChange={e => setSessionSearch(e.target.value)}
+                  className="flex-1 min-w-[180px] max-w-xs px-4 py-2 input-field"
+                />
+                {(sessionAgeFilter || sessionMomentFilter) && (
+                  <button
+                    onClick={() => { setSessionAgeFilter(''); setSessionMomentFilter(''); }}
+                    className="text-[12px]"
+                    style={{ color: 'var(--ink-3)' }}
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-x-5 gap-y-2">
+                <FilterChipGroup label="Age" value={sessionAgeFilter} options={uniqueSessionAgeGroups} onChange={setSessionAgeFilter} />
+                <FilterChipGroup label="Moment" value={sessionMomentFilter} options={uniqueSessionMoments} onChange={setSessionMomentFilter} />
+              </div>
             </div>
 
             {filteredSessionGroups.length === 0 ? (
