@@ -170,23 +170,42 @@ export async function mirrorTeamSharePush({ shareCode, team }) {
     // a linked (real-coach) team we only refresh updated_at — the web user
     // owns the canonical name / age group / duration and an iOS push must
     // not clobber their edits.
-    const teamRow = isAnon
-      ? {
-          id: teamId,
-          coach_id: coachId,
-          name: team.name ?? 'Untitled Team',
-          age_group: team.ageGroup ?? null,
-          default_duration: team.defaultDuration ?? null,
-          sharing: team.sharing ?? { isShared: false },
-          ios_share_code: shareCode,
-          updated_at: now,
-        }
-      : { id: teamId, coach_id: coachId, updated_at: now };
-    const { error: teamErr } = await supabase.from('teams').upsert(teamRow);
-    if (teamErr) { console.error('[dualWrite.teamShare.team]', teamErr); return; }
+    // iOS Codable serializes most Team fields with a leading underscore
+    // (`_name`, `_games`, `_players`, ...). Web-shape teams use plain keys.
+    // Accept either so the mirror works from both sources.
+    const teamName = team._name ?? team.name ?? 'Untitled Team';
+    const teamGames = Array.isArray(team._games) ? team._games
+      : Array.isArray(team.games) ? team.games
+      : [];
+
+    // Anon: row may not exist yet → upsert with all required NOT NULL cols.
+    // Linked (real coach): row already exists (we just looked it up) → update
+    // only updated_at. We can't use upsert here because Postgres validates
+    // NOT NULL on the proposed INSERT row *before* the ON CONFLICT clause
+    // resolves, so an upsert missing `name` errors even when the existing row
+    // has a name.
+    if (isAnon) {
+      const { error: teamErr } = await supabase.from('teams').upsert({
+        id: teamId,
+        coach_id: coachId,
+        name: teamName,
+        age_group: team.ageGroup ?? null,
+        default_duration: team.defaultDuration ?? null,
+        sharing: team.sharing ?? { isShared: false },
+        ios_share_code: shareCode,
+        updated_at: now,
+      });
+      if (teamErr) { console.error('[dualWrite.teamShare.team]', teamErr); return; }
+    } else {
+      const { error: teamErr } = await supabase
+        .from('teams')
+        .update({ updated_at: now })
+        .eq('id', teamId).eq('coach_id', coachId);
+      if (teamErr) { console.error('[dualWrite.teamShare.team]', teamErr); return; }
+    }
 
     // Diff incoming games[] against live Postgres rows.
-    const incoming = Array.isArray(team.games) ? team.games.filter(g => g?.id) : [];
+    const incoming = teamGames.filter(g => g?.id);
     const incomingIds = new Set(incoming.map(g => g.id));
 
     if (incoming.length) {
