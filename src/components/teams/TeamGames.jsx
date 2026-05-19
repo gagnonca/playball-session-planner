@@ -137,9 +137,13 @@ export default function TeamGames({ teamId, players = [] }) {
                   {playerCount != null ? ` · ${playerCount} player${playerCount === 1 ? '' : 's'}` : ''}
                 </p>
                 {captain && (
-                  <p className="mt-1 text-[12px]" style={{ color: 'var(--ink-3)' }}>
-                    Captain: <span style={{ color: 'var(--ink-2)' }}>{captain.name}</span>
-                  </p>
+                  <div className="mt-2 inline-flex items-center gap-1.5 text-[12px]" style={{ color: 'var(--ink-3)' }}>
+                    <span
+                      className="inline-block rounded-full"
+                      style={{ width: 8, height: 8, background: captain.tintHex || 'var(--ink-3)' }}
+                    />
+                    Captain <span style={{ color: 'var(--ink-2)' }}>{captain.name}</span>
+                  </div>
                 )}
               </button>
             );

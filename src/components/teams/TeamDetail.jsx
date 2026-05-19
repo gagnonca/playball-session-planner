@@ -438,6 +438,54 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
 
         <div className="hairline mt-8 mb-8" />
 
+        {(team.players || []).length > 0 && (
+          <>
+            <div className="mb-4 flex items-end justify-between gap-4">
+              <div>
+                <div className="text-[11px] font-mono uppercase" style={{ color: 'var(--ink-3)', letterSpacing: '0.1em' }}>ROSTER</div>
+                <h2 className="text-[24px] font-semibold mt-1" style={{ letterSpacing: '-0.02em' }}>
+                  {team.players.length} player{team.players.length === 1 ? '' : 's'}
+                </h2>
+              </div>
+              <p className="text-[12px]" style={{ color: 'var(--ink-3)' }}>
+                Synced from the PlayBall iOS app
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 mb-10">
+              {team.players.map(p => (
+                <div
+                  key={p.id}
+                  className="inline-flex items-center gap-2 rounded-full pr-3"
+                  style={{
+                    background: 'var(--bg-elev)',
+                    border: '1px solid var(--line)',
+                    padding: '4px 4px 4px 4px',
+                  }}
+                >
+                  <span
+                    className="inline-block rounded-full flex-shrink-0"
+                    style={{
+                      width: 22,
+                      height: 22,
+                      background: p.tintHex || 'var(--ink-3)',
+                      color: '#fff',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      letterSpacing: '-0.02em',
+                    }}
+                  >
+                    {(p.name || '?').slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="text-[13px]" style={{ color: 'var(--ink)' }}>{p.name}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
         {/* Sessions section header + filter + new button */}
         <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
           <div>
