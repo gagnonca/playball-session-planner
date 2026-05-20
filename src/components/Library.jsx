@@ -607,9 +607,9 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
 
       <div className="max-w-6xl mx-auto px-10 pt-12 pb-4 flex items-start justify-between gap-6">
         <div>
-          <div className="text-[11px] font-mono uppercase mb-2" style={{ color: 'var(--ink-3)', letterSpacing: '0.1em' }}>LIBRARY</div>
-          <h1 className="text-[36px] font-semibold leading-[1.04]" style={{ letterSpacing: '-0.02em' }}>
-            Everything you&rsquo;ve made.
+          <div className="text-[11px] font-mono uppercase mb-2" style={{ color: 'var(--ink-3)', letterSpacing: '0.1em' }}>PLAYBOOK</div>
+          <h1 className="text-[36px] font-bold leading-[1.04]" style={{ letterSpacing: '-0.025em' }}>
+            Your playbook
           </h1>
           <p className="mt-2 text-[14px]" style={{ color: 'var(--ink-2)' }}>
             {isInsertMode ? 'Select an item to insert into your session.' : 'Sessions auto-save here as you build them. Pin what you reuse, share what’s worth sharing.'}
@@ -649,7 +649,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
       <div className="max-w-6xl mx-auto px-10 pb-3 flex flex-wrap items-center justify-between gap-3">
         <div
           role="tablist"
-          aria-label="Library tabs"
+          aria-label="Playbook tabs"
           className="inline-flex items-center gap-1"
         >
           {TABS.map((tab) => {

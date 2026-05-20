@@ -4,6 +4,8 @@ import ScheduleSessionModal from './ScheduleSessionModal';
 import ShareModal from './ShareModal';
 import SessionLibraryModal from './SessionLibraryModal';
 import TeamGames from './TeamGames';
+import TeamSpine from './TeamSpine';
+import CreateTeamModal from './CreateTeamModal';
 import { toast, sessionToLibraryPayload, libraryPayloadToSession, uid, nowIso, downloadJson } from '../../utils/helpers';
 import { COACH_IDENTITY_KEY, SESSION_LIBRARY_KEY } from '../../constants/storage';
 
@@ -29,18 +31,22 @@ function nextSessionLabel(team) {
 export default function TeamDetail({ teamsContext, sharingContext, libraryHook }) {
   const {
     selectedTeamId,
+    teamsData,
     getTeam,
     updateTeam,
     navigateToTeams,
+    navigateToTeamDetail,
     navigateToSessionBuilder,
     deleteSession,
     duplicateSession,
   } = teamsContext;
 
+  const allTeams = teamsData?.teams || [];
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showSessionLibrary, setShowSessionLibrary] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showCreateTeamModal, setShowCreateTeamModal] = useState(false);
   const [filterType, setFilterType] = useState('all'); // 'all', 'scheduled'
   const [linkCode, setLinkCode] = useState('');
   const [linkBusy, setLinkBusy] = useState(false);
@@ -266,21 +272,19 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
   const playerCount = team.roster?.length || 0;
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+    <div className="flex-1 flex min-h-0" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+      <TeamSpine
+        teams={allTeams}
+        activeId={selectedTeamId}
+        onSelect={navigateToTeamDetail}
+        onCreateTeam={() => setShowCreateTeamModal(true)}
+      />
+      <div className="flex-1 min-w-0 overflow-auto">
       <header
         className="sticky top-0 z-10"
         style={{ background: 'rgb(var(--bg-rgb) / 0.85)', backdropFilter: 'blur(8px)', borderBottom: '1px solid var(--line)' }}
       >
-        <div className="max-w-6xl mx-auto px-10 py-3 flex items-center justify-between gap-4">
-          <button
-            onClick={navigateToTeams}
-            className="btn btn-ghost"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 19l-7-7 7-7" />
-            </svg>
-            All teams
-          </button>
+        <div className="max-w-6xl mx-auto px-10 py-3 flex items-center justify-end gap-4">
           <div className="flex items-center gap-2">
             {sharingContext && (
               <button
@@ -620,6 +624,15 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
         onImport={handleImportSessionLibrary}
         onClear={handleClearSessionLibrary}
       />
+
+      {showCreateTeamModal && (
+        <CreateTeamModal
+          teamsContext={teamsContext}
+          editingTeam={null}
+          onClose={() => setShowCreateTeamModal(false)}
+        />
+      )}
+      </div>
     </div>
   );
 }

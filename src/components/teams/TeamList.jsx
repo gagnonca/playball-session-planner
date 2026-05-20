@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import TeamCard from './TeamCard';
 import CreateTeamModal from './CreateTeamModal';
+import TeamSpine from './TeamSpine';
 import { toast } from '../../utils/helpers';
 import { IOS_PROMO_DISMISSED_KEY } from '../../constants/storage';
 import playballIcon from '../../assets/playball-icon.png';
@@ -23,13 +24,22 @@ function greeting() {
 }
 
 export default function TeamList({ teamsContext, sharingContext, iosReferral, onDismissIosReferral }) {
-  const { teamsData, navigateToTeamDetail, deleteTeam } = teamsContext;
+  const { teamsData, navigateToTeamDetail, deleteTeam, selectedTeamId } = teamsContext;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingTeam, setEditingTeam] = useState(null);
   const [iosPromoDismissed, setIosPromoDismissed] = useState(() => !!localStorage.getItem(IOS_PROMO_DISMISSED_KEY));
 
   const teams = teamsData?.teams || [];
   const followedShares = sharingContext?.followedShares || [];
+
+  // If the user lands on Training Home with at least one team, jump them
+  // straight into that team's Workshop view — picking a team IS the nav.
+  React.useEffect(() => {
+    if (teams.length > 0 && !selectedTeamId) {
+      navigateToTeamDetail(teams[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teams.length, selectedTeamId]);
 
   const handleDismissIosPromo = () => {
     setIosPromoDismissed(true);
@@ -65,18 +75,24 @@ export default function TeamList({ teamsContext, sharingContext, iosReferral, on
   };
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
-      <main className="max-w-6xl mx-auto px-10 pt-12 pb-16">
+    <div className="flex-1 flex min-h-0" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+      <TeamSpine
+        teams={teams}
+        activeId={null}
+        onSelect={navigateToTeamDetail}
+        onCreateTeam={handleCreateTeam}
+      />
+      <main className="flex-1 min-w-0 overflow-auto px-10 pt-12 pb-16 max-w-6xl mx-auto w-full">
         {/* Greeting */}
         <div className="mb-10">
           <div className="text-[11px] font-mono uppercase mb-2" style={{ color: 'var(--ink-3)', letterSpacing: '0.1em' }}>{dayLabel()}</div>
-          <h1 className="text-[40px] font-semibold leading-[1.04]" style={{ letterSpacing: '-0.02em' }}>
-            {greeting()}, Coach.
+          <h1 className="text-[40px] font-bold leading-[1.04]" style={{ letterSpacing: '-0.025em' }}>
+            Training
           </h1>
           <p className="mt-3 text-[14.5px]" style={{ color: 'var(--ink-2)' }}>
             {teams.length === 0
-              ? 'Start by creating a team — sessions, diagrams and reflections will live alongside it.'
-              : `${teams.length} team${teams.length === 1 ? '' : 's'} · everything you build saves automatically.`}
+              ? 'Add your first team to start planning sessions. Drills, fixtures and notes all live with the team.'
+              : 'Pick a team on the left to open its sessions, fixtures, and roster.'}
           </p>
         </div>
 
@@ -117,7 +133,7 @@ export default function TeamList({ teamsContext, sharingContext, iosReferral, on
           <div className="flex items-end justify-between mb-5">
             <div>
               <div className="text-[11px] font-mono uppercase" style={{ color: 'var(--ink-3)', letterSpacing: '0.1em' }}>YOUR TEAMS</div>
-              <h2 className="text-[24px] font-semibold mt-1" style={{ letterSpacing: '-0.02em' }}>Pick up where you left off</h2>
+              <h2 className="text-[24px] font-bold mt-1" style={{ letterSpacing: '-0.02em' }}>Pick up where you left off</h2>
             </div>
             {teams.length > 0 && (
               <button onClick={handleCreateTeam} className="btn btn-primary">

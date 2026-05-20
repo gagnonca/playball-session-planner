@@ -19,7 +19,7 @@ import Schedule from './Schedule';
 import Settings from './Settings';
 import Welcome from './Welcome';
 import AboutModal from './AboutModal';
-import NavRail from './NavRail';
+import AppHeader from './AppHeader';
 import LinkDeviceModal from './LinkDeviceModal';
 import AccountModal from './AccountModal';
 import StorageLimitModal from './StorageLimitModal';
@@ -817,18 +817,18 @@ export default function AppShell() {
   }
 
   // Shared surfaces (Home, TeamDetail, Schedule, Library, Settings) live inside
-  // the nav-rail layout. Session Builder + Diagram Builder are fullscreen and
+  // the top-header layout. Session Builder + Diagram Builder are fullscreen and
   // bypass this block above.
   return (
     <ViewErrorBoundary onRecover={navigateToTeams}>
-      <div className="min-h-screen flex" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
-        <NavRail
+      <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+        <AppHeader
           teamsContext={teamsContext}
           syncContext={syncContext}
           accountContext={accountContext}
           onShowAbout={() => setShowAboutModal(true)}
         />
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 flex flex-col">
         {currentView === VIEWS.TEAMS && (
           <TeamList
             teamsContext={teamsContext}
