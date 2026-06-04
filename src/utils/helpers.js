@@ -117,6 +117,20 @@ export function defaultVariation() {
   };
 }
 
+// Best-effort diagram thumbnail from a section-like payload (or a raw section):
+// the section's own image, then a legacy diagramData snapshot, then the first
+// variation that has a diagram. Many drills keep the diagram on a variation.
+export function diagramThumbFromPayload(payload) {
+  if (!payload) return '';
+  if (payload.imageDataUrl) return payload.imageDataUrl;
+  if (payload.diagramData?.dataUrl) return payload.diagramData.dataUrl;
+  for (const v of payload.variations || []) {
+    if (v?.imageDataUrl) return v.imageDataUrl;
+    if (v?.diagramData?.dataUrl) return v.diagramData.dataUrl;
+  }
+  return '';
+}
+
 // Section to library payload (strip IDs for fresh inserts)
 export function sectionToLibraryPayload(section) {
   const s = structuredClone(section);

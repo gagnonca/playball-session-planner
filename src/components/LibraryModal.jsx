@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { diagramThumbFromPayload } from '../utils/helpers';
 
 // Library popup for the Session Builder. Lets the coach pick a saved or
 // auto-tracked section to Insert / Replace into the current session, or Delete
@@ -151,11 +152,27 @@ export default function LibraryModal({
                 const isAuto = item.source === 'auto';
                 const ageGroup = item.tags?.ageGroup;
                 const moment = item.tags?.moment;
+                const thumb = diagramThumbFromPayload(item.payload);
                 return (
                   <div
                     key={item.id}
                     className="card p-3 flex flex-col gap-2"
                   >
+                    {thumb ? (
+                      <div
+                        className="overflow-hidden rounded-[8px]"
+                        style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)', aspectRatio: '16 / 9' }}
+                      >
+                        <img src={thumb} alt="" className="w-full h-full" style={{ objectFit: 'contain', display: 'block' }} />
+                      </div>
+                    ) : (
+                      <div
+                        className="flex items-center justify-center rounded-[8px] text-[10.5px]"
+                        style={{ background: 'var(--bg-sunken)', border: '1px dashed var(--line)', aspectRatio: '16 / 9', color: 'var(--ink-3)' }}
+                      >
+                        No diagram
+                      </div>
+                    )}
                     <div className="flex items-start justify-between gap-2 min-w-0">
                       <div className="min-w-0 flex-1">
                         <div className="text-[13.5px] font-semibold truncate" style={{ letterSpacing: '-0.01em', color: 'var(--ink)' }}>

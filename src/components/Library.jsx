@@ -4,6 +4,7 @@ import {
   libraryPayloadToSession,
   sectionToLibraryPayload,
   sessionToLibraryPayload,
+  diagramThumbFromPayload,
   toast,
 } from '../utils/helpers';
 import { useLocalStorage } from '../hooks/useLocalStorage';
@@ -433,18 +434,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
     });
   };
 
-  const getDiagramThumb = (payload) => {
-    if (!payload) return '';
-    if (payload.imageDataUrl) return payload.imageDataUrl;
-    if (payload.diagramData?.dataUrl) return payload.diagramData.dataUrl;
-    // Many drills keep their diagram on a variation (progressions), not the
-    // section itself — fall back to the first variation that has one.
-    for (const v of payload.variations || []) {
-      if (v?.imageDataUrl) return v.imageDataUrl;
-      if (v?.diagramData?.dataUrl) return v.diagramData.dataUrl;
-    }
-    return '';
-  };
+  const getDiagramThumb = diagramThumbFromPayload;
 
   // Pull a thumbnail off a session payload. Practice section is the
   // distinguishing drill, so look there first; otherwise fall back to the
