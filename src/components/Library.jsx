@@ -437,6 +437,12 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
     if (!payload) return '';
     if (payload.imageDataUrl) return payload.imageDataUrl;
     if (payload.diagramData?.dataUrl) return payload.diagramData.dataUrl;
+    // Many drills keep their diagram on a variation (progressions), not the
+    // section itself — fall back to the first variation that has one.
+    for (const v of payload.variations || []) {
+      if (v?.imageDataUrl) return v.imageDataUrl;
+      if (v?.diagramData?.dataUrl) return v.diagramData.dataUrl;
+    }
     return '';
   };
 
@@ -476,6 +482,86 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
     }
     if (!confirm(`Hide "${label}" from your library? The session itself stays on its team — this just removes it from the library view.`)) return;
     hideSessionId(v.id);
+  };
+
+  // --- Consolidate duplicates: copy one "master" version's full content into the
+  // matching section of other sessions, so a dozen near-identical exercises become
+  // identical. Targets are addressed by their session origin, never deleted. ---
+
+  // Unique handle for a version even if two sessions happen to share a section id.
+  const versionKey = (v) =>
+    v.origin?.teamId && v.origin?.sessionId
+      ? `${v.origin.teamId}:${v.origin.sessionId}:${v.id}`
+      : `manual:${v.id}`;
+
+  // { groupKey, masterKey, targetKeys: Set<string> } | null
+  const [consolidate, setConsolidate] = useState(null);
+
+  const startConsolidate = (group) => {
+    const masterKey = versionKey(group.rep);
+    // Default: select every other version that lives in a session.
+    const targetKeys = new Set(
+      group.versions
+        .filter(v => versionKey(v) !== masterKey && v.origin?.teamId && v.origin?.sessionId)
+        .map(versionKey)
+    );
+    setConsolidate({ groupKey: group.key, masterKey, targetKeys });
+    setExpandedGroups(prev => new Set(prev).add(group.key));
+  };
+
+  const cancelConsolidate = () => setConsolidate(null);
+
+  const setMaster = (key) => setConsolidate(c => {
+    if (!c) return c;
+    const targetKeys = new Set(c.targetKeys);
+    targetKeys.delete(key); // a version can't be both master and a target
+    return { ...c, masterKey: key, targetKeys };
+  });
+
+  const toggleTarget = (key) => setConsolidate(c => {
+    if (!c) return c;
+    const targetKeys = new Set(c.targetKeys);
+    if (targetKeys.has(key)) targetKeys.delete(key); else targetKeys.add(key);
+    return { ...c, targetKeys };
+  });
+
+  const applyConsolidate = (group) => {
+    if (!consolidate || consolidate.groupKey !== group.key) return;
+    const master = group.versions.find(v => versionKey(v) === consolidate.masterKey);
+    if (!master?.payload) { toast('Pick a master version first'); return; }
+    const targets = group.versions.filter(
+      v => consolidate.targetKeys.has(versionKey(v)) && v.origin?.teamId && v.origin?.sessionId
+    );
+    if (targets.length === 0) { toast('Check at least one session to overwrite'); return; }
+
+    if (!window.confirm(
+      `Copy this "${group.name}" into ${targets.length} other session${targets.length === 1 ? '' : 's'}? ` +
+      `Their diagram, objective, notes, and variations will be overwritten to match. This can't be undone.`
+    )) return;
+
+    // Group targets by session so each session is written exactly once.
+    const bySession = new Map();
+    for (const t of targets) {
+      const k = `${t.origin.teamId}::${t.origin.sessionId}`;
+      if (!bySession.has(k)) bySession.set(k, { teamId: t.origin.teamId, sessionId: t.origin.sessionId, ids: new Set() });
+      bySession.get(k).ids.add(t.id);
+    }
+
+    let applied = 0;
+    for (const { teamId, sessionId, ids } of bySession.values()) {
+      const session = getTeam(teamId)?.sessions?.find(s => s.id === sessionId);
+      if (!session) continue;
+      const newSections = (session.sections || []).map(sec => {
+        if (!ids.has(sec.id)) return sec;
+        applied++;
+        // Adopt the master's content but keep this section's own id so it stays in place.
+        return libraryPayloadToSection(master.payload, sec.id);
+      });
+      updateSession(teamId, sessionId, { sections: newSections });
+    }
+
+    toast(`Updated ${applied} session${applied === 1 ? '' : 's'} to match "${group.name}"`);
+    setConsolidate(null);
   };
 
   // --- Cleanup: dedupe manual items by name, drop manuals redundant with auto items ---
@@ -744,6 +830,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
                   const rep = group.rep;
                   const isMulti = group.versions.length > 1;
                   const isOpen = expandedGroups.has(group.key);
+                  const isConsolidating = consolidate?.groupKey === group.key;
                   const team = rep.origin?.teamId ? getTeam(rep.origin.teamId) : null;
                   const exerciseThumb = getDiagramThumb(rep.payload);
                   const typeTone = rep.type === 'Play'
@@ -753,7 +840,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
                     : { bg: 'rgb(var(--good-rgb) / 0.18)', fg: 'var(--good)' };
                   return (
                     <div key={group.key} className={`card card-hover p-4 flex flex-col gap-3 ${isMulti && isOpen ? 'sm:col-span-2 lg:col-span-3' : ''}`}>
-                      {exerciseThumb && (
+                      {exerciseThumb ? (
                         <div
                           className="overflow-hidden rounded-[10px]"
                           style={{
@@ -766,10 +853,22 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
                             src={exerciseThumb}
                             alt=""
                             className="w-full h-full"
-                            style={{ objectFit: 'cover', display: 'block' }}
+                            style={{ objectFit: 'contain', display: 'block' }}
                           />
                         </div>
-                      )}
+                      ) : isInsertMode ? (
+                        <div
+                          className="flex items-center justify-center rounded-[10px] text-[11px]"
+                          style={{
+                            background: 'var(--bg-sunken)',
+                            border: '1px dashed var(--line)',
+                            aspectRatio: '16 / 9',
+                            color: 'var(--ink-3)',
+                          }}
+                        >
+                          No diagram
+                        </div>
+                      ) : null}
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                           <div className="font-semibold truncate" style={{ letterSpacing: '-0.015em' }}>{group.name}</div>
@@ -820,14 +919,39 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
 
                       {isMulti && isOpen && (
                         <div className="flex flex-col gap-3 pt-2 border-t border-slate-700">
+                          {isConsolidating ? (
+                            <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg p-2.5" style={{ background: 'var(--accent-soft)' }}>
+                              <span className="text-xs" style={{ color: 'var(--ink-2)' }}>
+                                Choose the <b>master</b> (●), check the sessions to overwrite, then apply.
+                              </span>
+                              <span className="flex gap-2 shrink-0">
+                                <button onClick={() => applyConsolidate(group)} className="btn btn-primary text-xs">
+                                  Copy into {consolidate.targetKeys.size} session{consolidate.targetKeys.size === 1 ? '' : 's'}
+                                </button>
+                                <button onClick={cancelConsolidate} className="btn btn-subtle text-xs">Cancel</button>
+                              </span>
+                            </div>
+                          ) : (
+                            <button onClick={() => startConsolidate(group)} className="btn btn-subtle text-xs self-start">
+                              Consolidate duplicates…
+                            </button>
+                          )}
                           {group.versions.map(v => {
+                            const vKey = versionKey(v);
                             const thumb = getDiagramThumb(v.payload);
                             const teamName = v.origin?.teamId ? getTeamName(v.origin.teamId) : '';
                             const sessionTitle = v.origin?.sessionTitle || '';
+                            const inSession = Boolean(v.origin?.teamId && v.origin?.sessionId);
+                            const isMaster = isConsolidating && consolidate.masterKey === vKey;
+                            const isTarget = isConsolidating && consolidate.targetKeys.has(vKey);
                             return (
-                              <div key={v.id} className="flex gap-3 p-3 bg-slate-900/60 rounded-lg border border-slate-700/60">
+                              <div
+                                key={vKey}
+                                className="flex gap-3 p-3 bg-slate-900/60 rounded-lg border"
+                                style={{ borderColor: isMaster ? 'var(--accent)' : 'rgb(51 65 85 / 0.6)' }}
+                              >
                                 {thumb && (
-                                  <img src={thumb} alt="" className="w-20 h-20 object-cover rounded border border-slate-700 shrink-0" />
+                                  <img src={thumb} alt="" className="w-20 h-20 object-contain rounded border border-slate-700 shrink-0" style={{ background: 'var(--bg-sunken)' }} />
                                 )}
                                 <div className="flex-1 min-w-0 flex flex-col gap-1">
                                   <div className="flex items-center justify-between gap-2">
@@ -847,30 +971,57 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
                                   {v.payload?.notes && (
                                     <p className="text-xs text-slate-500 line-clamp-1"><span className="text-slate-600">Notes: </span>{v.payload.notes}</p>
                                   )}
-                                  <div className="flex gap-2 mt-1">
-                                    {isInsertMode && (
-                                      <button
-                                        onClick={() => handleInsertExercise(v)}
-                                        className="btn btn-primary text-xs"
+                                  {isConsolidating ? (
+                                    <div className="flex items-center gap-4 mt-1 text-xs">
+                                      <label className="inline-flex items-center gap-1.5 cursor-pointer" style={{ color: 'var(--ink-2)' }}>
+                                        <input
+                                          type="radio"
+                                          name={`master-${group.key}`}
+                                          checked={isMaster}
+                                          onChange={() => setMaster(vKey)}
+                                        />
+                                        Master
+                                      </label>
+                                      <label
+                                        className="inline-flex items-center gap-1.5"
+                                        style={{ color: 'var(--ink-2)', opacity: isMaster || !inSession ? 0.4 : 1, cursor: isMaster || !inSession ? 'default' : 'pointer' }}
+                                        title={!inSession ? 'Saved library copies are not part of a session' : ''}
                                       >
-                                        Insert
-                                      </button>
-                                    )}
-                                    {v.origin?.teamId && v.origin?.sessionId && (
+                                        <input
+                                          type="checkbox"
+                                          disabled={isMaster || !inSession}
+                                          checked={isTarget}
+                                          onChange={() => toggleTarget(vKey)}
+                                        />
+                                        Overwrite{!inSession ? ' (n/a)' : ''}
+                                      </label>
+                                    </div>
+                                  ) : (
+                                    <div className="flex gap-2 mt-1">
+                                      {isInsertMode && (
+                                        <button
+                                          onClick={() => handleInsertExercise(v)}
+                                          className="btn btn-primary text-xs"
+                                        >
+                                          Insert
+                                        </button>
+                                      )}
+                                      {v.origin?.teamId && v.origin?.sessionId && (
+                                        <button
+                                          onClick={() => navigateToSessionBuilder(v.origin.teamId, v.origin.sessionId)}
+                                          className="btn btn-subtle text-xs"
+                                        >
+                                          Open in session
+                                        </button>
+                                      )}
                                       <button
-                                        onClick={() => navigateToSessionBuilder(v.origin.teamId, v.origin.sessionId)}
-                                        className="btn btn-subtle text-xs"
+                                        onClick={() => removeExerciseVersion(v, group.name)}
+                                        className="btn btn-danger text-xs ml-auto"
                                       >
-                                        Open in session
+                                        {v.source === 'manual' ? 'Delete' : 'Hide'}
                                       </button>
-                                    )}
-                                    <button
-                                      onClick={() => removeExerciseVersion(v, group.name)}
-                                      className="btn btn-danger text-xs ml-auto"
-                                    >
-                                      {v.source === 'manual' ? 'Delete' : 'Hide'}
-                                    </button>
-                                  </div>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             );
@@ -1080,7 +1231,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
                             const sectionCount = v.payload?.sections?.length || 0;
                             const firstObjective = v.payload?.sections?.find(s => s.objective)?.objective || '';
                             return (
-                              <div key={v.id} className="flex flex-col gap-1 p-3 bg-slate-900/60 rounded-lg border border-slate-700/60">
+                              <div key={versionKey(v)} className="flex flex-col gap-1 p-3 bg-slate-900/60 rounded-lg border border-slate-700/60">
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="text-xs text-slate-500">
                                     {formatDate(v.updatedAt)}
