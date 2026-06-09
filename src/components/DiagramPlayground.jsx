@@ -174,7 +174,13 @@ function isMarkerKind(kind) {
 // much of the pitch is shown and which markings appear). Both axes are
 // orthogonal — every combination renders sensibly.
 function FieldBackground({ w, h, size, view, bg = '#ccdad1' }) {
-  const m = 30; // pitch padding inset
+  // Inset between the green canvas edge and the white field boundary, in
+  // logical px (canvas is VB_W=1000 wide). Bumped from 30 -> 70 so coaches
+  // have room to place off-field markers (corner runs, starting cones,
+  // arrows leaving the box) without crowding the touchline. Shape
+  // coordinates are stored in raw logical px and don't reference m, so this
+  // is safe for every saved diagram — only the white markings shift inward.
+  const m = 70;
   const lineColor = 'rgba(255,255,255,0.65)';
   const stripeStroke = 'rgba(255,255,255,0.04)';
   const stripeCount = 10;
