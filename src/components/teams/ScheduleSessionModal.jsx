@@ -11,11 +11,13 @@ export default function ScheduleSessionModal({ teamsContext, teamId, onClose, on
   const [sessionDate, setSessionDate] = useState('');
   const [showSchedule, setShowSchedule] = useState(false);
 
-  const applyDateIfSet = (sessionId) => {
-    if (!sessionDate) return;
-    const session = teamsContext.getSession ? teamsContext.getSession(teamId, sessionId) : null;
-    if (!session) return;
-    updateSession(teamId, sessionId, {
+  // Apply the chosen date to a session we just created. We pass the session
+  // object in directly — not its id — because looking it up via
+  // teamsContext.getSession() here would read from the closure-captured
+  // teamsData, which doesn't include the just-queued createSession() update.
+  const applyDateIfSet = (session) => {
+    if (!sessionDate || !session) return;
+    updateSession(teamId, session.id, {
       summary: { ...session.summary, date: sessionDate },
     });
   };
@@ -43,7 +45,7 @@ export default function ScheduleSessionModal({ teamsContext, teamId, onClose, on
     ];
 
     updateSession(teamId, session.id, { sections });
-    applyDateIfSet(session.id);
+    applyDateIfSet(session);
     toast('Play-Practice-Play session created');
     navigateToSessionBuilder(teamId, session.id);
     onClose();
@@ -51,7 +53,7 @@ export default function ScheduleSessionModal({ teamsContext, teamId, onClose, on
 
   const handleCreateBlank = () => {
     const session = createSession(teamId);
-    applyDateIfSet(session.id);
+    applyDateIfSet(session);
     toast('Session created');
     navigateToSessionBuilder(teamId, session.id);
     onClose();
