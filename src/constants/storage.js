@@ -24,6 +24,12 @@ export const SECTION_LIBRARY_KEY = 'ppp_section_library_v1';
 // Session library
 export const SESSION_LIBRARY_KEY = 'ppp_session_library_v1';
 
+// User-defined session templates: each template has a name and an ordered list
+// of library exercise ids. When a coach picks the template at session-creation
+// time, each referenced exercise is pulled fresh from the library and turned
+// into a section, so future library edits flow into future sessions.
+export const SESSION_TEMPLATES_KEY = 'ppp_session_templates_v1';
+
 // Ids of auto-populated library items the coach has hidden from view.
 // Source data (the section/session) is NOT deleted — just filtered out of the library.
 export const LIBRARY_HIDDEN_KEY = 'ppp_library_hidden_v1';

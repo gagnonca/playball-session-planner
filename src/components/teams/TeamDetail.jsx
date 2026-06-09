@@ -593,6 +593,7 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
       {showScheduleModal && (
         <ScheduleSessionModal
           teamsContext={teamsContext}
+          libraryHook={libraryHook}
           teamId={selectedTeamId}
           onClose={() => setShowScheduleModal(false)}
           hasLibraryItems={sessionLibrary.items.length > 0}

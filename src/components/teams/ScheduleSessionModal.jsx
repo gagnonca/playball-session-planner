@@ -1,15 +1,26 @@
-import React, { useState } from 'react';
-import { toast, defaultSection } from '../../utils/helpers';
+import React, { useMemo, useState } from 'react';
+import { toast, defaultSection, libraryPayloadToSection } from '../../utils/helpers';
 import { PPP_TEMPLATES } from '../../constants/coaching';
+import useSessionTemplates from '../../hooks/useSessionTemplates';
+import TemplateEditorModal from './TemplateEditorModal';
 
 // "How would you like to start?" — PPP-default chooser, blank fallback,
-// or pull from the saved library. Replaces the old date-first flow.
-export default function ScheduleSessionModal({ teamsContext, teamId, onClose, onFromLibrary, hasLibraryItems }) {
+// library pull, or any user-defined template (custom exercise sequence).
+export default function ScheduleSessionModal({ teamsContext, libraryHook, teamId, onClose, onFromLibrary, hasLibraryItems }) {
   const { createSession, updateSession, navigateToSessionBuilder, getTeam } = teamsContext;
   const team = getTeam ? getTeam(teamId) : null;
+  const { templates, saveTemplate, deleteTemplate } = useSessionTemplates();
+
+  const libraryExercises = libraryHook?.exercises?.items || [];
+  const exercisesById = useMemo(() => {
+    const m = {};
+    for (const ex of libraryExercises) m[ex.id] = ex;
+    return m;
+  }, [libraryExercises]);
 
   const [sessionDate, setSessionDate] = useState('');
   const [showSchedule, setShowSchedule] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState(null); // null = closed, {} = new, {id,...} = edit
 
   // Apply the chosen date to a session we just created. We pass the session
   // object in directly — not its id — because looking it up via
@@ -59,11 +70,43 @@ export default function ScheduleSessionModal({ teamsContext, teamId, onClose, on
     onClose();
   };
 
+  const handleCreateFromTemplate = (tpl) => {
+    const sections = (tpl.exerciseIds || [])
+      .map(id => exercisesById[id])
+      .filter(Boolean)
+      .map(ex => libraryPayloadToSection(ex.payload));
+    if (sections.length === 0 && (tpl.exerciseIds || []).length > 0) {
+      toast('Template exercises were removed from your library.');
+      return;
+    }
+
+    const session = createSession(teamId);
+    if (sections.length > 0) {
+      updateSession(teamId, session.id, { sections });
+    }
+    applyDateIfSet(session);
+    toast(`Session created from "${tpl.name}"`);
+    navigateToSessionBuilder(teamId, session.id);
+    onClose();
+  };
+
+  const handleSaveTemplate = (incoming) => {
+    saveTemplate(incoming);
+    setEditingTemplate(null);
+    toast(incoming?.id ? 'Template saved' : 'Template created');
+  };
+
+  const handleDeleteTemplate = (tpl) => {
+    if (!window.confirm(`Delete template "${tpl.name}"?`)) return;
+    deleteTemplate(tpl.id);
+    toast('Template deleted');
+  };
+
   return (
     <>
       <div className="modal-backdrop" onClick={onClose} />
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="card animate-fade-in w-full max-w-[620px]" style={{ boxShadow: 'var(--shadow-lg)' }}>
+        <div className="card animate-fade-in w-full max-w-[640px]" style={{ boxShadow: 'var(--shadow-lg)' }}>
           <div className="p-6">
             <div className="eyebrow mb-2">
               NEW SESSION{team?.name ? ` · ${team.name.toUpperCase()}${team.ageGroup ? ` ${team.ageGroup}` : ''}` : ''}
@@ -167,6 +210,104 @@ export default function ScheduleSessionModal({ teamsContext, teamId, onClose, on
               </button>
             )}
 
+            {/* Custom templates */}
+            <div className="mb-3">
+              <div className="flex items-end justify-between mb-2">
+                <div>
+                  <div className="eyebrow" style={{ fontSize: 10.5 }}>YOUR TEMPLATES</div>
+                  <div className="text-[11.5px]" style={{ color: 'var(--ink-3)' }}>
+                    Reusable sequences of library exercises.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingTemplate({})}
+                  className="btn btn-ghost"
+                  style={{ fontSize: 12 }}
+                  title="New template"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  New template
+                </button>
+              </div>
+
+              {templates.length === 0 ? (
+                <div
+                  className="rounded-[12px] p-3 text-[12.5px]"
+                  style={{ background: 'var(--bg-sunken)', border: '1px dashed var(--line-2)', color: 'var(--ink-2)' }}
+                >
+                  No templates yet. Build one to chain library exercises into a re-runnable session.
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {templates.map(tpl => {
+                    const count = (tpl.exerciseIds || []).length;
+                    const missing = (tpl.exerciseIds || []).filter(id => !exercisesById[id]).length;
+                    return (
+                      <div
+                        key={tpl.id}
+                        className="rounded-[12px] flex items-center gap-2"
+                        style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)' }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleCreateFromTemplate(tpl)}
+                          className="flex-1 text-left p-3 flex items-center gap-3"
+                          style={{ background: 'transparent', border: 0, cursor: 'pointer', fontFamily: 'inherit' }}
+                        >
+                          <div
+                            className="w-8 h-8 rounded-[8px] flex items-center justify-center flex-shrink-0"
+                            style={{ background: 'var(--bg-elev)', color: 'var(--ink-2)', border: '1px solid var(--line)' }}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />
+                            </svg>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[13.5px] font-semibold truncate" style={{ letterSpacing: '-0.005em' }}>
+                              {tpl.name}
+                            </div>
+                            <div className="text-[11px] mt-0.5" style={{ color: 'var(--ink-3)' }}>
+                              {count === 0 ? 'Empty' : `${count} section${count === 1 ? '' : 's'}`}
+                              {missing > 0 ? ` · ${missing} missing from library` : ''}
+                            </div>
+                          </div>
+                          <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--ink-3)' }}>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                        <div className="flex items-center gap-1 pr-2 flex-shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setEditingTemplate(tpl); }}
+                            className="btn btn-ghost"
+                            style={{ padding: '4px 8px', fontSize: 11.5 }}
+                            title="Edit template"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(tpl); }}
+                            className="btn btn-ghost"
+                            style={{ padding: '4px 6px', color: 'var(--danger)' }}
+                            title="Delete template"
+                            aria-label="Delete template"
+                          >
+                            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             {/* Schedule date (optional) */}
             <div className="rounded-[12px] p-3" style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)' }}>
               {!showSchedule ? (
@@ -215,6 +356,15 @@ export default function ScheduleSessionModal({ teamsContext, teamId, onClose, on
           </div>
         </div>
       </div>
+
+      {editingTemplate !== null && (
+        <TemplateEditorModal
+          template={editingTemplate.id ? editingTemplate : null}
+          libraryExercises={libraryExercises}
+          onSave={handleSaveTemplate}
+          onClose={() => setEditingTemplate(null)}
+        />
+      )}
     </>
   );
 }
