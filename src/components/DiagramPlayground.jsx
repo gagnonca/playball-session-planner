@@ -913,6 +913,35 @@ function Inspector({
         </>
       )}
 
+      {isLineKind(shape.kind) && !shape.pending && (
+        <div
+          className="rounded-[10px] p-3 mb-4"
+          style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)' }}
+        >
+          <div className="eyebrow mb-2" style={{ fontSize: 10 }}>SHAPE</div>
+          <ul className="text-[12px] m-0 pl-0 list-none flex flex-col gap-1.5" style={{ color: 'var(--ink-2)', lineHeight: 1.4 }}>
+            <li className="flex gap-2">
+              <span style={{ color: 'var(--ink-3)' }}>＋</span>
+              <span>
+                <kbd className="font-mono" style={{ background: 'var(--bg-elev)', border: '1px solid var(--line)', padding: '0 5px', borderRadius: 3, fontSize: 10.5 }}>Dbl-click</kbd>
+                {' '}the line to <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>add a midpoint</strong>.
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span style={{ color: 'var(--ink-3)' }}>×</span>
+              <span>
+                <kbd className="font-mono" style={{ background: 'var(--bg-elev)', border: '1px solid var(--line)', padding: '0 5px', borderRadius: 3, fontSize: 10.5 }}>Dbl-click</kbd>
+                {' '}a midpoint handle to <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>remove it</strong>.
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span style={{ color: 'var(--ink-3)' }}>↔</span>
+              <span>Drag any handle to bend the line.</span>
+            </li>
+          </ul>
+        </div>
+      )}
+
       {!shape.pending && !isLineKind(shape.kind) && (onSize || onRotation) && (
         <>
           {onApplyToAllOfKindChange && (
@@ -1505,15 +1534,13 @@ export default function DiagramPlayground({
     const dy = logical.y - drawingLine.y1;
     if (Math.hypot(dx, dy) > 12) {
       const id = uid(drawingLine.kind);
-      // Seed a 3-point line so the user sees an immediate curve to grab.
-      // pointsOf() can derive the auto-bend midpoint from kind defaults.
-      const points = pointsOf({
-        kind: drawingLine.kind,
-        x1: drawingLine.x1,
-        y1: drawingLine.y1,
-        x2: logical.x,
-        y2: logical.y,
-      });
+      // New lines start straight — just two endpoints. Double-clicking the
+      // line later adds a midpoint to curve it. (We used to seed an auto-bend
+      // midpoint here, but coaches expect a straight line by default.)
+      const points = [
+        { x: drawingLine.x1, y: drawingLine.y1 },
+        { x: logical.x, y: logical.y },
+      ];
       setShapes(prev => [...prev, { id, kind: drawingLine.kind, points }]);
       selectOnly(id);
       // Drop straight back into select-mode so the new line's handles are
