@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import TagSelector from './TagSelector';
+import MomentCycle from './MomentCycle';
 import ContextualHelp, { resetHelpPreferences } from './ContextualHelp';
 import { SUMMARY_COLLAPSED_KEY } from '../constants/storage';
 import {
@@ -18,14 +19,6 @@ const useAutoGrow = () => {
     target.style.height = Math.max(target.scrollHeight, 72) + 'px';
   }, []);
 };
-
-// Moment options
-const MOMENT_OPTIONS = [
-  { value: 'Attacking', label: 'Attacking', emoji: '⚡' },
-  { value: 'Defending', label: 'Defending', emoji: '🛡️' },
-  { value: 'Winning the Ball', label: 'Win Ball', emoji: '🔄' },
-  { value: 'Losing the Ball', label: 'Lose Ball', emoji: '↩️' },
-];
 
 export default function SessionSummary({ summary, sections = [], onUpdate }) {
   const [titleOverride, setTitleOverride] = useState(false);
@@ -202,34 +195,10 @@ export default function SessionSummary({ summary, sections = [], onUpdate }) {
             />
           )}
 
-          <div className="flex flex-wrap gap-2">
-            {MOMENT_OPTIONS.map(option => {
-              const active = moment === option.value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => handleChange('moment', option.value)}
-                  className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 transition-all"
-                  style={{
-                    border: '1.5px solid',
-                    borderColor: active ? 'var(--accent)' : 'var(--line)',
-                    background: active ? 'var(--accent-soft)' : 'var(--bg-elev)',
-                    color: active ? 'var(--accent)' : 'var(--ink-2)',
-                    fontSize: 13,
-                    fontWeight: active ? 600 : 500,
-                    letterSpacing: '-0.005em',
-                  }}
-                  onMouseEnter={(e) => { if (!active) e.currentTarget.style.borderColor = 'var(--line-2)'; }}
-                  onMouseLeave={(e) => { if (!active) e.currentTarget.style.borderColor = 'var(--line)'; }}
-                  aria-pressed={active}
-                >
-                  <span aria-hidden>{option.emoji}</span>
-                  <span>{option.label}</span>
-                </button>
-              );
-            })}
-          </div>
+          <MomentCycle value={moment} onChange={(v) => handleChange('moment', v)} />
+          <p className="text-center mt-1" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+            The game flows in a loop — tap the moment your session focuses on.
+          </p>
         </div>
 
         {/* Date - Always Visible */}
