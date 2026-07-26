@@ -23,8 +23,8 @@ const useAutoGrow = () => {
 const MOMENT_OPTIONS = [
   { value: 'Attacking', label: 'Attacking', emoji: '⚡' },
   { value: 'Defending', label: 'Defending', emoji: '🛡️' },
-  { value: 'Transition to Attack', label: 'Trans→Atk', emoji: '🔄' },
-  { value: 'Transition to Defense', label: 'Trans→Def', emoji: '↩️' },
+  { value: 'Winning the Ball', label: 'Win Ball', emoji: '🔄' },
+  { value: 'Losing the Ball', label: 'Lose Ball', emoji: '↩️' },
 ];
 
 export default function SessionSummary({ summary, sections = [], onUpdate }) {

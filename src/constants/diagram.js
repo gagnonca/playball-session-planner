@@ -78,6 +78,6 @@ export const ARROW_CONFIG = {
 export const MOMENTS = [
   'Attacking',
   'Defending',
-  'Transition to Attack',
-  'Transition to Defense',
+  'Winning the Ball',
+  'Losing the Ball',
 ];

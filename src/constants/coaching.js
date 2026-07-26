@@ -13,11 +13,11 @@ export const MOMENT_ACTIONS = {
     primary: ['Press', 'Defend', 'Tackle', 'Intercept', 'Clear'],
     secondary: ['Communicate', 'Support', 'Scan'],
   },
-  'Transition to Attack': {
+  'Winning the Ball': {
     primary: ['Receive', 'Pass', 'Dribble', 'Scan', 'Create space'],
     secondary: ['Support', 'Shoot', 'Communicate'],
   },
-  'Transition to Defense': {
+  'Losing the Ball': {
     primary: ['Press', 'Intercept', 'Communicate', 'Defend'],
     secondary: ['Tackle', 'Clear', 'Support', 'Scan'],
   },
@@ -33,11 +33,11 @@ export const MOMENT_QUALITIES = {
     primary: ['Focus', 'Read & decide', 'Awareness', 'Communication', 'Teamwork'],
     secondary: ['Composure', 'Timing', 'Technical execution'],
   },
-  'Transition to Attack': {
+  'Winning the Ball': {
     primary: ['Quick thinking', 'Awareness', 'First touch', 'Vision', 'Scan'],
     secondary: ['Composure', 'Technical execution', 'Communication'],
   },
-  'Transition to Defense': {
+  'Losing the Ball': {
     primary: ['Focus', 'Read & decide', 'Awareness', 'Communication', 'Quick thinking'],
     secondary: ['Teamwork', 'Composure', 'Technical execution'],
   },
@@ -127,7 +127,7 @@ export const PPP_TEMPLATES = {
       organization: 'Scrimmage with appropriate numbers. Notice and praise good positioning.',
     },
   },
-  'Transition to Attack': {
+  'Winning the Ball': {
     play1: {
       name: 'Free Play',
       type: 'Play',
@@ -151,7 +151,7 @@ export const PPP_TEMPLATES = {
       organization: 'Scrimmage focused on recognizing transition opportunities.',
     },
   },
-  'Transition to Defense': {
+  'Losing the Ball': {
     play1: {
       name: 'Free Play',
       type: 'Play',

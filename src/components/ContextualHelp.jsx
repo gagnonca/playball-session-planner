@@ -51,13 +51,13 @@ export const HELP_CONTENT = {
           </div>
           <div className="bg-slate-800/50 rounded-lg p-3">
             <div className="flex items-center gap-2 font-semibold text-blue-300 mb-1">
-              <span>🔄</span> Transition to Attack
+              <span>🔄</span> Winning the Ball
             </div>
             <p className="text-xs text-slate-400">The moment you win the ball back. Can you quickly play forward and exploit the disorganized defense?</p>
           </div>
           <div className="bg-slate-800/50 rounded-lg p-3">
             <div className="flex items-center gap-2 font-semibold text-blue-300 mb-1">
-              <span>↩️</span> Transition to Defense
+              <span>↩️</span> Losing the Ball
             </div>
             <p className="text-xs text-slate-400">The moment you lose possession. React immediately - press the ball or recover goal-side.</p>
           </div>
