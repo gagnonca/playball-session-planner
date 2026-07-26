@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import TagSelector from './TagSelector';
-import MomentCycle, { MomentPills } from './MomentCycle';
+import MomentCycle, { MomentInfo } from './MomentCycle';
 import { resetHelpPreferences } from './ContextualHelp';
 import { SUMMARY_COLLAPSED_KEY } from '../constants/storage';
 import {
@@ -180,35 +180,19 @@ export default function SessionSummary({ summary, sections = [], onUpdate }) {
               type="button"
               onClick={() => setShowMomentsHelp(v => !v)}
               className="w-5 h-5 rounded-full bg-slate-700 hover:bg-slate-600 text-slate-400 hover:text-slate-200 text-xs flex items-center justify-center transition-colors"
-              title="See how the moments connect"
+              title="What are moments?"
               aria-pressed={showMomentsHelp}
             >
               ?
             </button>
           </div>
 
-          {showMomentsHelp ? (
-            <div
-              className="rounded-2xl p-4"
-              style={{ border: '1px solid var(--line)', background: 'var(--bg-elev)' }}
-            >
-              <p className="text-center mb-3" style={{ fontSize: 12, color: 'var(--ink-2)' }}>
-                The game flows in a loop. Winning the ball builds your attack; losing it
-                starts your defense.
-              </p>
-              <MomentCycle value={moment} onChange={(v) => handleChange('moment', v)} verbose />
-              <button
-                type="button"
-                onClick={() => setShowMomentsHelp(false)}
-                className="btn-secondary w-full mt-4"
-                style={{ fontSize: 12 }}
-              >
-                Done
-              </button>
-            </div>
-          ) : (
-            <MomentPills value={moment} onChange={(v) => handleChange('moment', v)} />
-          )}
+          {showMomentsHelp && <MomentInfo />}
+
+          <MomentCycle value={moment} onChange={(v) => handleChange('moment', v)} />
+          <p className="text-center mt-1" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+            The game flows in a loop — tap the moment your session focuses on.
+          </p>
         </div>
 
         {/* Date - Always Visible */}
