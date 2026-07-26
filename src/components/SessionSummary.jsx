@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import TagSelector from './TagSelector';
-import MomentCycle, { MomentInfo } from './MomentCycle';
+import { MomentPills, MomentInfo } from './MomentCycle';
 import { resetHelpPreferences } from './ContextualHelp';
 import { SUMMARY_COLLAPSED_KEY } from '../constants/storage';
 import {
@@ -189,10 +189,7 @@ export default function SessionSummary({ summary, sections = [], onUpdate }) {
 
           {showMomentsHelp && <MomentInfo />}
 
-          <MomentCycle value={moment} onChange={(v) => handleChange('moment', v)} />
-          <p className="text-center mt-1" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-            The game flows in a loop — tap the moment your session focuses on.
-          </p>
+          <MomentPills value={moment} onChange={(v) => handleChange('moment', v)} />
         </div>
 
         {/* Date - Always Visible */}
