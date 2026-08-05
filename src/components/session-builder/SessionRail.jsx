@@ -25,6 +25,9 @@ import { parseMinutes } from '../../utils/sessionDuration';
 const MOMENT_EMOJI = {
   attacking: '⚡',
   defending: '🛡',
+  'winning the ball': '🔄',
+  'losing the ball': '↩',
+  // legacy names (pre-rename data)
   'building up': '🏗',
   'transition to attack': '🔄',
   'transition to defense': '↩',
