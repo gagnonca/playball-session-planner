@@ -226,10 +226,16 @@ export default function AppShell() {
       try {
         const result = await syncContext.pullTeams();
         if (!result) return;
+        // Merge against the LIVE local state at pull-resolution time, not the
+        // snapshot captured when this effect fired. Otherwise any edit the user
+        // made during the async pull (e.g. tapping a moment right after load)
+        // is discarded when the merged result is loaded back in — a "select
+        // then revert" glitch. The visibility/focus pull below already does this.
+        const localNow = teamsDataRef.current || teamsData;
         const serverTeamCount = result.teams?.teams?.length || 0;
-        const localTeamCount = teamsData?.teams?.length || 0;
+        const localTeamCount = localNow?.teams?.length || 0;
         if (serverTeamCount === 0 && localTeamCount > 0) return;
-        teamsContext.loadTeamsFromServer(mergeTeamsData(teamsData, result.teams));
+        teamsContext.loadTeamsFromServer(mergeTeamsData(localNow, result.teams));
       } catch (err) {
         console.error('Failed to check for server updates:', err);
       }
