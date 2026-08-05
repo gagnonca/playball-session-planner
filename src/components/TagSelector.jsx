@@ -68,27 +68,30 @@ export default function TagSelector({
     return { primary, secondary, others };
   })() : null;
 
-  // Get tag style based on category
+  // Token-driven tag style with readable contrast in the light theme.
   const getTagStyle = (tag, category) => {
     const isSelected = selectedTags.includes(tag);
 
     if (isSelected) {
-      return 'bg-blue-600 text-white ring-2 ring-blue-400';
+      return { background: 'var(--accent)', color: 'var(--accent-ink)', border: '1px solid var(--accent)' };
     }
 
-    if (!isFiltered) {
-      return 'bg-slate-700 text-slate-300 hover:bg-slate-600';
+    // Primary suggestions read as the "recommended" set — coral text on soft coral.
+    if (isFiltered && category === 'primary') {
+      return {
+        background: 'var(--accent-soft)',
+        color: 'var(--accent)',
+        border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)',
+      };
     }
 
-    switch (category) {
-      case 'primary':
-        return 'bg-blue-600/30 text-blue-200 border border-blue-500/50 hover:bg-blue-600/50';
-      case 'secondary':
-        return 'bg-slate-700 text-slate-300 hover:bg-slate-600';
-      case 'other':
-      default:
-        return 'bg-slate-800/50 text-slate-500 hover:bg-slate-700/50';
+    // "Other" (least relevant) — muted but still legible.
+    if (isFiltered && category === 'other') {
+      return { background: 'transparent', color: 'var(--ink-3)', border: '1px solid var(--line)' };
     }
+
+    // Default / secondary — standard chip.
+    return { background: 'var(--bg-elev)', color: 'var(--ink-2)', border: '1px solid var(--line)' };
   };
 
   // Render a tag button
@@ -97,7 +100,8 @@ export default function TagSelector({
       key={tag}
       type="button"
       onClick={() => handleToggleTag(tag)}
-      className={`px-2 py-1 rounded text-xs font-medium transition-all ${getTagStyle(tag, category)}`}
+      className="px-2.5 py-1 rounded-full text-xs font-medium transition-all"
+      style={getTagStyle(tag, category)}
     >
       {selectedTags.includes(tag) && <span className="mr-1">✓</span>}
       {tag}
@@ -198,17 +202,19 @@ export default function TagSelector({
 
       {/* Selected tags display */}
       {selectedTags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 p-2 bg-slate-900/30 rounded border border-slate-700">
+        <div className="flex flex-wrap gap-1.5 p-2 rounded" style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)' }}>
           {selectedTags.map(tag => (
             <span
               key={tag}
-              className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-600/20 text-blue-300 rounded text-xs font-medium border border-blue-500/30"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+              style={{ background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 35%, transparent)' }}
             >
               {tag}
               <button
                 type="button"
                 onClick={() => handleRemoveTag(tag)}
-                className="hover:text-blue-100 transition-colors text-sm"
+                className="transition-colors text-sm"
+                style={{ color: 'var(--accent)' }}
                 title="Remove"
               >
                 ×
