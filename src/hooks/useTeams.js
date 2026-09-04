@@ -15,7 +15,7 @@ import { getTeamsData, saveTeamsData, migrateFromLocalStorage, clearTeamsData } 
 // Paths that are handled by AppShell or reserved — never match as team slugs
 const RESERVED_PATHS = new Set([
   'teams', 'diagrams', 'library', 'shared', 'import', 'share',
-  'privacy', 'support', 'api', 'assets', 'favicon',
+  'privacy', 'support', 'api', 'assets', 'favicon', 'double-booked',
 ]);
 
 // Build a unique URL slug for a team. Appends short ID suffix if names collide.

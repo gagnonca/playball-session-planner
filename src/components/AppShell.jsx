@@ -124,8 +124,20 @@ export default function AppShell() {
   const [staticPage, setStaticPage] = useState(() => {
     if (initialUrl.path === '/privacy') return 'privacy';
     if (initialUrl.path === '/support') return 'support';
+    if (initialUrl.path === '/double-booked') return 'double-booked';
     return null;
   });
+
+  // Hidden/unlisted pages: keep them out of search results.
+  useEffect(() => {
+    if (staticPage !== 'double-booked') return;
+    const meta = document.createElement('meta');
+    meta.name = 'robots';
+    meta.content = 'noindex, nofollow';
+    document.head.appendChild(meta);
+    return () => { meta.remove(); };
+  }, [staticPage]);
+
   // Held in state (not just localStorage) so dismissing the Welcome screen
   // forces a re-render even when currentView is already TEAMS — without this,
   // setCurrentView(TEAMS) bails and the gate keeps showing Welcome.
@@ -690,6 +702,58 @@ export default function AppShell() {
                   <p className="text-slate-400 text-sm">PlayBall stores data on your device. If you've enabled sync or sharing, that data is stored anonymously on our servers solely to deliver those features. Delete the app to remove local data, or revoke sharing to remove shared data.</p>
                 </div>
               </div>
+            </div>
+          )}
+
+          {staticPage === 'double-booked' && (
+            <div className="max-w-none">
+              <h1 className="text-3xl font-bold mb-2">Double-Booked</h1>
+              <p className="text-slate-400 text-sm mb-8">
+                Chrome / Edge extension — finds coaches booked for two games at once, or without
+                time to drive between parks, straight from your VSA Otto schedule.
+              </p>
+
+              <a
+                href="/downloads/double-booked-extension.zip"
+                download
+                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl font-semibold text-white transition-opacity hover:opacity-90"
+                style={{ background: 'var(--accent)' }}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                </svg>
+                Download the extension (.zip)
+              </a>
+
+              <h2 className="text-xl font-semibold mt-10 mb-4">Install — takes 30 seconds</h2>
+              <ol className="text-slate-300 space-y-3 list-decimal list-inside">
+                <li>Download the .zip above and <strong className="text-white">unzip it</strong> (double-click it). You'll get a <code className="text-slate-200">double-booked-extension</code> folder — keep it somewhere permanent, not in Downloads.</li>
+                <li>Open <code className="text-slate-200">chrome://extensions</code> (or <code className="text-slate-200">edge://extensions</code>).</li>
+                <li>Turn on <strong className="text-white">Developer mode</strong> (top-right toggle).</li>
+                <li>Click <strong className="text-white">Load unpacked</strong> and pick that folder.</li>
+                <li>Go to <a href="https://vsa.ottosport.ai" className="text-blue-400 hover:text-blue-300">vsa.ottosport.ai</a> and log in. A green <strong className="text-white">⚽ Conflicts</strong> button appears at the bottom-right.</li>
+              </ol>
+
+              <h2 className="text-xl font-semibold mt-10 mb-4">Using it</h2>
+              <div className="space-y-4">
+                <div className="p-4 bg-slate-800 rounded-xl border border-slate-700">
+                  <h3 className="font-semibold text-white mb-1">Your own teams</h3>
+                  <p className="text-slate-400 text-sm">Click <strong className="text-slate-200">⚽ Conflicts</strong>, then <strong className="text-slate-200">Find conflicts</strong>. Every clash across your teams, with times, parks, and the overlap or travel gap. Hit <strong className="text-slate-200">Refresh</strong> after a schedule change — no page reload needed.</p>
+                </div>
+                <div className="p-4 bg-slate-800 rounded-xl border border-slate-700">
+                  <h3 className="font-semibold text-white mb-1">Whole club, by coach</h3>
+                  <p className="text-slate-400 text-sm">Switch to <strong className="text-slate-200">Whole club (by coach)</strong>, open a season's full team list in Otto, click <strong className="text-slate-200">Add teams on this page</strong>, then <strong className="text-slate-200">Find conflicts</strong>. Only returns teams your Otto account can see — run it under the director / registrar login for full coverage.</p>
+                </div>
+                <div className="p-4 bg-slate-800 rounded-xl border border-slate-700">
+                  <h3 className="font-semibold text-white mb-1">Updating</h3>
+                  <p className="text-slate-400 text-sm">Download the new .zip, replace the folder's files, then click the ↻ refresh icon on the extension's card in chrome://extensions.</p>
+                </div>
+              </div>
+
+              <p className="text-slate-500 text-sm mt-10 pt-6 border-t border-slate-700">
+                Runs entirely in your browser — it reads the Otto page you're already logged into,
+                and no data leaves your machine. Unlisted page; share the link directly.
+              </p>
             </div>
           )}
         </div>

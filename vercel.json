@@ -16,6 +16,6 @@
     { "source": "/api/share/(.*)", "destination": "/api/share-router?slug=$1" },
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/shared/(.*)", "destination": "/index.html" },
-    { "source": "/((?!assets|favicon|api|\\.well-known).*)", "destination": "/index.html" }
+    { "source": "/((?!assets|favicon|api|downloads|\\.well-known).*)", "destination": "/index.html" }
   ]
 }

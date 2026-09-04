@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "pack:extension": "rm -f public/downloads/double-booked-extension.zip && (cd .. && zip -r -X playball-session-planner/public/downloads/double-booked-extension.zip double-booked-extension -x '*.DS_Store')"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
