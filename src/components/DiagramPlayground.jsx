@@ -6,6 +6,14 @@ import ballSvg from '../assets/ball.svg';
 import coneOrangeSvg from '../assets/cone_orange.svg';
 import coneBlueSvg from '../assets/cone_blue.svg';
 import coneYellowSvg from '../assets/cone_yellow.svg';
+import goalRegulationSvg from '../assets/goals/goal-regulation.svg';
+import goalTrainingSvg from '../assets/goals/goal-training.svg';
+import goalPugg6Svg from '../assets/goals/goal-pugg-6ft.svg';
+import goalPugg4Svg from '../assets/goals/goal-pugg-4ft.svg';
+import field4v4Svg from '../assets/fields/soccer-field-4v4.svg?raw';
+import field7v7Svg from '../assets/fields/soccer-field-7v7.svg?raw';
+import field9v9Svg from '../assets/fields/soccer-field-9v9.svg?raw';
+import field11v11Svg from '../assets/fields/soccer-field-11v11.svg?raw';
 
 const DEFENDER_COLOR = '#3B82F6';
 
@@ -25,6 +33,51 @@ const CONE_SWATCHES = [CONE_ORANGE, CONE_BLUE, CONE_YELLOW];
 function coneSrcFor(color) {
   return CONE_VARIANT_BY_COLOR[color] || coneOrangeSvg;
 }
+
+// Goal variants are overhead SVG assets drawn mouth-down (net extends toward
+// -y at rotation 0). `vb` is each SVG's viewBox; `crop` trims the transparent
+// padding around the frame (+ drop shadow) so the Transformer box hugs the
+// goal. `width` is the rendered width in logical px — not true to scale (a
+// 4ft Pugg would be ~10px on an 11v11 pitch), just clearly distinguishable.
+// Shapes saved before variants existed have no `variant` and render as the
+// default (regulation).
+const GOAL_VARIANTS = [
+  { id: 'regulation', label: 'Regulation', src: goalRegulationSvg, vb: { w: 1200, h: 500 }, crop: { x: 56, y: 96,  width: 1088, height: 298 }, width: 104 },
+  { id: 'training',   label: 'Training',   src: goalTrainingSvg,   vb: { w: 700,  h: 460 }, crop: { x: 60, y: 111, width: 580,  height: 275 }, width: 69 },
+  { id: 'pugg-6ft',   label: 'Pugg 6 ft',  src: goalPugg6Svg,      vb: { w: 1000, h: 480 }, crop: { x: 68, y: 144, width: 864,  height: 252 }, width: 62 },
+  { id: 'pugg-4ft',   label: 'Pugg 4 ft',  src: goalPugg4Svg,      vb: { w: 700,  h: 460 }, crop: { x: 68, y: 146, width: 564,  height: 238 }, width: 47 },
+];
+const DEFAULT_GOAL_VARIANT = 'regulation';
+function goalVariantFor(id) {
+  return GOAL_VARIANTS.find(v => v.id === id) || GOAL_VARIANTS[0];
+}
+// New goals face into the pitch: net toward whichever end line is nearer.
+// Half/third views only show the right-hand goal line.
+function goalRotationFor(x, view) {
+  if (view && view !== 'full') return 90;
+  return x < VB_W / 2 ? 270 : 90;
+}
+
+// Inline-SVG thumbnail of a goal variant, cropped the same way the canvas is.
+function GoalThumb({ variant, width = 40 }) {
+  const v = goalVariantFor(variant);
+  const { x, y, width: cw, height: ch } = v.crop;
+  return (
+    <svg width={width} height={width * ch / cw} viewBox={`${x} ${y} ${cw} ${ch}`} style={{ display: 'block' }}>
+      <image href={v.src} x={0} y={0} width={v.vb.w} height={v.vb.h} />
+    </svg>
+  );
+}
+// Field SVGs carry only the markings; the grass is drawn on the canvas: a
+// fixed dark green (not themed) with mowing stripes running across the whole
+// canvas, buffer included, so off-field markers sit on the same surface.
+// Stripes are laid out in pitch yards from the left goal line, so a Half or
+// Third crop shows the same stripes as the Full view.
+const PITCH_FIELD_COLOR = '#475E47';
+const PITCH_SURROUND_COLOR = PITCH_FIELD_COLOR;
+const PITCH_STRIPE_FILL = 'rgba(255,255,255,0.05)';
+const PITCH_STRIPES = 12; // across the full pitch length
+const PITCH_TILE_BG = PITCH_FIELD_COLOR;
 
 // Rounded-corner triangle. Konva's RegularPolygon draws sharp vertices; we
 // want a soft, marker-like point. The Shape sceneFunc arcTo's through each
@@ -87,37 +140,82 @@ const TOOLS = [
   { id: 'dribble',  label: 'Dribble',  key: 'X' },
 ];
 
-// Pitch SIZE controls the game format — aspect ratio of the full pitch plus
-// box / center-circle dimensions used when those markings render. 4v4 has no
-// penalty box and no center circle by convention.
+// Pitch SIZE is the game format. Each has a to-scale field SVG in
+// assets/fields (dimensions per snapsoccer.com's pitch-size guide; 4v4 is
+// ours in the same style). `length`/`width` are the pitch in yards (the
+// midpoint of each format's allowed range); `svg` describes where that pitch
+// sits inside the SVG — its top-left corner and pixels per yard — so the
+// canvas can scale and crop it precisely.
 const PITCH_SIZES = [
-  { value: '4v4',   label: '4v4',   aspect: 1.50, circleRadius: 0,  box: null },
-  { value: '7v7',   label: '7v7',   aspect: 1.60, circleRadius: 56, box: { outerW: 95,  outerH: 175, innerW: 35, innerH: 80  } },
-  { value: '9v9',   label: '9v9',   aspect: 1.65, circleRadius: 70, box: { outerW: 125, outerH: 220, innerW: 50, innerH: 110 } },
-  { value: '11v11', label: '11v11', aspect: 1.55, circleRadius: 82, box: { outerW: 160, outerH: 265, innerW: 60, innerH: 125 } },
+  { value: '4v4',   label: '4v4',   length: 30,  width: 20, svg: { src: field4v4Svg,   vbW: 680,  vbH: 480, x: 40, y: 40, ppy: 20 } },
+  { value: '7v7',   label: '7v7',   length: 60,  width: 40, svg: { src: field7v7Svg,   vbW: 680,  vbH: 480, x: 40, y: 40, ppy: 10 } },
+  { value: '9v9',   label: '9v9',   length: 75,  width: 50, svg: { src: field9v9Svg,   vbW: 830,  vbH: 580, x: 40, y: 40, ppy: 10 } },
+  { value: '11v11', label: '11v11', length: 115, width: 70, svg: { src: field11v11Svg, vbW: 1000, vbH: 640, x: 40, y: 40, ppy: 8  } },
 ];
 
-// Pitch VIEW controls how much of the pitch is shown. Each view divides the
-// long axis (full = 1, half = 2, third = 3) so aspect ratios derive cleanly
-// from the chosen size.
+// Pitch VIEW is a crop of the full pitch, not a separate drawing: `from` is
+// where the visible window starts along the pitch length (as a fraction), and
+// it always runs to the right-hand goal line. Half = halfway line → goal,
+// third = attacking third → goal.
 const PITCH_VIEWS = [
-  { value: 'full',  label: 'Full',  divisor: 1 },
-  { value: 'half',  label: 'Half',  divisor: 2 },
-  { value: 'third', label: 'Third', divisor: 3 },
+  { value: 'full',  label: 'Full',  from: 0 },
+  { value: 'half',  label: 'Half',  from: 1 / 2 },
+  { value: 'third', label: 'Third', from: 2 / 3 },
 ];
 
 const DEFAULT_PITCH_SIZE = '11v11';
 const DEFAULT_PITCH_VIEW = 'full';
 const PITCH_MAX_WIDTH = 880;
+// Team age group → game format (US Soccer small-sided standards). Age groups
+// are free text on the team, so accept "U10", "U-10", "10U", "Under 10", or
+// a birth year ("2016" → U-age for the season starting each August).
+function pitchSizeForAge(ageGroup) {
+  if (!ageGroup) return null;
+  const t = String(ageGroup).toUpperCase();
+  let age = null;
+  const u = t.match(/\bU\s*-?\s*(\d{1,2})\b/) || t.match(/\b(\d{1,2})\s*U\b/) || t.match(/UNDER\s*-?\s*(\d{1,2})\b/);
+  if (u) {
+    age = Number(u[1]);
+  } else {
+    const year = t.match(/\b(20\d{2})\b/);
+    if (year) {
+      const now = new Date();
+      const seasonEndYear = now.getFullYear() + (now.getMonth() >= 7 ? 1 : 0);
+      age = seasonEndYear - Number(year[1]);
+    }
+  }
+  if (!age || age < 4 || age > 23) return null;
+  if (age <= 8) return '4v4';
+  if (age <= 10) return '7v7';
+  if (age <= 12) return '9v9';
+  return '11v11';
+}
+
 const findSize = (v) => PITCH_SIZES.find(p => p.value === v) || PITCH_SIZES[3];
 const findView = (v) => PITCH_VIEWS.find(p => p.value === v) || PITCH_VIEWS[0];
+
+// Inset between the canvas edge and the touchline/goal line, in logical px
+// (canvas is VB_W=1000 wide). Room for off-field markers (corner runs,
+// starting cones, arrows leaving the box).
+const PITCH_MARGIN = 70;
+
+// Logical canvas aspect for a size + view. The visible pitch length fills
+// VB_W minus margins; the height follows from the real width at the same
+// yards-to-px scale, so markings are never stretched.
+function pitchAspectFor(size, view) {
+  const sz = findSize(size);
+  const vw = findView(view);
+  const visibleYards = sz.length * (1 - vw.from);
+  const pxPerYard = (VB_W - 2 * PITCH_MARGIN) / visibleYards;
+  return VB_W / (sz.width * pxPerYard + 2 * PITCH_MARGIN);
+}
 
 // Logical canvas viewBox — Konva pixels match these so shapes scale cleanly
 // across field types. Width is fixed; height derives from aspect so each
 // preset renders in its own viewBox without changing how shapes are stored.
 const VB_W = 1000;
 
-const COLORS = ['#c8553d', '#3d7a4a', '#3d5a8a', '#c8853d', '#1a1814'];
+const COLORS = ['#c8553d', '#3d7a4a', DEFENDER_COLOR, '#c8853d', '#1a1814'];
 
 // --- Tool rail icons --------------------------------------------------------
 
@@ -136,7 +234,16 @@ const Icon = {
   ),
   ball:     ()  => <img src={ballSvg} width="18" height="18" alt="" style={{ display: 'block' }} />,
   cone:     ()  => <img src={coneOrangeSvg} width="22" height="22" alt="" style={{ display: 'block' }} />,
-  goal:     (c) => <svg width="20" height="20" viewBox="0 0 24 24" stroke={c} strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4v16M4 4h12l-2 5h-10M4 12h10l-2 5H4" /></svg>,
+  // Overhead goal matching the canvas assets: trapezoid frame, flat mouth,
+  // light net mesh, post caps.
+  goal:     (c) => (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4.4 12.5h15.2M8 17l.8-10M12 17V7M16 17l-.8-10" stroke={c} strokeWidth="1" opacity="0.45" />
+      <path d="M3 17L5.5 7h13L21 17M3 17h18" stroke={c} strokeWidth="1.6" />
+      <circle cx="3" cy="17" r="1.3" fill={c} />
+      <circle cx="21" cy="17" r="1.3" fill={c} />
+    </svg>
+  ),
   pass:     (c) => <svg width="22" height="22" viewBox="0 0 24 24" stroke={c} strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12h16M16 8l4 4-4 4" /></svg>,
   run:      (c) => <svg width="22" height="22" viewBox="0 0 24 24" stroke={c} strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12h16M16 8l4 4-4 4" strokeDasharray="3 3" /></svg>,
   dribble:  (c) => <svg width="22" height="22" viewBox="0 0 24 24" stroke={c} strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12c3 -3 5 3 8 0s5 3 8 0M16 8l4 4-4 4" /></svg>,
@@ -169,120 +276,79 @@ function isMarkerKind(kind) {
 
 // --- Field background -------------------------------------------------------
 
-// Pitch markings are composed from a SIZE (4v4..11v11, dictates box +
-// center-circle dimensions) and a VIEW (full / half / third, dictates how
-// much of the pitch is shown and which markings appear). Both axes are
-// orthogonal — every combination renders sensibly.
-function FieldBackground({ w, h, size, view, bg = '#ccdad1' }) {
-  // Inset between the green canvas edge and the white field boundary, in
-  // logical px (canvas is VB_W=1000 wide). Bumped from 30 -> 70 so coaches
-  // have room to place off-field markers (corner runs, starting cones,
-  // arrows leaving the box) without crowding the touchline. Shape
-  // coordinates are stored in raw logical px and don't reference m, so this
-  // is safe for every saved diagram — only the white markings shift inward.
-  const m = 70;
-  const lineColor = 'rgba(255,255,255,0.65)';
-  const stripeStroke = 'rgba(255,255,255,0.04)';
-  const stripeCount = 10;
-  const stripeW = w / stripeCount;
+// Browsers rasterize an SVG <img> at its intrinsic size when it's drawn to
+// a canvas (Safari especially), so a 680px-wide field would blur once a Half
+// or Third crop zooms it 2-3x. Re-declare each SVG at ~3000px wide before
+// loading it; the vector content scales cleanly.
+//
+// Markings are authored at stroke-width 4 in SVG units, but the SVG is drawn
+// at very different zooms (an 11v11 full pitch vs a 4v4 third is ~5x), so a
+// fixed SVG stroke turns into fat smears when zoomed in. Rewrite the line
+// width, dash pattern and spot radius per zoom so they land at a constant
+// size in canvas px.
+const FIELD_RASTER_WIDTH = 3000;
+const FIELD_LINE_PX = 3;
+const FIELD_DASH_PX = [3, 14];
+const FIELD_SPOT_PX = 4;
+const fieldImageUrls = new Map();
+function fieldImageUrl(svg, f) {
+  const key = `${f.toFixed(3)}@${svg.src}`;
+  if (!fieldImageUrls.has(key)) {
+    const r = FIELD_RASTER_WIDTH / svg.vbW;
+    const u = (px) => +(px / f).toFixed(3); // canvas px -> svg units
+    const sized = svg.src
+      .replace(/width="\d+" height="\d+"/, `width="${Math.round(svg.vbW * r)}" height="${Math.round(svg.vbH * r)}"`)
+      .replace(/stroke-width="4"/g, `stroke-width="${u(FIELD_LINE_PX)}"`)
+      // Touchline/goal line sit on the pitch clip edge, so only their inner
+      // half shows; they're authored at 2x to read at the same weight.
+      .replace(/stroke-width="8"/g, `stroke-width="${u(2 * FIELD_LINE_PX)}"`)
+      .replace(/stroke-dasharray="[^"]*"/g, `stroke-dasharray="${FIELD_DASH_PX.map(u).join(' ')}"`)
+      .replace(/ r="4"/g, ` r="${u(FIELD_SPOT_PX)}"`);
+    fieldImageUrls.set(key, `data:image/svg+xml;charset=utf-8,${encodeURIComponent(sized)}`);
+  }
+  return fieldImageUrls.get(key);
+}
 
-  // Konva-drawn pitch fill so toDataURL exports the green. Previously the
-  // green came from a CSS background on the container, which the Konva export
-  // could not see — saved diagrams were transparent. Color is the live
-  // computed background of the editor container so editor + export match.
-  const pitchFill = (
-    <Rect x={0} y={0} width={w} height={h} fill={bg} listening={false} />
-  );
-  const stripes = (
-    <>
-      {Array.from({ length: stripeCount }).map((_, i) => (
-        i % 2 === 1 ? (
-          <Rect key={i} x={i * stripeW} y={0} width={stripeW} height={h} fill={stripeStroke} listening={false} />
-        ) : null
-      ))}
-    </>
-  );
-  const boundary = (
-    <Rect x={m} y={m} width={w - m * 2} height={h - m * 2} stroke={lineColor} strokeWidth={3} fillEnabled={false} listening={false} />
-  );
-  const halfway = (
-    <Line points={[w / 2, m, w / 2, h - m]} stroke={lineColor} strokeWidth={2} listening={false} />
-  );
-  const centerSpot = (
-    <Circle x={w / 2} y={h / 2} radius={3} fill="rgba(255,255,255,0.75)" listening={false} />
-  );
-  const centerCircle = (r) => (
-    <Circle x={w / 2} y={h / 2} radius={r} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
-  );
-  const sizeCfg = findSize(size);
-  const box = sizeCfg.box;
-  const cr  = sizeCfg.circleRadius;
-  const endBox = (side) => {
-    if (!box) return null;
-    const { outerW, outerH, innerW, innerH } = box;
-    const isLeft = side === 'left';
-    const outerX = isLeft ? m : w - m - outerW;
-    const innerX = isLeft ? m : w - m - innerW;
-    return (
-      <Group key={side} listening={false}>
-        <Rect x={outerX} y={(h - outerH) / 2} width={outerW} height={outerH} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
-        <Rect x={innerX} y={(h - innerH) / 2} width={innerW} height={innerH} stroke={lineColor} strokeWidth={2} fillEnabled={false} listening={false} />
-      </Group>
-    );
-  };
-  const tinyGoal = (side) => {
-    // For 4v4: no penalty box, but a small visible goal post on each end.
-    const x = side === 'left' ? m - 5 : w - m;
-    return (
-      <Rect key={`goal-${side}`} x={x} y={(h - 50) / 2} width={5} height={50} fill={lineColor} listening={false} />
-    );
-  };
-
-  if (view === 'full') {
-    return (
-      <Group listening={false}>
-        {pitchFill}
-        {stripes}
-        {boundary}
-        {halfway}
-        {cr > 0 && centerCircle(cr)}
-        {centerSpot}
-        {box ? [endBox('left'), endBox('right')] : [tinyGoal('left'), tinyGoal('right')]}
-      </Group>
-    );
+// The full pitch SVG is always placed at the same yards-to-px scale; the
+// view only decides which window of it is visible (half/third are crops
+// ending at the right-hand goal line), so markings stay identical across
+// views.
+function FieldBackground({ w, h, size, view, bg = PITCH_SURROUND_COLOR }) {
+  const sz = findSize(size);
+  const vw = findView(view);
+  const m = PITCH_MARGIN * (w / VB_W);
+  const k = (w - 2 * m) / (sz.length * (1 - vw.from)); // px per yard
+  const f = k / sz.svg.ppy;                               // svg px -> canvas px
+  // Line widths are keyed to logical (VB_W) px so they don't swell with the
+  // stage's on-screen width either.
+  const image = useKonvaImage(fieldImageUrl(sz.svg, f * (VB_W / w)));
+  const pitchX = m - sz.length * vw.from * k;            // pitch left edge (may be off-canvas)
+  const stripeW = (sz.length / PITCH_STRIPES) * k;
+  const stripes = [];
+  for (let i = Math.floor(-pitchX / stripeW); pitchX + i * stripeW < w; i++) {
+    if (((i % 2) + 2) % 2 === 1) stripes.push(i);
   }
 
-  if (view === 'half') {
-    // Show one end (right) with its penalty box; the open (left) side gets
-    // a half-circle hugging the centerline so it reads as "the goal half".
-    // For 4v4, the open side gets the tiny goal marker only.
-    return (
-      <Group listening={false}>
-        {pitchFill}
-        {stripes}
-        {boundary}
-        {cr > 0 && (
-          <Path
-            data={`M ${m} ${h / 2 - cr} A ${cr} ${cr} 0 0 1 ${m} ${h / 2 + cr}`}
-            stroke={lineColor}
-            strokeWidth={2}
-            listening={false}
-          />
-        )}
-        {box ? endBox('right') : tinyGoal('right')}
-      </Group>
-    );
-  }
-
-  // view === 'third' — outline + two dashed thirds, no boxes or circle.
-  // Useful for tactical channel work that doesn't care about goal-line markings.
   return (
     <Group listening={false}>
-      {pitchFill}
-      {stripes}
-      {boundary}
-      <Line points={[m + (w - 2 * m) / 3, m, m + (w - 2 * m) / 3, h - m]} stroke={lineColor} strokeWidth={2} dash={[8, 6]} opacity={0.6} listening={false} />
-      <Line points={[m + (w - 2 * m) * 2 / 3, m, m + (w - 2 * m) * 2 / 3, h - m]} stroke={lineColor} strokeWidth={2} dash={[8, 6]} opacity={0.6} listening={false} />
+      {/* Konva-drawn fill so toDataURL exports the surround too (a CSS
+          background on the container isn't captured by the Konva export). */}
+      <Rect x={0} y={0} width={w} height={h} fill={bg} listening={false} />
+      {stripes.map(i => (
+        <Rect key={i} x={pitchX + i * stripeW} y={0} width={stripeW} height={h} fill={PITCH_STRIPE_FILL} listening={false} />
+      ))}
+      {image && (
+        <Group clipX={0} clipY={0} clipWidth={w} clipHeight={h} listening={false}>
+          <KImage
+            image={image}
+            x={pitchX - sz.svg.x * f}
+            y={m - sz.svg.y * f}
+            width={sz.svg.vbW * f}
+            height={sz.svg.vbH * f}
+            listening={false}
+          />
+        </Group>
+      )}
     </Group>
   );
 }
@@ -301,6 +367,28 @@ function ConeImage({ color, ...props }) {
   return <KImage image={image} {...props} />;
 }
 
+function GoalImage({ variant }) {
+  const v = goalVariantFor(variant);
+  const image = useKonvaImage(v.src);
+  const w = v.width;
+  const h = w * v.crop.height / v.crop.width;
+  // Invisible hit/bbox rect so the goal is clickable and the Transformer
+  // sizes correctly while the image is still loading.
+  return (
+    <>
+      <Rect x={-w / 2} y={-h / 2} width={w} height={h} fill="#000" opacity={0} />
+      {image && (
+        <KImage image={image} crop={v.crop} x={-w / 2} y={-h / 2} width={w} height={h} />
+      )}
+    </>
+  );
+}
+
+// Markers (players, ball, cones, goals) are drawn at this fraction of their
+// authored geometry, so the inspector's 1.0x is a comfortable default on
+// every pitch size. `shape.scale` stays relative to it (1.0 = default).
+const MARKER_BASE_SCALE = 0.7;
+
 function MarkerShape({ shape, onClick, onDragMove, onDragEnd, onTransformEnd, draggable, id }) {
   const { kind, x, y, label, color } = shape;
   const rotation = shape.rotation ?? 0;
@@ -311,8 +399,8 @@ function MarkerShape({ shape, onClick, onDragMove, onDragEnd, onTransformEnd, dr
     name: 'selectable',
     x,
     y,
-    scaleX: scale,
-    scaleY: scale,
+    scaleX: scale * MARKER_BASE_SCALE,
+    scaleY: scale * MARKER_BASE_SCALE,
     rotation,
     draggable,
     onMouseDown: onClick,
@@ -399,8 +487,7 @@ function MarkerShape({ shape, onClick, onDragMove, onDragEnd, onTransformEnd, dr
   if (kind === 'goal') {
     return (
       <Group {...common}>
-        <Rect x={-28} y={-10} width={56} height={20} cornerRadius={2} stroke="#1a1814" strokeWidth={2} fill="rgba(255,255,255,0.8)" />
-        <Line points={[-22, -10, -22, 10, -10, 10, -10, -10, 0, -10, 0, 10, 10, 10, 10, -10, 22, -10, 22, 10]} stroke="#1a1814" strokeWidth={1} />
+        <GoalImage variant={shape.variant} />
       </Group>
     );
   }
@@ -774,15 +861,33 @@ const KIND_PLURALS = {
   ball: 'balls',
   cone: 'cones',
   goal: 'goals',
+  pass: 'passes',
+  run: 'runs',
+  dribble: 'dribbles',
 };
+const LINE_KINDS = ['pass', 'run', 'dribble'];
 function kindPluralLabel(kind) {
   return KIND_PLURALS[kind] || `${kind}s`;
 }
 
+// Shared by every inspector state (empty / single / multi) so the panel is
+// exactly 280px in all of them. If the width varied, the canvas column would
+// resize with it — and since the pitch height follows its width, the canvas
+// would visibly jump every time the selection changed.
+const INSPECTOR_STYLE = {
+  width: 280,
+  flexShrink: 0,
+  boxSizing: 'border-box',
+  scrollbarGutter: 'stable',
+  background: 'var(--bg-elev)',
+  borderLeft: '1px solid var(--line)',
+  padding: 22,
+};
+
 function Inspector({
   shape, multiCount,
-  onLabel, onColor, onDelete,
-  onSelectAll, onSelectAllOfKind, onDeselect,
+  onLabel, onColor, onVariant, onDelete,
+  onSelectAll, onSelectAllOfKind, onSelectKind, kindCounts = {}, onDeselect,
   onSize, onRotation,
   applyToAllOfKind, onApplyToAllOfKindChange,
   description, onDescriptionChange,
@@ -791,7 +896,7 @@ function Inspector({
     return (
       <aside
         className="overflow-y-auto"
-        style={{ width: 280, background: 'var(--bg-elev)', borderLeft: '1px solid var(--line)', padding: 22 }}
+        style={INSPECTOR_STYLE}
       >
         <div className="eyebrow mb-3" style={{ fontSize: 10.5 }}>SELECTION</div>
         <div className="card p-4">
@@ -818,7 +923,7 @@ function Inspector({
     return (
       <aside
         className="overflow-y-auto"
-        style={{ width: 280, background: 'var(--bg-elev)', borderLeft: '1px solid var(--line)', padding: 22 }}
+        style={INSPECTOR_STYLE}
       >
         <div className="eyebrow mb-3" style={{ fontSize: 10.5 }}>SELECTION</div>
         <div className="card p-4 text-[13px]" style={{ color: 'var(--ink-2)' }}>
@@ -827,8 +932,11 @@ function Inspector({
         {onSelectAll && (
           <button onClick={onSelectAll} className="btn btn-secondary w-full mt-3" style={{ fontSize: 12.5 }}>
             Select all
-            <kbd className="font-mono ml-2" style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)', padding: '0 6px', borderRadius: 4, fontSize: 10.5 }}>⌘A</kbd>
+            <kbd className="font-mono ml-2" style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)', padding: '0 6px', borderRadius: 4, fontSize: 10.5 }}>⇧⌘A</kbd>
           </button>
+        )}
+        {onSelectKind && LINE_KINDS.some(k => kindCounts[k] > 0) && (
+          <LineKindButtons kindCounts={kindCounts} onSelectKind={onSelectKind} />
         )}
 
         {onDescriptionChange && (
@@ -856,7 +964,7 @@ function Inspector({
   return (
     <aside
       className="overflow-y-auto"
-      style={{ width: 280, flexShrink: 0, boxSizing: 'border-box', scrollbarGutter: 'stable', background: 'var(--bg-elev)', borderLeft: '1px solid var(--line)', padding: 22 }}
+      style={INSPECTOR_STYLE}
     >
       <div className="eyebrow mb-3" style={{ fontSize: 10.5 }}>
         {shape.pending ? 'NEXT STAMP' : 'SELECTION'}
@@ -864,7 +972,9 @@ function Inspector({
       <div className="card p-3.5 mb-4 flex items-center gap-2.5">
         <ShapePreview shape={shape} />
         <div className="flex-1 min-w-0">
-          <div className="text-[13.5px] font-medium capitalize" style={{ color: 'var(--ink)' }}>{shape.kind}</div>
+          <div className="text-[13.5px] font-medium capitalize" style={{ color: 'var(--ink)' }}>
+            {shape.kind === 'goal' ? `${goalVariantFor(shape.variant).label} goal` : shape.kind}
+          </div>
           {/* Single-line, no-wrap meta line — pending hint used to wrap to two
               lines and bump every downstream element. */}
           <div
@@ -880,7 +990,41 @@ function Inspector({
         </div>
       </div>
 
-      {!isLineKind(shape.kind) && shape.kind !== 'cone' && shape.kind !== 'ball' && (
+      {shape.kind === 'goal' && onVariant && (
+        <>
+          <div className="mb-1.5 text-[12.5px] font-medium" style={{ color: 'var(--ink-2)' }}>Goal type</div>
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            {GOAL_VARIANTS.map(v => {
+              const active = (shape.variant || DEFAULT_GOAL_VARIANT) === v.id;
+              return (
+                <button
+                  key={v.id}
+                  onClick={() => onVariant(v.id)}
+                  aria-pressed={active}
+                  title={v.label}
+                  className="rounded-[10px] flex flex-col items-center gap-1.5"
+                  style={{
+                    padding: '10px 6px 8px',
+                    background: 'var(--bg-sunken)',
+                    border: active ? '2px solid var(--accent)' : '2px solid transparent',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div
+                    className="rounded-[7px] flex items-center justify-center w-full"
+                    style={{ height: 44, background: PITCH_TILE_BG }}
+                  >
+                    <GoalThumb variant={v.id} width={Math.round(v.width * 0.6)} />
+                  </div>
+                  <span className="text-[12px] font-medium" style={{ color: active ? 'var(--ink)' : 'var(--ink-2)' }}>{v.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {!isLineKind(shape.kind) && shape.kind !== 'cone' && shape.kind !== 'ball' && shape.kind !== 'goal' && (
         <>
           <label className="label-text">Label</label>
           <input
@@ -892,7 +1036,7 @@ function Inspector({
         </>
       )}
 
-      {shape.kind !== 'ball' && (
+      {shape.kind !== 'ball' && shape.kind !== 'goal' && (
         <>
           <div className="mb-1.5 text-[12.5px] font-medium" style={{ color: 'var(--ink-2)' }}>Color</div>
           <div className="flex gap-2 mb-4">
@@ -948,9 +1092,9 @@ function Inspector({
         </div>
       )}
 
-      {!shape.pending && !isLineKind(shape.kind) && (onSize || onRotation) && (
+      {!isLineKind(shape.kind) && (onSize || onRotation) && (
         <>
-          {onApplyToAllOfKindChange && (
+          {onApplyToAllOfKindChange && !shape.pending && (
             <label className="flex items-center gap-2 mb-3 text-[12.5px]" style={{ color: 'var(--ink-2)' }}>
               <input
                 type="checkbox"
@@ -986,8 +1130,21 @@ function Inspector({
             <div className="mb-4">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[12.5px] font-medium" style={{ color: 'var(--ink-2)' }}>Rotation</span>
-                <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-                  {Math.round(shape.rotation ?? 0)}°
+                <span className="font-mono inline-flex items-center gap-2" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                  {/* Pending goals auto-face the nearer goal line until the
+                      coach picks a rotation; offer a way back to that. */}
+                  {shape.pending && shape.kind === 'goal' && shape.rotation != null && (
+                    <button
+                      onClick={() => onRotation(null)}
+                      className="underline"
+                      style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 0, padding: 0, cursor: 'pointer' }}
+                    >
+                      Auto
+                    </button>
+                  )}
+                  {shape.pending && shape.kind === 'goal' && shape.rotation == null
+                    ? 'Auto'
+                    : `${Math.round(shape.rotation ?? 0)}°`}
                 </span>
               </div>
               <input
@@ -1004,7 +1161,7 @@ function Inspector({
         </>
       )}
 
-      {onSelectAllOfKind && !shape.pending && !isLineKind(shape.kind) && (
+      {onSelectAllOfKind && !shape.pending && (
         <button
           onClick={onSelectAllOfKind}
           className="btn btn-ghost w-full justify-center mb-4"
@@ -1035,13 +1192,47 @@ function Inspector({
   );
 }
 
+// Line types have no ⌘ shortcut (⌘P/⌘R/⌘X are print/reload/cut), so the
+// empty-selection panel offers a select-all button per line type instead.
+function LineKindButtons({ kindCounts, onSelectKind }) {
+  return (
+    <div className="flex gap-2 mt-2">
+      {LINE_KINDS.map(k => {
+        const n = kindCounts[k] || 0;
+        return (
+          <button
+            key={k}
+            onClick={() => onSelectKind(k)}
+            disabled={n === 0}
+            className="btn btn-ghost flex-1"
+            style={{ fontSize: 11.5, padding: '6px 2px', opacity: n === 0 ? 0.45 : 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, minWidth: 0 }}
+            title={`Select all ${kindPluralLabel(k)}`}
+          >
+            {Icon[k]('currentColor')}
+            <span style={{ whiteSpace: 'nowrap' }}>
+              <span className="capitalize">{kindPluralLabel(k)}</span>
+              <span className="font-mono ml-1" style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>{n}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ShortcutList() {
   const rows = [
     ['A', 'Attacker'],
     ['D', 'Defender'],
     ['B', 'Ball'],
     ['C', 'Cone'],
+    ['G', 'Goal'],
+    ['P', 'Pass'],
+    ['R', 'Run'],
+    ['X', 'Dribble'],
     ['V', 'Select'],
+    ['⌘ + key', 'Select all of a stamp'],
+    ['⇧⌘A', 'Select everything'],
     ['⌫', 'Delete'],
   ];
   return (
@@ -1122,13 +1313,22 @@ function ShapePreview({ shape }) {
       </div>
     );
   }
+  if (shape.kind === 'goal') {
+    return (
+      <div
+        className="flex-shrink-0 rounded-[10px] flex items-center justify-center"
+        style={{ width: 36, height: 36, background: PITCH_TILE_BG }}
+      >
+        <GoalThumb variant={shape.variant} width={30} />
+      </div>
+    );
+  }
   return (
     <div
       className="flex-shrink-0 rounded-[10px] flex items-center justify-center"
       style={{ width: 36, height: 36, background: 'var(--bg-sunken)' }}
     >
       {shape.kind === 'ball' && <img src={ballSvg} width="22" height="22" alt="" style={{ display: 'block' }} />}
-      {shape.kind === 'goal' && <svg width="22" height="14" viewBox="0 0 24 14"><rect x="1" y="1" width="22" height="12" rx="1" stroke="#1a1814" strokeWidth="1.5" fill="rgba(255,255,255,0.8)" /></svg>}
     </div>
   );
 }
@@ -1160,6 +1360,7 @@ function defaultPendingFor(tool, shapes) {
          : tool === 'defender' ? DEFENDER_COLOR
          : tool === 'cone' ? CONE_COLOR
          : null,
+    ...(tool === 'goal' ? { variant: DEFAULT_GOAL_VARIANT } : {}),
     notes: '',
   };
 }
@@ -1202,7 +1403,10 @@ export default function DiagramPlayground({
   const [description, setDescription] = useState(
     initialDiagram?.description || defaultDescription || ''
   );
-  const [pitchSize, setPitchSize] = useState(initialDiagram?.pitchSize || DEFAULT_PITCH_SIZE);
+  // Saved diagrams keep their size; new ones open at the team's format.
+  const [pitchSize, setPitchSize] = useState(
+    initialDiagram?.pitchSize || pitchSizeForAge(ageGroup) || DEFAULT_PITCH_SIZE
+  );
   const [pitchView, setPitchView] = useState(initialDiagram?.pitchView || DEFAULT_PITCH_VIEW);
   const [orientation, setOrientation] = useState(initialDiagram?.orientation || 'horizontal');
   const [legacyImage, setLegacyImage] = useState(startsLegacy ? (initialDiagram?.dataUrl || initialDiagram?.imageDataUrl || null) : null);
@@ -1262,6 +1466,21 @@ export default function DiagramPlayground({
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [drawingLine, setDrawingLine] = useState(null);
   const [pendingShape, setPendingShape] = useState(null);
+  // Per-kind stamp settings (color, size, rotation, goal type) chosen in the
+  // inspector while a stamp tool is active. They apply to every placement and
+  // are remembered for the rest of this editor session, so switching to
+  // Select to nudge something and back doesn't lose them.
+  const stampPrefsRef = useRef({});
+  const pendingFor = useCallback((kind, shapeList) => {
+    const base = defaultPendingFor(kind, shapeList);
+    return base && { ...base, ...stampPrefsRef.current[kind] };
+  }, []);
+  const updatePending = (patch) => {
+    if (!pendingShape || !isMarkerKind(pendingShape.kind)) return;
+    const kind = pendingShape.kind;
+    stampPrefsRef.current[kind] = { ...stampPrefsRef.current[kind], ...patch };
+    setPendingShape(p => (p ? { ...p, ...patch } : p));
+  };
   const [cursorLogical, setCursorLogical] = useState(null);
   // When true, slider edits in the inspector scope to every shape of the
   // selected shape's kind. Stays sticky across selections (matches prod).
@@ -1272,14 +1491,11 @@ export default function DiagramPlayground({
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   // Resolved background color from the editor container so the Konva pitch
   // fill exactly matches what the user sees (handles theme + accent changes).
-  const [pitchBg, setPitchBg] = useState('#ccdad1');
+  const [pitchBg, setPitchBg] = useState(PITCH_SURROUND_COLOR);
 
-  const sizeCfg = findSize(pitchSize);
-  const viewCfg = findView(pitchView);
-  // Full-pitch aspect divided by the view's divisor: full=1, half=2, third=3.
-  // Half/third views are taller-than-wide on a horizontal canvas, which feels
-  // right for end-zone or channel views.
-  const fieldAspect = sizeCfg.aspect / viewCfg.divisor;
+  // Half/third views are taller-than-wide on a horizontal canvas (they're a
+  // true crop of the pitch); vertical orientation turns them landscape.
+  const fieldAspect = pitchAspectFor(pitchSize, pitchView);
   const isVertical = orientation === 'vertical';
   const displayAspect = isVertical ? 1 / fieldAspect : fieldAspect;
   const selected = useMemo(() => {
@@ -1292,6 +1508,11 @@ export default function DiagramPlayground({
   const selectOnly  = useCallback((id) => setSelectedIds(new Set([id])), []);
   const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
   const selectAll = useCallback(() => setSelectedIds(new Set(shapes.map(s => s.id))), [shapes]);
+  const kindCounts = useMemo(() => {
+    const counts = {};
+    for (const sh of shapes) counts[sh.kind] = (counts[sh.kind] || 0) + 1;
+    return counts;
+  }, [shapes]);
   const selectAllOfKind = useCallback((kind) => {
     setSelectedIds(new Set(shapes.filter(s => s.kind === kind).map(s => s.id)));
   }, [shapes]);
@@ -1353,13 +1574,26 @@ export default function DiagramPlayground({
         setPendingShape(null);
         return;
       }
-      // Cmd/Ctrl+A → select every shape.
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+      // Cmd/Ctrl+Shift+A → select every shape.
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'a') {
         e.preventDefault();
         setTool('select');
         setPendingShape(null);
         selectAll();
         return;
+      }
+      // Cmd/Ctrl + a stamp's key → select all of that kind (⌘A attackers,
+      // ⌘D defenders, ⌘B balls, ⌘C cones, ⌘G goals). Overrides the browser's
+      // bookmark/find-next for D/G while the editor has focus.
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey) {
+        const stamp = TOOLS.find(t2 => isMarkerKind(t2.id) && t2.key.toLowerCase() === e.key.toLowerCase());
+        if (stamp) {
+          e.preventDefault();
+          setTool('select');
+          setPendingShape(null);
+          selectAllOfKind(stamp.id);
+          return;
+        }
       }
       // Cmd/Ctrl+Z → undo; add Shift or use Ctrl+Y for redo.
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
@@ -1384,7 +1618,7 @@ export default function DiagramPlayground({
         setTool(match.id);
         if (match.id !== 'select') {
           clearSelection();
-          setPendingShape(defaultPendingFor(match.id, shapes));
+          setPendingShape(pendingFor(match.id, shapes));
         } else {
           setPendingShape(null);
         }
@@ -1392,8 +1626,10 @@ export default function DiagramPlayground({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+    // Re-subscribe when shapes change too, so ⌘+key / ⇧⌘A and new-stamp
+    // labels read the current list (deleteShape is declared below and stable).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds]);
+  }, [selectedIds, shapes, selectAll, selectAllOfKind, pendingFor, clearSelection, undo, redo]);
 
   // --- Shape mutators
   const updateShape = useCallback((id, patch) => {
@@ -1448,19 +1684,24 @@ export default function DiagramPlayground({
     // Read accumulated transform off the node, bake into shape state, then
     // reset the node so future renders read from shape data without doubling
     // up. (Matches the DiagramBuilderNew handleTransformEnd pattern.)
-    const xferScale = (node.scaleX() + node.scaleY()) / 2;
+    // The node's scale includes MARKER_BASE_SCALE; store it relative to that.
+    const xferScale = (node.scaleX() + node.scaleY()) / 2 / MARKER_BASE_SCALE;
     const nx = node.x() / canvasScale;
     const ny = node.y() / canvasScale;
     const rot = node.rotation();
+    const nextScale = Math.max(0.25, xferScale);
     setShapes(prev => prev.map(s => s.id === id ? {
       ...s,
       x: nx,
       y: ny,
       rotation: rot,
-      scale: Math.max(0.25, xferScale),
+      scale: nextScale,
     } : s));
-    node.scaleX(1);
-    node.scaleY(1);
+    // Leave the node at its final rendered scale. (Resetting to 1 relied on
+    // React re-applying scaleX, which it skips when the prop value is
+    // unchanged — e.g. after a rotate-only transform.)
+    node.scaleX(nextScale * MARKER_BASE_SCALE);
+    node.scaleY(nextScale * MARKER_BASE_SCALE);
   }, [setShapes]);
 
   // --- Stage handlers
@@ -1497,22 +1738,18 @@ export default function DiagramPlayground({
 
     if (isMarkerKind(tool)) {
       const id = uid(tool);
-      const fallback = defaultPendingFor(tool, shapes);
-      const draft = pendingShape && pendingShape.kind === tool ? pendingShape : fallback;
+      const draft = pendingShape && pendingShape.kind === tool ? pendingShape : pendingFor(tool, shapes);
       const { pending: _pending, ...rest } = draft || {};
       void _pending;
-      const placed = { ...rest, id, kind: tool, x: logical.x, y: logical.y, rotation: 0, scale: 1 };
+      // Goals auto-face the nearer goal line unless the coach set a rotation.
+      const rotation = draft.rotation ?? (tool === 'goal' ? goalRotationFor(logical.x, pitchView) : 0);
+      const placed = { ...rest, id, kind: tool, x: logical.x, y: logical.y, rotation, scale: draft.scale ?? 1 };
       setShapes(prev => [...prev, placed]);
-      selectOnly(id);
-      // Carry the coach's choices forward so the next stamp is the same
-      // configured marker. Label advances (D1 -> D2 -> D3), color sticks,
-      // notes reset since they belong to the specific shape just placed.
-      const nextDefault = defaultPendingFor(tool, [...shapes, placed]);
-      setPendingShape({
-        ...nextDefault,
-        color: draft.color ?? nextDefault.color,
-        notes: '',
-      });
+      // Stay in stamp mode: the inspector keeps showing the NEXT STAMP
+      // settings (not the shape just placed) so edits keep applying to every
+      // placement. Label advances (D1 -> D2 -> D3); the rest comes from the
+      // remembered stamp settings.
+      setPendingShape(pendingFor(tool, [...shapes, placed]));
       return;
     }
 
@@ -1661,7 +1898,11 @@ export default function DiagramPlayground({
   })() : null;
 
   return (
-    <div className="flex flex-col min-h-screen" style={{ background: 'var(--bg-sunken)', color: 'var(--ink)' }}>
+    // Locked to the viewport height (not min-height): otherwise a tall
+    // inspector grows the page, and the vertically centered canvas slides down
+    // whenever the selection shows more controls. The inspector scrolls
+    // internally instead.
+    <div className="flex flex-col h-screen overflow-hidden" style={{ height: '100dvh', background: 'var(--bg-sunken)', color: 'var(--ink)' }}>
       <TopBar
         title={title}
         onTitleChange={setTitle}
@@ -1736,21 +1977,21 @@ export default function DiagramPlayground({
             setTool(next);
             if (next !== 'select') {
               clearSelection();
-              setPendingShape(defaultPendingFor(next, shapes));
+              setPendingShape(pendingFor(next, shapes));
             } else {
               setPendingShape(null);
             }
           }}
         />
 
-        <div className="flex-1 flex items-center justify-center overflow-auto p-8">
+        <div className="flex-1 min-w-0 flex items-center justify-center overflow-auto p-8">
           <div
             ref={containerRef}
             style={{
               width: '100%',
-              maxWidth: isVertical ? PITCH_MAX_WIDTH / fieldAspect : PITCH_MAX_WIDTH,
+              maxWidth: `min(${isVertical ? PITCH_MAX_WIDTH / fieldAspect : PITCH_MAX_WIDTH}px, calc((100vh - 190px) * ${displayAspect}))`,
               aspectRatio: displayAspect,
-              background: 'color-mix(in oklab, #6aa365 55%, var(--bg-elev))',
+              background: PITCH_SURROUND_COLOR,
               borderRadius: 14,
               border: '1px solid var(--line-2)',
               boxShadow: 'var(--shadow-md)',
@@ -1874,7 +2115,12 @@ export default function DiagramPlayground({
                     {pendingShape && cursorLogical && isMarkerKind(tool) && (
                       <Group listening={false} opacity={0.6}>
                         <MarkerShape
-                          shape={{ ...pendingShape, x: cursorLogical.x * scale, y: cursorLogical.y * scale }}
+                          shape={{
+                            ...pendingShape,
+                            x: cursorLogical.x * scale,
+                            y: cursorLogical.y * scale,
+                            rotation: pendingShape.rotation ?? (pendingShape.kind === 'goal' ? goalRotationFor(cursorLogical.x, pitchView) : 0),
+                          }}
                           draggable={false}
                           onClick={() => {}}
                           onDragMove={() => {}}
@@ -1908,13 +2154,15 @@ export default function DiagramPlayground({
           multiCount={selectedIds.size}
           onLabel={(v) => {
             if (selected) updateShape(selected.id, { label: v });
-            else if (pendingShape) setPendingShape(p => ({ ...p, label: v }));
+            else if (pendingShape) setPendingShape(p => ({ ...p, label: v })); // labels auto-advance; not remembered
           }}
           onColor={(v) => {
             if (selected) updateShape(selected.id, { color: v });
-            if (pendingShape && isMarkerKind(pendingShape.kind)) {
-              setPendingShape(p => ({ ...p, color: v }));
-            }
+            else updatePending({ color: v });
+          }}
+          onVariant={(v) => {
+            if (selected) updateShape(selected.id, { variant: v });
+            else updatePending({ variant: v });
           }}
           onDelete={
             selectedIds.size === 1 && selected
@@ -1925,10 +2173,14 @@ export default function DiagramPlayground({
           }
           onSelectAll={shapes.length > 0 ? selectAll : undefined}
           onSelectAllOfKind={
-            selected && !isLineKind(selected.kind)
-              ? () => selectAllOfKind(selected.kind)
-              : undefined
+            selected ? () => selectAllOfKind(selected.kind) : undefined
           }
+          onSelectKind={(k) => {
+            setTool('select');
+            setPendingShape(null);
+            selectAllOfKind(k);
+          }}
+          kindCounts={kindCounts}
           onDeselect={clearSelection}
           onSize={
             selected && !isLineKind(selected.kind)
@@ -1939,7 +2191,9 @@ export default function DiagramPlayground({
                     updateShape(selected.id, { scale: v });
                   }
                 }
-              : undefined
+              : pendingShape && isMarkerKind(pendingShape.kind)
+                ? (v) => updatePending({ scale: v })
+                : undefined
           }
           onRotation={
             selected && !isLineKind(selected.kind)
@@ -1950,7 +2204,9 @@ export default function DiagramPlayground({
                     updateShape(selected.id, { rotation: v });
                   }
                 }
-              : undefined
+              : pendingShape && isMarkerKind(pendingShape.kind)
+                ? (v) => updatePending({ rotation: v })
+                : undefined
           }
           applyToAllOfKind={applyToAllOfKind}
           onApplyToAllOfKindChange={setApplyToAllOfKind}

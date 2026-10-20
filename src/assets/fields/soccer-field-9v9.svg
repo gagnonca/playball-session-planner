@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="830" height="580" viewBox="0 0 830 580" role="img" aria-labelledby="title desc">
+  <title id="title">9v9 soccer field</title>
+  <desc id="desc">A proportional 75 by 50 yard 9v9 field with a transparent surface (the canvas draws the grass).</desc>
+  <defs>
+    <clipPath id="pitchClip"><rect x="40" y="40" width="750" height="500"/></clipPath>
+    <clipPath id="leftPenaltyArc"><rect x="180" y="190" width="50" height="200"/></clipPath>
+    <clipPath id="rightPenaltyArc"><rect x="600" y="190" width="50" height="200"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#pitchClip)" fill="none" stroke="#FFFFFF" stroke-width="4" opacity="0.7" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="40" y="40" width="750" height="500" stroke-width="8"/>
+    <path d="M415 40V540"/>
+
+    <!-- 14-yard-deep, 36-yard-wide penalty areas -->
+    <path d="M40 110H180V470H40 M790 110H650V470H790"/>
+    <!-- 5-yard-deep, 12-yard-wide goal areas -->
+    <path d="M40 230H90V350H40 M790 230H740V350H790"/>
+
+    <circle cx="415" cy="290" r="80"/>
+    <circle cx="140" cy="290" r="80" clip-path="url(#leftPenaltyArc)"/>
+    <circle cx="690" cy="290" r="80" clip-path="url(#rightPenaltyArc)"/>
+
+    <!-- One-yard corner arcs -->
+    <path d="M40 50A10 10 0 0 0 50 40 M780 40A10 10 0 0 0 790 50
+             M40 530A10 10 0 0 1 50 540 M780 540A10 10 0 0 1 790 530"/>
+
+  </g>
+
+  <g fill="#FFFFFF" opacity="0.75">
+    <circle cx="415" cy="290" r="4"/>
+    <circle cx="140" cy="290" r="4"/>
+    <circle cx="690" cy="290" r="4"/>
+  </g>
+</svg>
