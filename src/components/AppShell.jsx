@@ -10,7 +10,7 @@ import { HAS_SEEN_WELCOME_KEY } from '../constants/storage';
 import { uploadDiagramImage } from '../utils/uploadImage';
 import { startStore, useStore, startDemo, endDemo } from '../data/store';
 import { buildDemoSnapshot } from '../data/demo';
-import { findLocalData, importLocalData } from '../data/legacyImport';
+import { findLocalData, importLocalData, findReturningCoach } from '../data/legacyImport';
 import { currentUser } from '../data/api';
 import { toast } from '../utils/helpers';
 import TeamList from './teams/TeamList';
@@ -109,6 +109,7 @@ export default function AppShell() {
     try { if (localStorage.getItem(FLAG)) return; } catch { return; }
     try { localStorage.setItem(FLAG, 'running'); } catch { /* ignore */ }
     (async () => {
+      const returning = await findReturningCoach().catch(() => null);
       const found = await findLocalData();
       const tally = found.total > 0 ? await importLocalData(found) : null;
       if (tally?.offline) {
@@ -119,6 +120,10 @@ export default function AppShell() {
       try { localStorage.setItem(FLAG, new Date().toISOString()); } catch { /* ignore */ }
       if (tally?.created) {
         toast(`Brought ${tally.created} item${tally.created === 1 ? '' : 's'} from this browser into your account.`, 4000);
+      } else if (returning) {
+        // Their data was already on the server (device sync) — still say so,
+        // since the sign-in page was new to them.
+        toast('Welcome back — your teams are saved to your account now.', 4000);
       }
       if (tally?.failed) {
         toast(`${tally.failed} item${tally.failed === 1 ? '' : 's'} couldn't be moved — see Settings.`, 6000);

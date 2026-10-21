@@ -1,7 +1,7 @@
 import { getTeamsData } from '../utils/indexedDBHelper';
 import { uploadImageToCDN } from '../utils/uploadImage';
 import {
-  TEAMS_KEY,
+  TEAMS_KEY, COACH_IDENTITY_KEY,
   SECTION_LIBRARY_KEY, SESSION_LIBRARY_KEY, DIAGRAMS_KEY, SESSION_TEMPLATES_KEY, LIBRARY_PINS_KEY,
 } from '../constants/storage';
 import { getState, createIfNew, addFavoriteQuietly, load } from './store';
@@ -136,4 +136,34 @@ export async function importLocalData(found) {
   rememberSkipped(skippedIds);
   if (tally.created > 0) await load();
   return tally;
+}
+
+// For the signed-out page: is this a coach who used PlayBall in this browser
+// before? Returns null for a newcomer, otherwise
+//   { signedInBefore, teamNames, sessionCount }
+// `signedInBefore`: this browser already moved its data into an account
+// (they just signed out). Otherwise it's a pre-accounts coach whose teams
+// are still only in this browser and/or on the old device-linked sync.
+const IDENTITY_BACKUP_KEY = 'ppp_coach_identity_backup_v1';
+export function returningCoachQuick() {
+  try {
+    const signedInBefore = Boolean(localStorage.getItem(IDENTITY_BACKUP_KEY))
+      || Object.keys(localStorage).some(k => k.startsWith('ppp_v3_local_import_'));
+    const preAccounts = Boolean(localStorage.getItem(COACH_IDENTITY_KEY))
+      || [TEAMS_KEY, SECTION_LIBRARY_KEY, SESSION_LIBRARY_KEY, DIAGRAMS_KEY].some(k => localStorage.getItem(k));
+    return signedInBefore || preAccounts ? { signedInBefore } : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function findReturningCoach() {
+  const quick = returningCoachQuick();
+  const teams = (await readLegacyTeams()).filter(t => t?.id && !t.archived);
+  if (!quick && !teams.length) return null;
+  return {
+    signedInBefore: Boolean(quick?.signedInBefore),
+    teamNames: teams.map(t => t.name).filter(Boolean),
+    sessionCount: teams.reduce((n, t) => n + (t.sessions?.length || 0), 0),
+  };
 }

@@ -1,11 +1,35 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { googleButtonAvailable, renderGoogleButton } from '../data/googleSignIn';
+import { returningCoachQuick, findReturningCoach } from '../data/legacyImport';
 import playballIcon from '../assets/playball-icon.png';
 
 // Signed-out landing. PlayBall keeps every coach's data in their account, so
 // this is the front door: what the app is, why it asks for an account, a
 // sign-in that never involves a password, and a demo to click around in
 // before deciding.
+//
+// A coach who used PlayBall in this browser before accounts existed gets a
+// "welcome back" version instead: their teams are named, and it says signing
+// in moves them into the account — so the page doesn't read as if their
+// season vanished.
+
+function joinNames(names) {
+  const shown = names.slice(0, 3);
+  const more = names.length - shown.length;
+  if (more > 0) return `${shown.join(', ')} and ${more} more`;
+  if (shown.length <= 1) return shown.join('');
+  return `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}`;
+}
+
+function useReturningCoach() {
+  const [returning, setReturning] = useState(returningCoachQuick);
+  useEffect(() => {
+    let alive = true;
+    findReturningCoach().then(r => { if (alive) setReturning(r); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  return returning;
+}
 
 const Icons = {
   devices: (
@@ -56,6 +80,9 @@ export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity
   const [stage, setStage] = useState('start'); // start | code
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const returning = useReturningCoach();
+  const teamNames = returning?.teamNames || [];
+  const sessionCount = returning?.sessionCount || 0;
 
   const configured = accountContext?.authConfigured;
   // Stable callbacks so Google's button isn't re-drawn on every render.
@@ -95,15 +122,55 @@ export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity
             </span>
           </div>
 
-          <h1 className="mt-7 text-[46px] leading-[1.05] font-semibold" style={{ letterSpacing: '-0.025em' }}>
-            Plan a practice your players will{' '}
-            <span style={{ fontStyle: 'italic', color: 'var(--accent)', fontWeight: 600 }}>love</span>.
-          </h1>
-          <p className="mt-4 text-[16px] leading-snug max-w-[520px]" style={{ color: 'var(--ink-2)' }}>
-            Build sessions, draw the field, and keep your season organized.
-          </p>
+          {returning ? (
+            <>
+              <h1 className="mt-7 text-[46px] leading-[1.05] font-semibold" style={{ letterSpacing: '-0.025em' }}>
+                Welcome back,{' '}
+                <span style={{ fontStyle: 'italic', color: 'var(--accent)', fontWeight: 600 }}>coach</span>.
+              </h1>
+              {returning.signedInBefore ? (
+                <p className="mt-4 text-[16px] leading-snug max-w-[520px]" style={{ color: 'var(--ink-2)' }}>
+                  You're signed out. Sign in the same way you did before and your teams will be right where you left them.
+                </p>
+              ) : (
+                <>
+                  <p className="mt-4 text-[16px] leading-snug max-w-[520px]" style={{ color: 'var(--ink-2)' }}>
+                    Your teams and sessions are safe. PlayBall now keeps them in an account
+                    instead of this browser, so you'll sign in once and everything comes with you.
+                  </p>
+                  <div className="mt-6 rounded-[12px] p-4 max-w-[520px]" style={{ background: 'var(--accent-soft)', border: '1px solid var(--line)' }}>
+                    <div className="text-[14px] font-semibold" style={{ letterSpacing: '-0.01em' }}>
+                      {teamNames.length
+                        ? `Found in this browser: ${teamNames.length} team${teamNames.length === 1 ? '' : 's'}${sessionCount ? `, ${sessionCount} session${sessionCount === 1 ? '' : 's'}` : ''}`
+                        : 'Your synced teams are waiting'}
+                    </div>
+                    {teamNames.length > 0 && (
+                      <p className="text-[13px] mt-0.5" style={{ color: 'var(--ink-2)' }}>{joinNames(teamNames)}</p>
+                    )}
+                    <p className="text-[13px] mt-2 leading-snug" style={{ color: 'var(--ink-2)' }}>
+                      Sign in and they move into your account automatically. Nothing is deleted,
+                      and you only do this once per browser.
+                    </p>
+                  </div>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <h1 className="mt-7 text-[46px] leading-[1.05] font-semibold" style={{ letterSpacing: '-0.025em' }}>
+                Plan a practice your players will{' '}
+                <span style={{ fontStyle: 'italic', color: 'var(--accent)', fontWeight: 600 }}>love</span>.
+              </h1>
+              <p className="mt-4 text-[16px] leading-snug max-w-[520px]" style={{ color: 'var(--ink-2)' }}>
+                Build sessions, draw the field, and keep your season organized.
+              </p>
+            </>
+          )}
 
-          <div className="mt-8 flex flex-col gap-4">
+          {returning && !returning.signedInBefore && (
+            <div className="mt-8 text-[12px] font-semibold uppercase tracking-wide" style={{ color: 'var(--ink-3)' }}>Why accounts</div>
+          )}
+          <div className={returning && !returning.signedInBefore ? 'mt-3 flex flex-col gap-4' : 'mt-8 flex flex-col gap-4'}>
             {[
               { icon: Icons.devices, title: 'Your plans on every device', body: 'Plan on the laptop tonight, pull it up on your phone at practice. Everything is saved to your account as you go.' },
               { icon: Icons.field, title: 'Never lose a session', body: "Nothing lives only in one browser, so clearing a cache or switching computers can't wipe out a season." },
@@ -121,8 +188,14 @@ export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity
         </section>
 
         <section className="rounded-[16px] p-6" style={{ background: 'var(--bg-elev)', border: '1px solid var(--line)', boxShadow: 'var(--shadow-sm)' }}>
-          <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>Sign in or create an account</h2>
-          <p className="text-[13px] mb-5" style={{ color: 'var(--ink-2)' }}>No password to remember.</p>
+          <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>
+            {returning && !returning.signedInBefore ? 'Sign in to keep your teams' : returning ? 'Sign in' : 'Sign in or create an account'}
+          </h2>
+          <p className="text-[13px] mb-5" style={{ color: 'var(--ink-2)' }}>
+            {returning && !returning.signedInBefore
+              ? "No password to remember. Use the sign-in you'll use on your phone too — your teams belong to that account."
+              : 'No password to remember.'}
+          </p>
 
           {!configured && (
             <p className="text-[13px] mb-4" style={{ color: 'var(--danger)' }}>Sign-in isn't configured on this deployment.</p>
@@ -191,14 +264,18 @@ export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity
 
           <div className="hairline my-5" />
 
-          <button className="btn btn-secondary w-full" onClick={onStartDemo}>
-            Look around first — try a demo team
-          </button>
-          <p className="mt-2 text-[11.5px] text-center" style={{ color: 'var(--ink-3)' }}>
-            Nothing in the demo is saved.
-          </p>
+          {!returning && (
+            <>
+              <button className="btn btn-secondary w-full" onClick={onStartDemo}>
+                Look around first — try a demo team
+              </button>
+              <p className="mt-2 text-[11.5px] text-center" style={{ color: 'var(--ink-3)' }}>
+                Nothing in the demo is saved.
+              </p>
+            </>
+          )}
           {onBrowseCommunity && (
-            <button className="btn btn-ghost w-full mt-2" onClick={onBrowseCommunity}>
+            <button className={`btn btn-ghost w-full${returning ? '' : ' mt-2'}`} onClick={onBrowseCommunity}>
               Browse sessions shared by other coaches
             </button>
           )}
