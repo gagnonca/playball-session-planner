@@ -564,6 +564,39 @@ async function remove(kind, id, ctx = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Create-only import (moving a browser's pre-account data into the account)
+// ---------------------------------------------------------------------------
+
+// Writes `entity` only if the server has NEVER had a row with this id: an
+// existing row (409) is left alone, and a deleted one (410) stays deleted.
+// Bypasses the optimistic queue entirely, so nothing is overwritten or
+// resurrected and nothing toasts. Call load() afterwards to show results.
+// Returns 'created' | 'exists' | 'deleted' | 'forbidden' | 'network' | 'error'.
+export async function createIfNew(kind, entity, ctx = {}) {
+  const cfg = KINDS[kind];
+  try {
+    await request('PUT', cfg.path(entity.id), { ...cfg.body(entity, ctx), baseVersion: null });
+    return 'created';
+  } catch (e) {
+    if (e.status === 409) return 'exists';
+    if (e.status === 410) return 'deleted';
+    if (e.status === 403) return 'forbidden';  // id belongs to another account, or its team is gone
+    if (e.status === 0) return 'network';
+    console.warn('[import]', kind, entity.id, e);
+    return 'error';
+  }
+}
+
+export async function addFavoriteQuietly(kind, key) {
+  try {
+    await request('POST', '/api/v2/favorites', { kind, key, favorite: true });
+    return 'created';
+  } catch (e) {
+    return e.status === 0 ? 'network' : 'error';
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Public mutations
 // ---------------------------------------------------------------------------
 

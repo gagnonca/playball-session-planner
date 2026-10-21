@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import AppearancePicker from './AppearancePicker';
 import AIAssistantSection from './AIAssistantSection';
-import { findLegacyOnlyData, uploadLegacyData } from '../data/legacyImport';
+import { findLocalData, importLocalData } from '../data/legacyImport';
 import { downloadJson, toast } from '../utils/helpers';
 
 // Settings — Appearance, Account (sign out / delete), sharing, AI, Privacy.
@@ -75,7 +75,7 @@ function LegacyDataPanel() {
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let alive = true;
-    findLegacyOnlyData().then(f => { if (alive) setFound(f); });
+    findLocalData().then(f => { if (alive) setFound(f); });
     return () => { alive = false; };
   }, []);
   if (!found || found.total === 0) return null;
@@ -94,8 +94,8 @@ function LegacyDataPanel() {
     <div className="card p-5 mb-8" style={{ borderColor: 'var(--warn)' }}>
       <div className="font-semibold mb-1">Found data only in this browser</div>
       <p className="text-[13px] mb-3" style={{ color: 'var(--ink-2)' }}>
-        This browser's old local storage has {parts.join(', ')} that aren't in your account.
-        Some may be things you deleted on another device, so look before you upload.
+        This browser still has {parts.join(', ')} that your account isn't showing. Usually
+        that's because the account already had (or deleted) them, and those are skipped on upload.
       </p>
       <div className="flex gap-2">
         <button
@@ -103,10 +103,12 @@ function LegacyDataPanel() {
           disabled={busy}
           onClick={async () => {
             setBusy(true);
-            await uploadLegacyData(found);
+            const tally = await importLocalData(found);
             setBusy(false);
             setFound({ ...found, total: 0 });
-            toast('Uploaded to your account');
+            toast(tally.failed || tally.offline
+              ? `Uploaded ${tally.created}; ${tally.failed + tally.offline} couldn't be uploaded.`
+              : `Uploaded ${tally.created} item${tally.created === 1 ? '' : 's'}.`);
           }}
         >
           {busy ? 'Uploading…' : 'Upload to my account'}

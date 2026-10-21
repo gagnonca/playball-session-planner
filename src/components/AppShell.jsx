@@ -8,9 +8,11 @@ import useAccount from '../hooks/useAccount';
 import { VIEWS } from '../constants/navigation';
 import { HAS_SEEN_WELCOME_KEY } from '../constants/storage';
 import { uploadDiagramImage } from '../utils/uploadImage';
-import { startStore, useStore, startDemo, endDemo, getState } from '../data/store';
+import { startStore, useStore, startDemo, endDemo } from '../data/store';
 import { buildDemoSnapshot } from '../data/demo';
-import { findLegacyOnlyData, uploadLegacyData } from '../data/legacyImport';
+import { findLocalData, importLocalData } from '../data/legacyImport';
+import { currentUser } from '../data/api';
+import { toast } from '../utils/helpers';
 import TeamList from './teams/TeamList';
 import TeamDetail from './teams/TeamDetail';
 import SessionBuilder from './session-builder/SessionBuilder';
@@ -92,22 +94,33 @@ export default function AppShell() {
   const storeStatus = useStore(st => st.status);
   const storeSource = useStore(st => st.source);
 
-  // One-time: templates and favorites used to live only in this browser.
-  // If the account has none yet, bring this browser's over automatically
-  // (teams/sessions stay a manual choice in Settings — see LegacyDataPanel).
+  // First sign-in in each browser: move everything this browser kept locally
+  // before accounts (teams, sessions, library, diagrams, templates, favorites)
+  // into the account, automatically. Create-only — the account's copy wins,
+  // deleted items stay deleted (see data/legacyImport.js). Runs once per
+  // account per browser; retried next load if the network dropped mid-way.
   useEffect(() => {
     if (storeStatus !== 'ready' || storeSource !== 'server') return;
-    const FLAG = 'ppp_v3_prefs_imported';
+    const userId = currentUser()?.id;
+    if (!userId) return;
+    const FLAG = `ppp_v3_local_import_${userId}`;
     try { if (localStorage.getItem(FLAG)) return; } catch { return; }
-    const { templates, favorites } = getState();
-    const accountHasSome = templates.length > 0 || Object.values(favorites).some(list => list.length > 0);
+    try { localStorage.setItem(FLAG, 'running'); } catch { /* ignore */ }
     (async () => {
-      const found = accountHasSome ? { templates: [], favorites: [] } : await findLegacyOnlyData();
-      await uploadLegacyData({
-        teams: [], sessions: [], exercises: [], librarySessions: [], diagrams: [],
-        templates: found.templates, favorites: found.favorites,
-      });
-      try { localStorage.setItem(FLAG, '1'); } catch { /* ignore */ }
+      const found = await findLocalData();
+      const tally = found.total > 0 ? await importLocalData(found) : null;
+      if (tally?.offline) {
+        try { localStorage.removeItem(FLAG); } catch { /* ignore */ }
+        toast("Couldn't finish bringing this browser's data into your account — will retry when you're back online.");
+        return;
+      }
+      try { localStorage.setItem(FLAG, new Date().toISOString()); } catch { /* ignore */ }
+      if (tally?.created) {
+        toast(`Brought ${tally.created} item${tally.created === 1 ? '' : 's'} from this browser into your account.`, 4000);
+      }
+      if (tally?.failed) {
+        toast(`${tally.failed} item${tally.failed === 1 ? '' : 's'} couldn't be moved — see Settings.`, 6000);
+      }
     })();
   }, [storeStatus, storeSource]);
 
