@@ -8,7 +8,7 @@ import {
   toast,
 } from '../utils/helpers';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { LIBRARY_HIDDEN_KEY, LIBRARY_PINS_KEY } from '../constants/storage';
+import { LIBRARY_PINS_KEY } from '../constants/storage';
 import DiagramLibrary from './DiagramLibrary';
 import FilterChipGroup from './FilterChipGroup';
 import SharePopover from './session-builder/SharePopover';
@@ -202,13 +202,18 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
     exercises,
     sessions,
     deleteExercise,
+    removeExercises,
     clearExercises,
     deleteSession,
+    removeSessions,
     clearSessions,
     exportLibrary,
     importLibrary,
-    setExercisesRaw,
-    setSessionsRaw,
+    hidden: hiddenIds,
+    hideExercise: hideExerciseId,
+    hideSession: hideSessionId,
+    unhideAllExercises,
+    unhideAllSessions,
   } = libraryHook;
 
   const teams = teamsData?.teams || [];
@@ -239,12 +244,10 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
   const manualExerciseItems = exercises?.items || [];
   const manualSessionItems = sessions?.items || [];
 
-  // Ids the coach has hidden from library (auto items only — manuals get hard-deleted).
-  const [hiddenIds, setHiddenIds] = useLocalStorage(LIBRARY_HIDDEN_KEY, { exercises: [], sessions: [] });
+  // Ids the coach has hidden from library (auto items only — manuals get
+  // hard-deleted). Server-backed, so hiding sticks on every device.
   const hiddenExerciseSet = useMemo(() => new Set(hiddenIds.exercises || []), [hiddenIds.exercises]);
   const hiddenSessionSet = useMemo(() => new Set(hiddenIds.sessions || []), [hiddenIds.sessions]);
-  const hideExerciseId = (id) => setHiddenIds(prev => ({ ...prev, exercises: Array.from(new Set([...(prev.exercises || []), id])) }));
-  const hideSessionId = (id) => setHiddenIds(prev => ({ ...prev, sessions: Array.from(new Set([...(prev.sessions || []), id])) }));
 
   // Pinned items — keyed by group key (lowercased name) for sessions/exercises
   // and by raw item id for diagrams. Persists across sessions in localStorage.
@@ -262,8 +265,6 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
 
   // Sync awareness — drives the per-item green/gray dot and the auto-save copy.
   const syncOn = Boolean(syncContext?.isSyncEnabled);
-  const unhideAllExercises = () => setHiddenIds(prev => ({ ...prev, exercises: [] }));
-  const unhideAllSessions = () => setHiddenIds(prev => ({ ...prev, sessions: [] }));
 
   // Auto-populate: every section across every team's sessions becomes a library item.
   // Keyed by section id. Source-tagged so UI can distinguish from manual saves.
@@ -579,7 +580,8 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
       return;
     }
     if (!confirm(`Remove ${removed} duplicate exercise${removed === 1 ? '' : 's'} from your saved library?`)) return;
-    setExercisesRaw(prev => ({ ...prev, items: cleaned }));
+    const keep = new Set(cleaned.map(i => i.id));
+    removeExercises(manualExerciseItems.filter(i => !keep.has(i.id)).map(i => i.id));
   };
 
   const handleCleanupSessions = () => {
@@ -590,7 +592,8 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
       return;
     }
     if (!confirm(`Remove ${removed} duplicate session${removed === 1 ? '' : 's'} from your saved library?`)) return;
-    setSessionsRaw(prev => ({ ...prev, items: cleaned }));
+    const keep = new Set(cleaned.map(i => i.id));
+    removeSessions(manualSessionItems.filter(i => !keep.has(i.id)).map(i => i.id));
   };
 
   // --- Handlers ---
@@ -612,9 +615,11 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
     const session = getSession(selectedTeamId, selectedSessionId);
     if (!session) return;
     const newSection = libraryPayloadToSection(item.payload, item.id);
-    updateSession(selectedTeamId, selectedSessionId, {
-      sections: [...session.sections, newSection],
-    });
+    // Into the open session-builder draft; saved with the session.
+    teamsContext.editSessionDraft(selectedTeamId, selectedSessionId, prev => ({
+      ...prev,
+      sections: [...prev.sections, newSection],
+    }));
     navigateToSessionBuilder(selectedTeamId, selectedSessionId);
   };
 

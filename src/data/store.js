@@ -1,0 +1,669 @@
+import { useSyncExternalStore } from 'react';
+import { request, identityKey, readIdentity } from './api';
+import { readCachedSnapshot, writeCachedSnapshot } from './cache';
+import { toast } from '../utils/helpers';
+
+// =============================================================================
+// PlayBall data store — the server is the source of truth.
+//
+// • State is whatever the last GET /api/v2/snapshot returned, replaced
+//   wholesale on every load. No client-side merging of server data, ever.
+// • Writes go straight to the server as compare-and-set on each row's
+//   `version`. While a write is in flight its entity is held in `overrides`
+//   so a snapshot landing mid-write can't flash the old value back.
+// • A 409 (someone saved first) is rebased: the fields *this* tab changed are
+//   re-applied on top of the live row and resent. Session builder edits don't
+//   go through here at all — they live in `drafts` until the coach hits Save,
+//   and a conflict there is surfaced to the coach instead of auto-resolved.
+// • Other tabs hear about every successful write over BroadcastChannel and
+//   reload the snapshot; focus / visibility / coming online reload too.
+// • The IndexedDB cache (./cache) only paints the first frame and keeps the
+//   app readable offline. It is never written back.
+// =============================================================================
+
+const EMPTY = {
+  status: 'idle',          // idle | no-identity | loading | ready | error
+  source: null,            // cache | server
+  error: null,
+  lastLoadedAt: null,
+  pendingWrites: 0,
+  teamsData: null,         // { version, teams: [{ ...team, sessions, games }], defaultTeamId }
+  library: { exercises: { version: 1, items: [] }, sessions: { version: 1, items: [] } },
+  hidden: { exercises: [], sessions: [] },
+  diagrams: [],
+  drafts: {},              // sessionId → { teamId, base, value }
+};
+
+let state = EMPTY;
+const listeners = new Set();
+
+function setState(patch) {
+  state = { ...state, ...patch };
+  for (const l of listeners) l();
+}
+
+export function getState() { return state; }
+
+function subscribe(listener) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+// React binding. Select a field that keeps its identity between renders
+// (e.g. s => s.teamsData), not a freshly built object.
+export function useStore(selector) {
+  return useSyncExternalStore(subscribe, () => selector(state));
+}
+
+// ---------------------------------------------------------------------------
+// Entity kinds
+// ---------------------------------------------------------------------------
+
+const enc = encodeURIComponent;
+
+function stripBase64(diagram) {
+  if (diagram?.dataUrl && String(diagram.dataUrl).startsWith('data:')) {
+    const { dataUrl: _d, ...rest } = diagram;
+    return rest;
+  }
+  return diagram;
+}
+
+// Everything on a session object that isn't a row column goes in `summary`.
+export function sessionBody(session, teamId) {
+  const { id: _i, sections, isTemplate, version: _v, updatedAt: _u, ...summary } = session;
+  return { teamId, summary, sections: sections ?? [], isTemplate: !!isTemplate };
+}
+
+const KINDS = {
+  team: {
+    path: (id) => `/api/v2/teams/${enc(id)}`,
+    resKey: 'team',
+    body: (t) => ({
+      name: t.name || 'Untitled Team',
+      ageGroup: t.ageGroup ?? null,
+      defaultDuration: t.defaultDuration ?? null,
+      sharing: t.sharing ?? { isShared: false },
+      archived: !!t.archived,
+    }),
+  },
+  session: {
+    path: (id) => `/api/v2/sessions/${enc(id)}`,
+    resKey: 'session',
+    body: (s, ctx) => sessionBody(s, ctx.teamId),
+  },
+  exercise: {
+    path: (id) => `/api/v2/library/exercises/${enc(id)}`,
+    resKey: 'item',
+    body: (x) => ({ name: x.name || 'Untitled', type: x.type ?? null, tags: x.tags ?? {}, payload: x.payload ?? {} }),
+  },
+  libsession: {
+    path: (id) => `/api/v2/library/sessions/${enc(id)}`,
+    resKey: 'item',
+    body: (x) => ({ name: x.name || 'Untitled', tags: x.tags ?? {}, payload: x.payload ?? {} }),
+  },
+  diagram: {
+    path: (id) => `/api/v2/diagrams/${enc(id)}`,
+    resKey: 'diagram',
+    body: (d) => ({ name: d.name || null, payload: stripBase64(d) }),
+  },
+};
+
+const LABEL = { team: 'team', session: 'session', exercise: 'exercise', libsession: 'library session', diagram: 'diagram' };
+
+// ---------------------------------------------------------------------------
+// Pure state helpers
+// ---------------------------------------------------------------------------
+
+function findTeam(s, teamId) {
+  return s.teamsData?.teams.find(t => t.id === teamId) || null;
+}
+
+export function findSession(s, teamId, sessionId) {
+  return findTeam(s, teamId)?.sessions.find(x => x.id === sessionId) || null;
+}
+
+function getLocal(s, kind, id, ctx) {
+  switch (kind) {
+    case 'team': return findTeam(s, id);
+    case 'session': return findSession(s, ctx.teamId, id);
+    case 'exercise': return s.library.exercises.items.find(x => x.id === id) || null;
+    case 'libsession': return s.library.sessions.items.find(x => x.id === id) || null;
+    case 'diagram': return s.diagrams.find(x => x.id === id) || null;
+    default: return null;
+  }
+}
+
+function replaceOrAdd(list, item, prepend = false) {
+  const i = list.findIndex(x => x.id === item.id);
+  if (i === -1) return prepend ? [item, ...list] : [...list, item];
+  const next = list.slice();
+  next[i] = item;
+  return next;
+}
+
+function withTeams(s, mapTeams) {
+  if (!s.teamsData) return s;
+  return { ...s, teamsData: { ...s.teamsData, teams: mapTeams(s.teamsData.teams) } };
+}
+
+function withPut(s, kind, entity, ctx) {
+  switch (kind) {
+    case 'team': {
+      const { sessions, games, ...fields } = entity;
+      return withTeams(s, teams => {
+        const existing = teams.find(t => t.id === entity.id);
+        const team = {
+          ...(existing || {}),
+          ...fields,
+          sessions: existing?.sessions ?? sessions ?? [],
+          games: existing?.games ?? games ?? [],
+        };
+        return replaceOrAdd(teams, team);
+      });
+    }
+    case 'session':
+      return withTeams(s, teams => teams.map(t =>
+        t.id === ctx.teamId ? { ...t, sessions: replaceOrAdd(t.sessions || [], entity) } : t
+      ));
+    case 'exercise':
+      return { ...s, library: { ...s.library, exercises: { ...s.library.exercises, items: replaceOrAdd(s.library.exercises.items, entity, true) } } };
+    case 'libsession':
+      return { ...s, library: { ...s.library, sessions: { ...s.library.sessions, items: replaceOrAdd(s.library.sessions.items, entity, true) } } };
+    case 'diagram':
+      return { ...s, diagrams: replaceOrAdd(s.diagrams, entity, true) };
+    default:
+      return s;
+  }
+}
+
+function withRemove(s, kind, id, ctx) {
+  switch (kind) {
+    case 'team': {
+      const next = withTeams(s, teams => teams.filter(t => t.id !== id));
+      if (next.teamsData?.defaultTeamId === id) {
+        next.teamsData = { ...next.teamsData, defaultTeamId: next.teamsData.teams[0]?.id || null };
+      }
+      return next;
+    }
+    case 'session':
+      return withTeams(s, teams => teams.map(t =>
+        t.id === ctx.teamId ? { ...t, sessions: (t.sessions || []).filter(x => x.id !== id) } : t
+      ));
+    case 'exercise':
+      return { ...s, library: { ...s.library, exercises: { ...s.library.exercises, items: s.library.exercises.items.filter(x => x.id !== id) } } };
+    case 'libsession':
+      return { ...s, library: { ...s.library, sessions: { ...s.library.sessions, items: s.library.sessions.items.filter(x => x.id !== id) } } };
+    case 'diagram':
+      return { ...s, diagrams: s.diagrams.filter(x => x.id !== id) };
+    default:
+      return s;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot load
+// ---------------------------------------------------------------------------
+
+// key → { kind, ctx, op: 'put' | 'delete', entity } for writes not yet acked.
+const overrides = new Map();
+
+const byCreated = (a, b) => (a.createdAt || '').localeCompare(b.createdAt || '');
+const byUpdatedDesc = (a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '');
+
+function stateFromSnapshot(snap) {
+  const teams = (snap.teams || []).map(t => ({
+    ...t,
+    sessions: (t.sessions || []).slice().sort(byCreated),
+    games: t.games || [],
+  })).sort(byCreated);
+  let next = {
+    ...state,
+    teamsData: {
+      version: 1,
+      teams,
+      defaultTeamId: snap.coach?.defaultTeamId && teams.some(t => t.id === snap.coach.defaultTeamId)
+        ? snap.coach.defaultTeamId
+        : teams[0]?.id || null,
+    },
+    library: {
+      exercises: { version: 1, items: (snap.library?.exercises || []).slice().sort(byUpdatedDesc) },
+      sessions: { version: 1, items: (snap.library?.sessions || []).slice().sort(byUpdatedDesc) },
+    },
+    hidden: {
+      exercises: snap.hidden?.exercises || [],
+      sessions: snap.hidden?.sessions || [],
+    },
+    diagrams: (snap.diagrams || []).slice().sort(byUpdatedDesc),
+  };
+  // Re-apply writes still in flight so they don't visibly revert.
+  for (const o of overrides.values()) {
+    next = o.op === 'delete'
+      ? withRemove(next, o.kind, o.entity?.id ?? o.id, o.ctx)
+      : withPut(next, o.kind, o.entity, o.ctx);
+  }
+  return next;
+}
+
+let loadPromise = null;
+let cacheTimer = null;
+
+export function load() {
+  if (loadPromise) return loadPromise;
+  loadPromise = (async () => {
+    if (!readIdentity()) {
+      setState({ ...EMPTY, status: 'no-identity', drafts: state.drafts });
+      return;
+    }
+    const userKey = identityKey();
+    if (!state.teamsData) {
+      const cached = await readCachedSnapshot(userKey);
+      if (cached && !state.teamsData) {
+        setState({ ...stateFromSnapshot(cached), status: 'ready', source: 'cache' });
+      } else if (!cached) {
+        setState({ status: 'loading' });
+      }
+    }
+    try {
+      const snap = await request('GET', '/api/v2/snapshot');
+      setState({ ...stateFromSnapshot(snap), status: 'ready', source: 'server', error: null, lastLoadedAt: Date.now() });
+      writeCachedSnapshot(userKey, snap);
+    } catch (e) {
+      console.error('[store] snapshot failed', e);
+      setState({ status: state.teamsData ? 'ready' : 'error', error: e });
+    }
+  })().finally(() => { loadPromise = null; });
+  return loadPromise;
+}
+
+let reloadTimer = null;
+function scheduleReload(ms = 300) {
+  clearTimeout(reloadTimer);
+  reloadTimer = setTimeout(() => { load(); }, ms);
+}
+
+// Keep the offline cache roughly current between full loads.
+function scheduleCacheWrite() {
+  clearTimeout(cacheTimer);
+  cacheTimer = setTimeout(() => {
+    const s = state;
+    if (!s.teamsData) return;
+    writeCachedSnapshot(identityKey(), {
+      coach: { defaultTeamId: s.teamsData.defaultTeamId },
+      teams: s.teamsData.teams,
+      library: { exercises: s.library.exercises.items, sessions: s.library.sessions.items },
+      hidden: s.hidden,
+      diagrams: s.diagrams,
+    });
+  }, 1500);
+}
+
+// ---------------------------------------------------------------------------
+// Cross-tab + lifecycle
+// ---------------------------------------------------------------------------
+
+const TAB_ID = Math.random().toString(36).slice(2);
+let channel = null;
+
+function announceChange() {
+  scheduleCacheWrite();
+  try { channel?.postMessage({ type: 'changed', from: TAB_ID }); } catch { /* closed */ }
+}
+
+let started = false;
+let lastFocusLoad = 0;
+
+export function startStore() {
+  if (started) return;
+  started = true;
+  restoreDrafts();
+
+  if (typeof BroadcastChannel !== 'undefined') {
+    channel = new BroadcastChannel('playball-v3');
+    channel.onmessage = (e) => {
+      if (e.data?.type === 'changed' && e.data.from !== TAB_ID) scheduleReload();
+    };
+  }
+
+  const refresh = () => {
+    if (document.visibilityState !== 'visible') return;
+    if (Date.now() - lastFocusLoad < 3000) return;
+    lastFocusLoad = Date.now();
+    load();
+  };
+  document.addEventListener('visibilitychange', refresh);
+  window.addEventListener('focus', refresh);
+  window.addEventListener('online', () => load());
+
+  // Unsaved session-builder drafts survive a reload (sessionStorage), but not
+  // closing the tab — warn before that.
+  window.addEventListener('beforeunload', (e) => {
+    if (hasDirtyDrafts() || state.pendingWrites > 0) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+
+  load();
+}
+
+// Identity changed (sync turned on, device paired/unpaired): start over.
+export function resetStore() {
+  overrides.clear();
+  queues.clear();
+  setState({ ...EMPTY, drafts: {} });
+  persistDrafts();
+  return load();
+}
+
+// ---------------------------------------------------------------------------
+// Immediate writes (everything except session-builder drafts)
+// ---------------------------------------------------------------------------
+
+// key → { inflight, again, patch, waiters }
+const queues = new Map();
+
+function queueFor(key) {
+  let q = queues.get(key);
+  if (!q) { q = { inflight: false, again: false, patch: {}, waiters: [] }; queues.set(key, q); }
+  return q;
+}
+
+// Resolves once no write for `key` is in flight.
+function settle(key) {
+  const q = queues.get(key);
+  if (!q || !q.inflight) return Promise.resolve();
+  return new Promise(resolve => q.waiters.push(resolve));
+}
+
+function bumpPending(delta) {
+  setState({ pendingWrites: Math.max(0, state.pendingWrites + delta) });
+}
+
+function describe(e) {
+  if (e.status === 0) return navigator.onLine ? 'network error' : "you're offline";
+  if (e.status === 428) return 'PlayBall was updated — reload the page';
+  return e.message || `error ${e.status}`;
+}
+
+// Optimistically put `entity` locally and persist it. `patch` is the set of
+// fields this call changed; on a 409 those are re-applied over the live row.
+function upsert(kind, entity, ctx = {}, patch = entity) {
+  const key = `${kind}:${entity.id}`;
+  setState(withPut(state, kind, entity, ctx));
+  overrides.set(key, { kind, ctx, op: 'put', entity: getLocal(state, kind, entity.id, ctx) });
+  const q = queueFor(key);
+  const { sessions: _s, games: _g, version: _v, ...fields } = patch;
+  q.patch = { ...q.patch, ...fields };
+  pump(key);
+}
+
+async function pump(key) {
+  const q = queueFor(key);
+  if (q.inflight) { q.again = true; return; }
+  q.inflight = true;
+  bumpPending(1);
+  let conflicts = 0;
+  let wrote = false;
+
+  for (;;) {
+    q.again = false;
+    const o = overrides.get(key);
+    if (!o || o.op !== 'put') break;
+    const cfg = KINDS[o.kind];
+    const local = o.entity;
+    const sentPatch = q.patch;
+    q.patch = {};
+    try {
+      const res = await request('PUT', cfg.path(local.id), {
+        ...cfg.body(local, o.ctx),
+        baseVersion: local.version ?? null,
+      });
+      wrote = true;
+      const saved = res[cfg.resKey];
+      // Fields edited while this request was in flight ride on the new version.
+      const next = q.again ? { ...saved, ...q.patch, version: saved.version } : saved;
+      setState(withPut(state, o.kind, next, o.ctx));
+      if (o.kind === 'session') rebaseDraftOnto(local.id, local.version, saved, sentPatch);
+      if (!q.again) { overrides.delete(key); break; }
+      overrides.set(key, { ...o, entity: getLocal(state, o.kind, local.id, o.ctx) });
+    } catch (e) {
+      if (e.status === 409 && e.body?.current && conflicts < 3) {
+        conflicts += 1;
+        const merged = { ...sentPatch, ...q.patch };
+        const rebased = { ...e.body.current, ...merged, version: e.body.current.version };
+        q.patch = merged;
+        setState(withPut(state, o.kind, rebased, o.ctx));
+        overrides.set(key, { ...o, entity: getLocal(state, o.kind, local.id, o.ctx) });
+        continue;
+      }
+      overrides.delete(key);
+      if (e.status === 410) {
+        setState(withRemove(state, o.kind, local.id, o.ctx));
+        toast(`That ${LABEL[o.kind]} was deleted somewhere else.`);
+      } else {
+        toast(`Couldn't save ${LABEL[o.kind]} — ${describe(e)}.`);
+        scheduleReload(0); // put the screen back to what the server has
+      }
+      break;
+    }
+  }
+
+  q.inflight = false;
+  bumpPending(-1);
+  if (wrote) announceChange();
+  const waiters = q.waiters.splice(0);
+  for (const w of waiters) w();
+}
+
+async function remove(kind, id, ctx = {}) {
+  const key = `${kind}:${id}`;
+  const prev = getLocal(state, kind, id, ctx);
+  setState(withRemove(state, kind, id, ctx));
+  overrides.set(key, { kind, ctx, op: 'delete', id, entity: { id } });
+  await settle(key);
+  bumpPending(1);
+  try {
+    await request('DELETE', KINDS[kind].path(id));
+    announceChange();
+  } catch (e) {
+    if (prev) setState(withPut(state, kind, prev, ctx));
+    toast(`Couldn't delete ${LABEL[kind]} — ${describe(e)}.`);
+  } finally {
+    overrides.delete(key);
+    bumpPending(-1);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public mutations
+// ---------------------------------------------------------------------------
+
+export const teams = {
+  create(team) { upsert('team', { ...team, version: null, sessions: team.sessions || [], games: [] }); },
+  update(teamId, updates) {
+    const cur = findTeam(state, teamId);
+    if (!cur) return null;
+    const next = { ...cur, ...updates };
+    upsert('team', next, {}, updates);
+    return next;
+  },
+  remove(teamId) {
+    for (const s of findTeam(state, teamId)?.sessions || []) discardDraft(s.id);
+    return remove('team', teamId);
+  },
+};
+
+export const sessions = {
+  // Creating a session waits for its team's create to land, so the server
+  // never sees a session for a team it doesn't know yet.
+  async create(teamId, session) {
+    setState(withPut(state, 'session', { ...session, version: null }, { teamId }));
+    await settle(`team:${teamId}`);
+    upsert('session', { ...session, version: null }, { teamId });
+  },
+  update(teamId, sessionId, updates) {
+    const cur = findSession(state, teamId, sessionId);
+    if (!cur) return null;
+    const next = { ...cur, ...updates };
+    upsert('session', next, { teamId }, updates);
+    return next;
+  },
+  remove(teamId, sessionId) {
+    discardDraft(sessionId);
+    return remove('session', sessionId, { teamId });
+  },
+};
+
+export const library = {
+  putExercise(item) { upsert('exercise', item); },
+  removeExercise(id) { return remove('exercise', id); },
+  putSession(item) { upsert('libsession', item); },
+  removeSession(id) { return remove('libsession', id); },
+
+  async hide(kind, id) {
+    const field = kind === 'exercise' ? 'exercises' : 'sessions';
+    if (state.hidden[field].includes(id)) return;
+    setState({ hidden: { ...state.hidden, [field]: [...state.hidden[field], id] } });
+    try {
+      await request('POST', '/api/v2/library/hidden', { kind, id });
+      announceChange();
+    } catch (e) {
+      setState({ hidden: { ...state.hidden, [field]: state.hidden[field].filter(x => x !== id) } });
+      toast(`Couldn't hide that item — ${describe(e)}.`);
+    }
+  },
+  async unhideAll(kind) {
+    const field = kind === 'exercise' ? 'exercises' : 'sessions';
+    const ids = state.hidden[field];
+    setState({ hidden: { ...state.hidden, [field]: [] } });
+    const results = await Promise.allSettled(ids.map(id =>
+      request('DELETE', `/api/v2/library/hidden/${enc(kind)}/${enc(id)}`)
+    ));
+    if (results.some(r => r.status === 'rejected')) {
+      toast("Couldn't unhide everything — reloading.");
+      scheduleReload(0);
+    } else {
+      announceChange();
+    }
+  },
+};
+
+export const diagrams = {
+  put(diagram) { upsert('diagram', diagram); },
+  remove(id) { return remove('diagram', id); },
+};
+
+// ---------------------------------------------------------------------------
+// Session-builder drafts (explicit Save)
+// ---------------------------------------------------------------------------
+
+const DRAFTS_KEY = 'ppp_drafts_v3';
+
+function persistDrafts() {
+  try {
+    const keys = Object.keys(state.drafts);
+    if (keys.length === 0) sessionStorage.removeItem(DRAFTS_KEY);
+    else sessionStorage.setItem(DRAFTS_KEY, JSON.stringify({ owner: identityKey(), drafts: state.drafts }));
+  } catch (e) {
+    console.warn('[store] could not persist drafts', e);
+  }
+}
+
+function restoreDrafts() {
+  try {
+    const raw = sessionStorage.getItem(DRAFTS_KEY);
+    if (!raw) return;
+    const { owner, drafts } = JSON.parse(raw);
+    if (owner && owner === identityKey() && drafts) setState({ drafts });
+  } catch { /* ignore */ }
+}
+
+// Fields that are view state or server-assigned, not content.
+function contentOf(session) {
+  const { selectedSectionId: _sel, updatedAt: _u, version: _v, ...rest } = session || {};
+  return JSON.stringify(rest);
+}
+
+export function getDraft(sessionId) {
+  return state.drafts[sessionId] || null;
+}
+
+export function isDraftDirty(sessionId) {
+  const d = state.drafts[sessionId];
+  return Boolean(d) && contentOf(d.value) !== contentOf(d.base);
+}
+
+export function hasDirtyDrafts() {
+  return Object.keys(state.drafts).some(isDraftDirty);
+}
+
+// True when the server copy moved on since this draft was started.
+export function isDraftStale(sessionId) {
+  const d = state.drafts[sessionId];
+  if (!d) return false;
+  const live = findSession(state, d.teamId, sessionId);
+  return Boolean(live && d.base.version != null && live.version !== d.base.version);
+}
+
+export function editDraft(teamId, sessionId, updater) {
+  const d = state.drafts[sessionId];
+  const base = d?.base ?? findSession(state, teamId, sessionId);
+  if (!base) return;
+  const cur = d?.value ?? base;
+  const value = typeof updater === 'function' ? updater(cur) : { ...cur, ...updater };
+  setState({ drafts: { ...state.drafts, [sessionId]: { teamId, base, value } } });
+  persistDrafts();
+}
+
+export function discardDraft(sessionId) {
+  if (!state.drafts[sessionId]) return;
+  const { [sessionId]: _gone, ...rest } = state.drafts;
+  setState({ drafts: rest });
+  persistDrafts();
+}
+
+// An immediate session write (e.g. rescheduling from the team page) landed
+// while a draft is open on the same session: move the draft's base forward
+// and carry the change into it, so Save doesn't report a false conflict.
+function rebaseDraftOnto(sessionId, sentVersion, saved, patch) {
+  const d = state.drafts[sessionId];
+  if (!d || d.base.version !== sentVersion) return;
+  setState({ drafts: { ...state.drafts, [sessionId]: { ...d, base: saved, value: { ...d.value, ...patch, version: saved.version } } } });
+  persistDrafts();
+}
+
+// Write the draft as one compare-and-set. Returns
+//   { ok: true } | { conflict: true, current } | { gone: true } | { error }
+// `overwrite: true` saves over whatever is on the server now.
+export async function saveDraft(sessionId, { overwrite = false } = {}) {
+  const d = state.drafts[sessionId];
+  if (!d) return { ok: true };
+  if (!isDraftDirty(sessionId)) { discardDraft(sessionId); return { ok: true }; }
+
+  await settle(`session:${sessionId}`);
+  const live = findSession(state, d.teamId, sessionId);
+  if (!live) return { gone: true };
+  const baseVersion = overwrite || d.base.version == null ? live.version : d.base.version;
+
+  bumpPending(1);
+  try {
+    const res = await request('PUT', KINDS.session.path(sessionId), {
+      ...sessionBody(state.drafts[sessionId].value, d.teamId),
+      baseVersion: baseVersion ?? null,
+    });
+    setState(withPut(state, 'session', res.session, { teamId: d.teamId }));
+    discardDraft(sessionId);
+    announceChange();
+    return { ok: true };
+  } catch (e) {
+    if (e.status === 409 && e.body?.current) {
+      setState(withPut(state, 'session', e.body.current, { teamId: d.teamId }));
+      return { conflict: true, current: e.body.current };
+    }
+    if (e.status === 410) return { gone: true };
+    return { error: describe(e) };
+  } finally {
+    bumpPending(-1);
+  }
+}

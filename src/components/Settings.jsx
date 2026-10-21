@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import AppearancePicker from './AppearancePicker';
 import AIAssistantSection from './AIAssistantSection';
 import SyncDiagnostics, { isDiagnosticsVisible } from './SyncDiagnostics';
+import { findLegacyOnlyData, uploadLegacyData } from '../data/legacyImport';
+import { downloadJson, toast } from '../utils/helpers';
 
 // Settings — Appearance, Cloud sync, Storage, Account, Privacy.
 // Reads existing hooks. No new API surface; sync/account actions defer
@@ -95,6 +97,56 @@ function TierRow({ active, completed, title, body, cta }) {
         <div className="text-[12.5px] mt-0.5" style={{ color: 'var(--ink-2)' }}>{body}</div>
       </div>
       {cta && <div className="flex-shrink-0">{cta}</div>}
+    </div>
+  );
+}
+
+// Before v3 every browser kept its own copy of the data. If this browser still
+// holds anything the server never got (e.g. edits from a tab that never
+// flushed), offer to upload it. Nothing appears when there's nothing to recover.
+function LegacyDataPanel() {
+  const [found, setFound] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    findLegacyOnlyData().then(f => { if (alive) setFound(f); });
+    return () => { alive = false; };
+  }, []);
+  if (!found || found.total === 0) return null;
+
+  const parts = [
+    found.teams.length && `${found.teams.length} team${found.teams.length === 1 ? '' : 's'}`,
+    found.sessions.length && `${found.sessions.length} session${found.sessions.length === 1 ? '' : 's'}`,
+    found.exercises.length && `${found.exercises.length} library exercise${found.exercises.length === 1 ? '' : 's'}`,
+    found.librarySessions.length && `${found.librarySessions.length} library session${found.librarySessions.length === 1 ? '' : 's'}`,
+    found.diagrams.length && `${found.diagrams.length} diagram${found.diagrams.length === 1 ? '' : 's'}`,
+  ].filter(Boolean);
+
+  return (
+    <div className="card p-5 mb-8" style={{ borderColor: 'var(--warn)' }}>
+      <div className="font-semibold mb-1">Found data only in this browser</div>
+      <p className="text-[13px] mb-3" style={{ color: 'var(--ink-2)' }}>
+        This browser's old local storage has {parts.join(', ')} that aren't in your account.
+        Some may be things you deleted on another device, so look before you upload.
+      </p>
+      <div className="flex gap-2">
+        <button
+          className="btn btn-primary"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            await uploadLegacyData(found);
+            setBusy(false);
+            setFound({ ...found, total: 0 });
+            toast('Uploaded to your account');
+          }}
+        >
+          {busy ? 'Uploading…' : 'Upload to my account'}
+        </button>
+        <button className="btn btn-secondary" onClick={() => downloadJson('playball-browser-backup.json', found)}>
+          Download a copy
+        </button>
+      </div>
     </div>
   );
 }
@@ -242,6 +294,8 @@ export default function Settings({ teamsContext, syncContext, accountContext, li
         </section>
 
         {(syncOn || hasAccount) && <div className="hairline my-8" />}
+
+        {syncOn && <LegacyDataPanel />}
 
         {/* Teams & co-coaches — only meaningful once sync (or an account) is on */}
         {(syncOn || hasAccount) && (

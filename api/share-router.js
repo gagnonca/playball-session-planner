@@ -1,10 +1,11 @@
 import { supabase } from './_lib/supabase.js';
+import { verifyDevice } from './_lib/auth.js';
 
 // Routed via vercel.json rewrite: /api/share/:slug* → /api/share-router?slug=:slug*
 //
 // Reads live from Postgres via teams.sharing->>shareToken. No Redis. No push.
 //   GET    /api/share/:token                          → team view
-//   DELETE /api/share/:token                          → revoke
+//   DELETE /api/share/:token                          → revoke (owner only)
 //   GET    /api/share/:token/sessions                 → lightweight session list
 //   GET    /api/share/:token/sessions/:sessionId      → full session (X-PlayBall-Version)
 
@@ -23,7 +24,7 @@ export default async function handler(req, res) {
     if (sub === 'sessions' && !sessionId) return listSessions(res, token);
     if (!sub) {
       if (req.method === 'GET') return getTeam(res, token);
-      if (req.method === 'DELETE') return revoke(res, token);
+      if (req.method === 'DELETE') return revoke(req, res, token);
       return send(res, 405, 'method_not_allowed');
     }
     return send(res, 404, 'not_found');
@@ -36,7 +37,7 @@ export default async function handler(req, res) {
 async function loadTeamByToken(token) {
   const { data: team, error } = await supabase
     .from('teams')
-    .select('id, name, age_group, sharing')
+    .select('id, coach_id, name, age_group, sharing')
     .eq('sharing->>shareToken', token)
     .is('deleted_at', null)
     .maybeSingle();
@@ -85,9 +86,14 @@ async function getTeam(res, token) {
   });
 }
 
-async function revoke(res, token) {
+// The link is a read-only capability, so holding it must not be enough to
+// kill it — only the owning coach can revoke.
+async function revoke(req, res, token) {
+  const auth = await verifyDevice(req);
+  if (!auth.ok) return res.status(auth.status).json(auth.body);
   const team = await loadTeamByToken(token);
   if (!team) return send(res, 404, 'not_found', 'Share not found');
+  if (team.coach_id !== auth.coachId) return send(res, 403, 'forbidden', 'Only the team owner can revoke this link');
   const { error } = await supabase
     .from('teams')
     .update({

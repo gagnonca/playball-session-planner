@@ -108,10 +108,18 @@ export default function GameEditorModal({ teamId, teamPlayers = [], game, onClos
           date: payload.date,
           isHome: payload.isHome,
           payload,
+          // Compare-and-set: the iOS app may have pushed this game since it loaded.
+          baseVersion: isEdit ? (game.version ?? 1) : null,
         }),
       });
       const data = await res.json();
       if (!data.success) {
+        if (data.error === 'conflict') {
+          toast('This game was changed elsewhere (maybe the iOS app). Reloaded — make your edit again.');
+          onSaved?.(data.current);
+          onClose();
+          return;
+        }
         toast(data.message || 'Could not save game.');
         return;
       }

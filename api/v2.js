@@ -3,13 +3,21 @@ import { supabase } from './_lib/supabase.js';
 import { verifyDevice, sendError } from './_lib/auth.js';
 import { redis } from './_lib/redis.js';
 import { mirrorTeamsBlob, mirrorLibraryBlob } from './_lib/dualWrite.js';
+import { versionedWrite, softDelete, readBaseVersion } from './_lib/versioned.js';
+import { teamFromRow, sessionFromRow, gameFromRow, libraryItemFromRow, diagramFromRow } from './_lib/shapes.js';
 
 // Routed via vercel.json rewrite: /api/v2/:slug* → /api/v2?slug=:slug*
 
 // Single catch-all router for all new per-entity endpoints (Hobby plan: 12
 // function limit). Replaces what would otherwise be ~15 separate route files.
 //
+// Every PUT is compare-and-set on the row's `version` (see _lib/versioned.js):
+// the body carries `baseVersion` — null to create, else the version the
+// client last read. Stale writes get 409 + the live row; never a silent
+// overwrite. Responses return the written entity in client shape.
+//
 // Routes (all under /api/v2):
+//   GET    /snapshot                         everything the web app renders
 //   GET    /coaches/:coachId                 bootstrap
 //   GET    /teams                            list
 //   PUT    /teams/:id                        upsert
@@ -65,6 +73,7 @@ export default async function handler(req, res) {
     const auth = await verifyDevice(req);
     if (!auth.ok) return res.status(auth.status).json(auth.body);
 
+    if (root === 'snapshot') return routeSnapshot(req, res, auth);
     if (root === 'coaches') return routeCoach(a, req, res, auth);
     if (root === 'teams') return routeTeams(a, b, req, res, auth);
     if (root === 'sessions') return routeSessions(a, req, res, auth);
@@ -105,6 +114,79 @@ async function routeCoach(coachId, req, res, auth) {
   });
 }
 
+// ---------- snapshot ----------
+
+// One round-trip for the whole app: teams (with sessions + games nested the
+// way the UI reads them), library, hidden ids, diagrams. The client replaces
+// its state with this wholesale — there is no client-side merge.
+async function routeSnapshot(req, res, auth) {
+  if (req.method !== 'GET') return sendError(res, 405, 'method_not_allowed');
+  const c = auth.coachId;
+  const live = (table) => supabase.from(table).select('*').eq('coach_id', c).is('deleted_at', null);
+  const [teamsR, sessionsR, gamesR, exR, libSessR, hiddenR, diagramsR] = await Promise.all([
+    live('teams'), live('sessions'), live('games'),
+    live('library_exercises'), live('library_sessions'),
+    supabase.from('library_hidden').select('*').eq('coach_id', c),
+    live('diagrams'),
+  ]);
+  const failed = [teamsR, sessionsR, gamesR, exR, libSessR, hiddenR, diagramsR].find(r => r.error);
+  if (failed) { console.error('[snapshot]', failed.error); return sendError(res, 500, 'server_error'); }
+
+  const sessionsByTeam = groupBy(sessionsR.data, 'team_id', sessionFromRow);
+  const gamesByTeam = groupBy(gamesR.data, 'team_id', gameFromRow);
+  const teams = teamsR.data.map(t => ({
+    ...teamFromRow(t),
+    sessions: sessionsByTeam.get(t.id) || [],
+    games: gamesByTeam.get(t.id) || [],
+  }));
+
+  const hidden = { exercises: [], sessions: [] };
+  for (const h of hiddenR.data) {
+    if (h.entity_kind === 'exercise') hidden.exercises.push(h.entity_id);
+    else if (h.entity_kind === 'session') hidden.sessions.push(h.entity_id);
+  }
+
+  return res.status(200).json({
+    success: true,
+    coach: { coachId: c, defaultTeamId: auth.coach.default_team_id || null },
+    teams,
+    library: {
+      exercises: exR.data.map(libraryItemFromRow),
+      sessions: libSessR.data.map(libraryItemFromRow),
+    },
+    hidden,
+    diagrams: diagramsR.data.map(diagramFromRow),
+    serverTime: new Date().toISOString(),
+  });
+}
+
+function groupBy(rows, key, map) {
+  const out = new Map();
+  for (const r of rows) {
+    const list = out.get(r[key]) || [];
+    list.push(map(r));
+    out.set(r[key], list);
+  }
+  return out;
+}
+
+// Send a versionedWrite result, mapping any returned row to client shape.
+function sendWrite(res, result, map, key) {
+  const { status, body } = result;
+  if (body.row) return res.status(status).json({ success: true, [key]: map(body.row) });
+  if (body.current) return res.status(status).json({ ...body, current: map(body.current) });
+  return res.status(status).json(body);
+}
+
+async function teamOwned(teamId, coachId) {
+  const { data, error } = await supabase
+    .from('teams').select('id')
+    .eq('id', teamId).eq('coach_id', coachId).is('deleted_at', null)
+    .maybeSingle();
+  if (error) throw error;
+  return Boolean(data);
+}
+
 // ---------- teams ----------
 
 async function routeTeams(id, action, req, res, auth) {
@@ -113,7 +195,7 @@ async function routeTeams(id, action, req, res, auth) {
     const { data, error } = await supabase
       .from('teams').select('*').eq('coach_id', auth.coachId).is('deleted_at', null);
     if (error) return sendError(res, 500, 'server_error');
-    return res.status(200).json({ success: true, teams: data });
+    return res.status(200).json({ success: true, teams: data.map(teamFromRow) });
   }
 
   if (action === 'link-ios') return linkIosShareToTeam(id, req, res, auth);
@@ -121,29 +203,25 @@ async function routeTeams(id, action, req, res, auth) {
   if (req.method === 'PUT') {
     const { name, ageGroup, defaultDuration, sharing, archived } = req.body || {};
     if (!name) return sendError(res, 400, 'missing_name');
-    const { data, error } = await supabase.from('teams').upsert({
+    // Web-owned columns only. players / ios_share_code belong to the iOS
+    // mirror and link-ios and are never sent from here.
+    const result = await versionedWrite('teams', {
       id,
-      coach_id: auth.coachId,
-      name,
-      age_group: ageGroup ?? null,
-      default_duration: defaultDuration ?? null,
-      sharing: sharing ?? { isShared: false },
-      // Only written when the client sends it, so older clients (and the iOS
-      // mirror) never un-archive a team by omission.
-      ...(typeof archived === 'boolean' ? { archived } : {}),
-      updated_at: new Date().toISOString(),
-    }).select().single();
-    if (error) { console.error('[teams.put]', error); return sendError(res, 500, 'server_error'); }
-    return res.status(200).json({ success: true, team: data });
+      coachId: auth.coachId,
+      baseVersion: readBaseVersion(req.body),
+      fields: {
+        name,
+        age_group: ageGroup ?? null,
+        default_duration: defaultDuration ?? null,
+        sharing: sharing ?? { isShared: false },
+        archived: !!archived,
+      },
+    });
+    return sendWrite(res, result, teamFromRow, 'team');
   }
 
   if (req.method === 'DELETE') {
-    const now = new Date().toISOString();
-    const { error } = await supabase
-      .from('teams')
-      .update({ deleted_at: now, updated_at: now })
-      .eq('id', id).eq('coach_id', auth.coachId);
-    if (error) return sendError(res, 500, 'server_error');
+    await softDelete('teams', { id, coachId: auth.coachId });
     await touchCoach(auth.coachId);
     return res.status(200).json({ success: true });
   }
@@ -160,43 +238,34 @@ async function routeSessions(id, req, res, auth) {
     if (req.query.teamId) q = q.eq('team_id', req.query.teamId);
     const { data, error } = await q;
     if (error) return sendError(res, 500, 'server_error');
-    return res.status(200).json({ success: true, sessions: data });
+    return res.status(200).json({ success: true, sessions: data.map(sessionFromRow) });
   }
 
   if (req.method === 'PUT') {
     const { teamId, summary, sections, isTemplate } = req.body || {};
     if (!teamId || !summary) return sendError(res, 400, 'missing_fields');
-
-    const { data: team, error: teamErr } = await supabase
-      .from('teams').select('id')
-      .eq('id', teamId).eq('coach_id', auth.coachId)
-      .maybeSingle();
-    if (teamErr) return sendError(res, 500, 'server_error');
-    if (!team) return sendError(res, 403, 'team_not_owned');
+    if (!(await teamOwned(teamId, auth.coachId))) return sendError(res, 403, 'team_not_owned');
 
     // Upload any inline base64 diagram images to CDN before persisting
     const cleanSections = await stripBase64FromSections(sections ?? []);
+    const { id: _i, version: _v, updatedAt: _u, sections: _s, isTemplate: _t, ...cleanSummary } = summary;
 
-    const { data, error } = await supabase.from('sessions').upsert({
+    const result = await versionedWrite('sessions', {
       id,
-      team_id: teamId,
-      coach_id: auth.coachId,
-      summary,
-      sections: cleanSections,
-      is_template: !!isTemplate,
-      updated_at: new Date().toISOString(),
-    }).select().single();
-    if (error) { console.error('[sessions.put]', error); return sendError(res, 500, 'server_error'); }
-    return res.status(200).json({ success: true, session: data });
+      coachId: auth.coachId,
+      baseVersion: readBaseVersion(req.body),
+      fields: {
+        team_id: teamId,
+        summary: cleanSummary,
+        sections: cleanSections,
+        is_template: !!isTemplate,
+      },
+    });
+    return sendWrite(res, result, sessionFromRow, 'session');
   }
 
   if (req.method === 'DELETE') {
-    const now = new Date().toISOString();
-    const { error } = await supabase
-      .from('sessions')
-      .update({ deleted_at: now, updated_at: now })
-      .eq('id', id).eq('coach_id', auth.coachId);
-    if (error) return sendError(res, 500, 'server_error');
+    await softDelete('sessions', { id, coachId: auth.coachId });
     await touchCoach(auth.coachId);
     return res.status(200).json({ success: true });
   }
@@ -212,12 +281,7 @@ async function routeGames(id, req, res, auth) {
     const teamId = req.query.teamId;
     if (!teamId) return sendError(res, 400, 'missing_teamId');
     // Confirm the team belongs to the caller before returning any games.
-    const { data: team, error: teamErr } = await supabase
-      .from('teams').select('id')
-      .eq('id', teamId).eq('coach_id', auth.coachId).is('deleted_at', null)
-      .maybeSingle();
-    if (teamErr) return sendError(res, 500, 'server_error');
-    if (!team) return sendError(res, 403, 'team_not_owned');
+    if (!(await teamOwned(teamId, auth.coachId))) return sendError(res, 403, 'team_not_owned');
 
     const { data, error } = await supabase
       .from('games').select('*')
@@ -229,36 +293,26 @@ async function routeGames(id, req, res, auth) {
   if (req.method === 'PUT') {
     const { teamId, name, date, isHome, payload } = req.body || {};
     if (!teamId || !name) return sendError(res, 400, 'missing_fields');
+    if (!(await teamOwned(teamId, auth.coachId))) return sendError(res, 403, 'team_not_owned');
 
-    const { data: team, error: teamErr } = await supabase
-      .from('teams').select('id')
-      .eq('id', teamId).eq('coach_id', auth.coachId)
-      .maybeSingle();
-    if (teamErr) return sendError(res, 500, 'server_error');
-    if (!team) return sendError(res, 403, 'team_not_owned');
-
-    const { data, error } = await supabase.from('games').upsert({
+    const result = await versionedWrite('games', {
       id,
-      team_id: teamId,
-      coach_id: auth.coachId,
-      name,
-      date: date ?? null,
-      is_home: !!isHome,
-      payload: payload ?? {},
-      updated_at: new Date().toISOString(),
-      deleted_at: null,
-    }).select().single();
-    if (error) { console.error('[games.put]', error); return sendError(res, 500, 'server_error'); }
-    return res.status(200).json({ success: true, game: data });
+      coachId: auth.coachId,
+      baseVersion: readBaseVersion(req.body),
+      fields: {
+        team_id: teamId,
+        name,
+        date: date ?? null,
+        is_home: !!isHome,
+        payload: payload ?? {},
+      },
+    });
+    // Games keep their raw row shape on the wire (TeamGames/GameEditorModal read it).
+    return sendWrite(res, result, (row) => row, 'game');
   }
 
   if (req.method === 'DELETE') {
-    const now = new Date().toISOString();
-    const { error } = await supabase
-      .from('games')
-      .update({ deleted_at: now, updated_at: now })
-      .eq('id', id).eq('coach_id', auth.coachId);
-    if (error) return sendError(res, 500, 'server_error');
+    await softDelete('games', { id, coachId: auth.coachId });
     await touchCoach(auth.coachId);
     return res.status(200).json({ success: true });
   }
@@ -373,30 +427,24 @@ async function routeDiagrams(id, req, res, auth) {
     const { data, error } = await supabase
       .from('diagrams').select('*').eq('coach_id', auth.coachId).is('deleted_at', null);
     if (error) return sendError(res, 500, 'server_error');
-    return res.status(200).json({ success: true, diagrams: data });
+    return res.status(200).json({ success: true, diagrams: data.map(diagramFromRow) });
   }
 
   if (req.method === 'PUT') {
     const { name, payload } = req.body || {};
     if (!payload) return sendError(res, 400, 'missing_payload');
-    const { data, error } = await supabase.from('diagrams').upsert({
+    const { version: _v, updatedAt: _u, ...cleanPayload } = payload;
+    const result = await versionedWrite('diagrams', {
       id,
-      coach_id: auth.coachId,
-      name: name ?? null,
-      payload,
-      updated_at: new Date().toISOString(),
-    }).select().single();
-    if (error) { console.error('[diagrams.put]', error); return sendError(res, 500, 'server_error'); }
-    return res.status(200).json({ success: true, diagram: data });
+      coachId: auth.coachId,
+      baseVersion: readBaseVersion(req.body),
+      fields: { name: name ?? null, payload: cleanPayload },
+    });
+    return sendWrite(res, result, diagramFromRow, 'diagram');
   }
 
   if (req.method === 'DELETE') {
-    const now = new Date().toISOString();
-    const { error } = await supabase
-      .from('diagrams')
-      .update({ deleted_at: now, updated_at: now })
-      .eq('id', id).eq('coach_id', auth.coachId);
-    if (error) return sendError(res, 500, 'server_error');
+    await softDelete('diagrams', { id, coachId: auth.coachId });
     await touchCoach(auth.coachId);
     return res.status(200).json({ success: true });
   }
@@ -407,44 +455,37 @@ async function routeDiagrams(id, req, res, auth) {
 // ---------- library ----------
 
 async function routeLibrary(kind, a, b, req, res, auth) {
-  if (kind === 'exercises') return libraryItemRoute('library_exercises', 'exercise', a, req, res, auth);
-  if (kind === 'sessions') return libraryItemRoute('library_sessions', 'session', a, req, res, auth);
+  if (kind === 'exercises') return libraryItemRoute('library_exercises', a, req, res, auth);
+  if (kind === 'sessions') return libraryItemRoute('library_sessions', a, req, res, auth);
   if (kind === 'hidden') return libraryHiddenRoute(a, b, req, res, auth);
   return sendError(res, 404, 'not_found');
 }
 
-async function libraryItemRoute(table, tag, id, req, res, auth) {
+async function libraryItemRoute(table, id, req, res, auth) {
   if (!id) {
     if (req.method !== 'GET') return sendError(res, 405, 'method_not_allowed');
     const { data, error } = await supabase
       .from(table).select('*').eq('coach_id', auth.coachId).is('deleted_at', null);
     if (error) return sendError(res, 500, 'server_error');
-    return res.status(200).json({ success: true, items: data });
+    return res.status(200).json({ success: true, items: data.map(libraryItemFromRow) });
   }
 
   if (req.method === 'PUT') {
     const { name, type, tags, payload } = req.body || {};
     if (!name || !payload) return sendError(res, 400, 'missing_fields');
-    const row = {
-      id, coach_id: auth.coachId,
-      name,
-      tags: tags ?? {},
-      payload,
-      updated_at: new Date().toISOString(),
-    };
-    if (table === 'library_exercises') row.type = type ?? null;
-    const { data, error } = await supabase.from(table).upsert(row).select().single();
-    if (error) { console.error(`[${tag}.put]`, error); return sendError(res, 500, 'server_error'); }
-    return res.status(200).json({ success: true, item: data });
+    const fields = { name, tags: tags ?? {}, payload };
+    if (table === 'library_exercises') fields.type = type ?? null;
+    const result = await versionedWrite(table, {
+      id,
+      coachId: auth.coachId,
+      baseVersion: readBaseVersion(req.body),
+      fields,
+    });
+    return sendWrite(res, result, libraryItemFromRow, 'item');
   }
 
   if (req.method === 'DELETE') {
-    const now = new Date().toISOString();
-    const { error } = await supabase
-      .from(table)
-      .update({ deleted_at: now, updated_at: now })
-      .eq('id', id).eq('coach_id', auth.coachId);
-    if (error) return sendError(res, 500, 'server_error');
+    await softDelete(table, { id, coachId: auth.coachId });
     await touchCoach(auth.coachId);
     return res.status(200).json({ success: true });
   }

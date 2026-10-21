@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, Component } from 'react';
+import React, { useState, useEffect, Component } from 'react';
 import useTeams from '../hooks/useTeams';
 import useDiagramLibrary from '../hooks/useDiagramLibrary';
 import useLibrary from '../hooks/useLibrary';
@@ -6,10 +6,10 @@ import useSync from '../hooks/useSync';
 import useSharing from '../hooks/useSharing';
 import useAccount from '../hooks/useAccount';
 import { VIEWS } from '../constants/navigation';
-import { TEAMS_KEY, HAS_SEEN_WELCOME_KEY } from '../constants/storage';
+import { HAS_SEEN_WELCOME_KEY } from '../constants/storage';
 import { uploadDiagramImage } from '../utils/uploadImage';
-import { getTeamsData } from '../utils/indexedDBHelper';
-import { mergeTeamsData } from '../utils/helpers';
+import { startStore, useStore } from '../data/store';
+import { findLegacyOnlyData, uploadLegacyData } from '../data/legacyImport';
 import TeamList from './teams/TeamList';
 import TeamDetail from './teams/TeamDetail';
 import SessionBuilder from './session-builder/SessionBuilder';
@@ -22,7 +22,6 @@ import AboutModal from './AboutModal';
 import AppHeader from './AppHeader';
 import LinkDeviceModal from './LinkDeviceModal';
 import AccountModal from './AccountModal';
-import StorageLimitModal from './StorageLimitModal';
 import ImportLanding from './ImportLanding';
 
 // Error boundary: catches rendering crashes and shows recovery UI
@@ -89,20 +88,14 @@ export default function AppShell() {
   // Read URL synchronously before useTeams can rewrite it
   const [initialUrl] = useState(readInitialUrl);
 
+  // One store for the whole tab; loads the server snapshot and keeps it fresh.
+  useEffect(() => { startStore(); }, []);
+  const storeStatus = useStore(st => st.status);
+
   const teamsContext = useTeams();
   const diagramLibrary = useDiagramLibrary();
   const libraryHook = useLibrary();
-  const loadTeamsFromServerRef = useRef(null);
-  const teamsDataRef = useRef(null);
-  const tabIdRef = useRef(Math.random().toString(36).slice(2));
-  const broadcastingRef = useRef(false);
-  const channelRef = useRef(null);
-  const syncContext = useSync({
-    // Using a ref so useSync doesn't rebind on every render of AppShell.
-    onRemoteUpdate: useCallback((teams) => {
-      if (loadTeamsFromServerRef.current) loadTeamsFromServerRef.current(teams);
-    }, []),
-  });
+  const syncContext = useSync();
   const sharingContext = useSharing();
   const accountContext = useAccount();
 
@@ -148,15 +141,14 @@ export default function AppShell() {
     try { localStorage.setItem(HAS_SEEN_WELCOME_KEY, 'true'); } catch { /* ignore */ }
     setHasSeenWelcome(true);
   };
-  const hasCheckedForUpdates = useRef(false);
 
-  // First-sync activation: create the identity, push every existing local
-  // team/session to Postgres via the per-entity v2 API.
+  // First-sync activation: create the identity, then upload whatever this
+  // browser had stored locally (a brand-new coach has nothing on the server,
+  // so everything local is new).
   const enableSyncForFirstTime = async () => {
     await syncContext.initializeIdentity();
-    if (teamsContext.pushAllToPostgres) {
-      await teamsContext.pushAllToPostgres();
-    }
+    const found = await findLegacyOnlyData();
+    if (found.total > 0) await uploadLegacyData(found);
   };
 
   const {
@@ -167,26 +159,12 @@ export default function AppShell() {
     selectedSectionId,
     selectedVariationId,
     editingDiagramId,
-    showStorageLimitModal,
-    setShowStorageLimitModal,
     getTeam,
     getSession,
-    updateSession,
+    editSessionDraft,
     navigateToTeams,
     navigateBackFromDiagramBuilder,
   } = teamsContext;
-
-  // Expose test function for storage limit modal (development only)
-  useEffect(() => {
-    window.testStorageLimit = () => {
-      setShowStorageLimitModal(true);
-      console.log('Storage limit modal triggered for testing. Call window.testStorageLimit(false) to close it.');
-    };
-    window.testStorageLimit.close = () => setShowStorageLimitModal(false);
-    return () => {
-      delete window.testStorageLimit;
-    };
-  }, []);
 
   // Handle routes that need async work on mount (iOS referral).
   // Shared routes are handled by SharedView component (never reaches AppShell).
@@ -200,226 +178,6 @@ export default function AppShell() {
     }
   }, []);
 
-  // Initialize sync on first load (auto-create identity)
-  useEffect(() => {
-    if (teamsData && !syncContext.identity && syncContext.isOnline) {
-      // Auto-initialize identity for new users
-      // Commented out for now - let users explicitly enable sync
-      // syncContext.initializeIdentity();
-    }
-  }, [teamsData, syncContext.identity, syncContext.isOnline]);
-
-  // Teams now write to Postgres via per-entity PUT/DELETE in useTeams.js.
-  // No blob push — the old path caused merge/version-conflict resurrections.
-
-  // Keep a live ref to loadTeamsFromServer so sync callbacks (BroadcastChannel
-  // messages, visibility pulls) always call the current one.
-  useEffect(() => { loadTeamsFromServerRef.current = teamsContext.loadTeamsFromServer; }, [teamsContext.loadTeamsFromServer]);
-
-  // Keep a live ref to the current teamsData so the visibility-refresh effect
-  // (whose listeners persist across renders) always merges against the latest
-  // local state instead of a stale captured value.
-  useEffect(() => { teamsDataRef.current = teamsContext.teamsData; }, [teamsContext.teamsData]);
-
-  // Auto-pull from server on app load when sync is enabled. Pulls are merged
-  // per-entity by updatedAt (mergeTeamsData) so a stale tab picks up other-device
-  // edits without overwriting its own unflushed local work (writes flush on a
-  // 30s debounce). One additional safety: don't adopt anything when the server
-  // is empty but local is not — protects users who just enabled sync and
-  // haven't finished pushing yet.
-  useEffect(() => {
-    const checkForServerUpdates = async () => {
-      if (hasCheckedForUpdates.current) return;
-      if (!syncContext.isSyncEnabled || !syncContext.isOnline) return;
-      if (!teamsData) return;
-
-      hasCheckedForUpdates.current = true;
-
-      try {
-        const result = await syncContext.pullTeams();
-        if (!result) return;
-        // Merge against the LIVE local state at pull-resolution time, not the
-        // snapshot captured when this effect fired. Otherwise any edit the user
-        // made during the async pull (e.g. tapping a moment right after load)
-        // is discarded when the merged result is loaded back in — a "select
-        // then revert" glitch. The visibility/focus pull below already does this.
-        const localNow = teamsDataRef.current || teamsData;
-        const serverTeamCount = result.teams?.teams?.length || 0;
-        const localTeamCount = localNow?.teams?.length || 0;
-        if (serverTeamCount === 0 && localTeamCount > 0) return;
-        teamsContext.loadTeamsFromServer(mergeTeamsData(localNow, result.teams));
-      } catch (err) {
-        console.error('Failed to check for server updates:', err);
-      }
-    };
-
-    checkForServerUpdates();
-  }, [teamsData, syncContext.isSyncEnabled, syncContext.isOnline]);
-
-  // Pull on visibility change / window focus so a tab that was in the background
-  // (or was left open from a prior session) reconciles with the server before
-  // the user edits anything. Merged per-entity by updatedAt to preserve any
-  // unflushed local edits in this tab.
-  useEffect(() => {
-    if (!syncContext.isSyncEnabled) return;
-
-    const refresh = async () => {
-      if (document.visibilityState !== 'visible') return;
-      if (!syncContext.isOnline) return;
-      try {
-        const result = await syncContext.pullTeams();
-        if (!result) return;
-        const current = teamsDataRef.current;
-        if (loadTeamsFromServerRef.current) {
-          loadTeamsFromServerRef.current(mergeTeamsData(current, result.teams));
-        }
-      } catch (err) {
-        console.error('Visibility pull failed:', err);
-      }
-    };
-
-    document.addEventListener('visibilitychange', refresh);
-    window.addEventListener('focus', refresh);
-    return () => {
-      document.removeEventListener('visibilitychange', refresh);
-      window.removeEventListener('focus', refresh);
-    };
-  }, [syncContext.isSyncEnabled, syncContext.isOnline]);
-
-  // Cross-tab mirror: notify other tabs when teamsData changes so they can
-  // reload from IndexedDB. Sends a lightweight signal (NO data payload) to
-  // avoid structured-cloning hundreds of MB of base64 images on every edit.
-  useEffect(() => {
-    if (typeof BroadcastChannel === 'undefined') return;
-    const ch = new BroadcastChannel('playball-teams');
-    channelRef.current = ch;
-    ch.onmessage = async (e) => {
-      if (!e.data || e.data.tabId === tabIdRef.current) return;
-      if (e.data.type === 'teams-changed') {
-        // Another tab edited data — reload from IndexedDB (the source of truth).
-        broadcastingRef.current = true;
-        try {
-          const fresh = await getTeamsData();
-          if (fresh && loadTeamsFromServerRef.current) {
-            loadTeamsFromServerRef.current(fresh);
-          }
-        } catch (err) {
-          console.warn('Cross-tab reload failed:', err);
-        } finally {
-          setTimeout(() => { broadcastingRef.current = false; }, 0);
-        }
-      }
-    };
-    return () => { ch.close(); channelRef.current = null; };
-  }, []); // stable — no deps needed since we use refs
-
-  useEffect(() => {
-    if (!channelRef.current || !teamsData) return;
-    if (broadcastingRef.current) return; // came from another tab, don't echo
-    // Lightweight signal — no data payload, other tabs read from IndexedDB
-    channelRef.current.postMessage({ type: 'teams-changed', tabId: tabIdRef.current });
-  }, [teamsData]);
-
-  // Library now writes to Postgres via per-entity PUT/DELETE in useLibrary.js.
-  // No blob push.
-
-  // Pull library from server once on load when sync is enabled
-  const libraryPulledRef = useRef(false);
-  useEffect(() => {
-    if (libraryPulledRef.current) return;
-    if (!syncContext.isSyncEnabled || !syncContext.isOnline || !teamsData) return;
-    libraryPulledRef.current = true;
-
-    const pullLibraryFromServer = async () => {
-      try {
-        const result = await syncContext.pullLibrary();
-        if (result?.library) {
-          const { exercises, sessions } = result.library;
-          if (exercises?.items?.length > (libraryHook.exercises?.items?.length || 0)) {
-            libraryHook.setExercisesRaw(exercises);
-          }
-          if (sessions?.items?.length > (libraryHook.sessions?.items?.length || 0)) {
-            libraryHook.setSessionsRaw(sessions);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to pull library from server:', err);
-      }
-    };
-
-    pullLibraryFromServer();
-  }, [syncContext.isSyncEnabled, syncContext.isOnline, teamsData]);
-
-  // Pull diagrams from server when sync is enabled. Mirrors the library pull
-  // above — diagram library now syncs per-entity via /api/v2/diagrams.
-  // Marks "pulled" only after a successful fetch, so pairing later (which
-  // flips isSyncEnabled true) does trigger a retry.
-  const diagramsPulledRef = useRef(false);
-  useEffect(() => {
-    if (diagramsPulledRef.current) return;
-    if (!syncContext.isSyncEnabled || !syncContext.isOnline) return;
-    if (!diagramLibrary.isLoaded) return;
-
-    const identityRaw = localStorage.getItem('ppp_coach_identity_v1');
-    if (!identityRaw) return;
-    let identity;
-    try { identity = JSON.parse(identityRaw); } catch { return; }
-    if (!identity?.coachId || !identity?.deviceId) return;
-
-    (async () => {
-      try {
-        const res = await fetch('/api/v2/diagrams', {
-          headers: {
-            'x-coach-id': identity.coachId,
-            'x-device-id': identity.deviceId,
-          },
-        });
-        const data = await res.json();
-        if (!data?.success || !Array.isArray(data.diagrams)) return;
-        diagramsPulledRef.current = true;
-
-        // Each Postgres row is { id, coach_id, name, payload, updated_at }.
-        // The payload IS the diagram object we stored. Merge by id + recency.
-        const incoming = data.diagrams
-          .map(row => row.payload && typeof row.payload === 'object'
-            ? { ...row.payload, id: row.id, updatedAt: row.payload.updatedAt || row.updated_at }
-            : null
-          )
-          .filter(Boolean);
-        if (incoming.length > 0) {
-          diagramLibrary.setDiagramsRaw(incoming);
-        }
-
-        // One-shot migration: push every local diagram that the server doesn't
-        // know about. Pre-sync diagrams live only in localStorage; this gets
-        // them into Postgres so they're available on every paired device.
-        const MIGRATION_FLAG = 'ppp_diagrams_migrated_v1';
-        if (!localStorage.getItem(MIGRATION_FLAG)) {
-          const serverIds = incoming.map(d => d.id);
-          const pushed = diagramLibrary.pushAllToServer(serverIds);
-          if (pushed > 0) {
-            console.log(`[diagram-migrate] pushed ${pushed} local diagrams to server`);
-          }
-          localStorage.setItem(MIGRATION_FLAG, '1');
-        }
-      } catch (err) {
-        console.error('Failed to pull diagrams from server:', err);
-      }
-    })();
-  }, [syncContext.isSyncEnabled, syncContext.isOnline, diagramLibrary.isLoaded, diagramLibrary]);
-
-  // Track pending share pushes so we can flush them on pagehide / periodic max-age.
-  // lastPushedAt tracks the last *successful* push per token so continuously editing
-  // users still get a push at least every MAX_SHARE_PUSH_INTERVAL.
-  const pendingShareTeamsRef = useRef({}); // token -> team (latest snapshot)
-  const lastSharePushAtRef = useRef({}); // token -> epoch ms
-  const MAX_SHARE_PUSH_INTERVAL_MS = 15000;
-
-  // Shared team data is now served live from Postgres via /api/share/:token
-  // (reads teams.sharing->>shareToken). No client-side push is needed — the
-  // team is always up-to-date as soon as per-entity PUTs land. This kills the
-  // old sendBeacon pagehide flush that was blowing past the 64KB keepalive cap.
-
   // Show PlayBall import landing page for /import?code=XXXXXX deep links
   if (importCode) {
     return <ImportLanding code={importCode} onDismiss={() => {
@@ -430,8 +188,19 @@ export default function AppShell() {
 
   // Shared views are handled by SharedView component (routed in App.jsx)
 
-  // Wait for teams data to load
-  if (!teamsData) {
+  // Wait for teams data to load (cache or server). Without an identity there
+  // is nothing to load — fall through to the Welcome / sync setup flow.
+  if (!teamsData && storeStatus === 'error') {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+        <div className="text-center max-w-sm px-6">
+          <p className="mb-4" style={{ color: 'var(--ink-2)' }}>Couldn't reach PlayBall's server. Check your connection and try again.</p>
+          <button className="btn btn-primary" onClick={() => window.location.reload()}>Retry</button>
+        </div>
+      </div>
+    );
+  }
+  if (!teamsData && storeStatus !== 'no-identity') {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
         <div className="text-center">
@@ -485,7 +254,8 @@ export default function AppShell() {
               ? { ...s, variations: updatedVariations }
               : s
           );
-          updateSession(selectedTeamId, selectedSessionId, { sections: updatedSections });
+          // Into the open session draft — saved with the session's Save button.
+          editSessionDraft(selectedTeamId, selectedSessionId, { sections: updatedSections });
 
           const variation = section.variations.find(v => v.id === selectedVariationId);
           diagramLibrary.saveDiagram(
@@ -511,7 +281,7 @@ export default function AppShell() {
             ? { ...s, diagramData: cleanDiagram, imageDataUrl: imageUrl }
             : s
         );
-        updateSession(selectedTeamId, selectedSessionId, { sections: updatedSections });
+        editSessionDraft(selectedTeamId, selectedSessionId, { sections: updatedSections });
 
         diagramLibrary.saveDiagram(
           libraryPayload,
@@ -761,6 +531,52 @@ export default function AppShell() {
     );
   }
 
+  // No identity → nothing to load. All data lives on the server, so the app
+  // needs one before anything else. (Replaced by account sign-in.)
+  if (storeStatus === 'no-identity') {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+        <div className="card p-8 max-w-md w-full mx-4 text-center">
+          <h1 className="text-2xl font-semibold mb-2" style={{ letterSpacing: '-0.02em' }}>Welcome to PlayBall</h1>
+          <p className="mb-6" style={{ color: 'var(--ink-2)' }}>
+            Your teams and sessions are stored in the cloud so they're on every device you use.
+          </p>
+          <div className="flex flex-col gap-3">
+            <button
+              className="btn btn-primary"
+              onClick={async () => {
+                try { await enableSyncForFirstTime(); }
+                catch (e) { alert(`Couldn't set up sync: ${e.message}`); }
+              }}
+            >
+              Get started
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => { setLinkDeviceDefaultMode('join'); setShowLinkDeviceModal(true); }}
+            >
+              I already use PlayBall on another device
+            </button>
+          </div>
+        </div>
+        {showLinkDeviceModal && (
+          <LinkDeviceModal
+            onClose={() => { setShowLinkDeviceModal(false); setLinkDeviceDefaultMode(null); }}
+            hasIdentity={false}
+            defaultMode={linkDeviceDefaultMode}
+            onRequestCode={syncContext.requestPairingCode}
+            onConfirmCode={async (code) => {
+              const linked = await syncContext.confirmPairingCode(code);
+              if (linked) { setShowLinkDeviceModal(false); setLinkDeviceDefaultMode(null); }
+            }}
+            onInitialize={enableSyncForFirstTime}
+            onReset={() => { syncContext.resetSync(); setShowLinkDeviceModal(false); }}
+          />
+        )}
+      </div>
+    );
+  }
+
   // Full-page diagram builder view
   if (currentView === VIEWS.DIAGRAM_BUILDER) {
     const context = getDiagramContext();
@@ -812,9 +628,8 @@ export default function AppShell() {
               defaultMode={linkDeviceDefaultMode}
               onRequestCode={syncContext.requestPairingCode}
               onConfirmCode={async (code) => {
-                const teams = await syncContext.confirmPairingCode(code);
-                if (teams) {
-                  teamsContext.loadTeamsFromServer(teams);
+                const linked = await syncContext.confirmPairingCode(code);
+                if (linked) {
                   dismissWelcome();
                   setShowLinkDeviceModal(false);
                   setLinkDeviceDefaultMode(null);
@@ -857,9 +672,8 @@ export default function AppShell() {
               defaultMode={linkDeviceDefaultMode}
               onRequestCode={syncContext.requestPairingCode}
               onConfirmCode={async (code) => {
-                const teams = await syncContext.confirmPairingCode(code);
-                if (teams) {
-                  teamsContext.loadTeamsFromServer(teams);
+                const linked = await syncContext.confirmPairingCode(code);
+                if (linked) {
                   setShowLinkDeviceModal(false);
                   setLinkDeviceDefaultMode(null);
                 }
@@ -869,15 +683,6 @@ export default function AppShell() {
                 syncContext.resetSync();
                 setShowLinkDeviceModal(false);
                 setLinkDeviceDefaultMode(null);
-              }}
-            />
-          )}
-          {showStorageLimitModal && (
-            <StorageLimitModal
-              onEnableSync={() => {
-                setShowStorageLimitModal(false);
-                setLinkDeviceDefaultMode('new');
-                setShowLinkDeviceModal(true);
               }}
             />
           )}
@@ -956,10 +761,8 @@ export default function AppShell() {
           defaultMode={linkDeviceDefaultMode}
           onRequestCode={syncContext.requestPairingCode}
           onConfirmCode={async (code) => {
-            const teams = await syncContext.confirmPairingCode(code);
-            if (teams) {
-              // Hydrate and set teams data
-              teamsContext.loadTeamsFromServer(teams);
+            const linked = await syncContext.confirmPairingCode(code);
+            if (linked) {
               setShowLinkDeviceModal(false);
               setLinkDeviceDefaultMode(null);
             }
@@ -988,16 +791,6 @@ export default function AppShell() {
         />
       )}
 
-      {/* Storage Limit Modal */}
-      {showStorageLimitModal && (
-        <StorageLimitModal
-          onEnableSync={() => {
-            setShowStorageLimitModal(false);
-            setLinkDeviceDefaultMode('new');
-            setShowLinkDeviceModal(true);
-          }}
-        />
-      )}
 
       {showAboutModal && (
         <AboutModal

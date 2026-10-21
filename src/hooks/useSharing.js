@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { generateShareToken } from '../utils/tokens';
 import { FOLLOWED_SHARES_KEY } from '../constants/storage';
+import { request } from '../data/api';
 
 /**
  * Hook for managing team sharing with assistant coaches.
@@ -56,14 +57,8 @@ export default function useSharing() {
     setError(null);
 
     try {
-      const response = await fetch(`/api/share/${shareToken}`, {
-        method: 'DELETE',
-      });
-
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.message || 'Failed to revoke share');
-      }
+      // Owner-authenticated: a co-coach holding the link can't revoke it.
+      await request('DELETE', `/api/share/${encodeURIComponent(shareToken)}`);
 
       setIsLoading(false);
       return { success: true };

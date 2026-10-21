@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo } from 'react';
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { pdf } from '@react-pdf/renderer';
 import SessionSummary from '../SessionSummary';
 import Section from '../Section';
@@ -10,28 +10,51 @@ import SessionRail from './SessionRail';
 import SharePopover from './SharePopover';
 import { planTotal, parseMinutes, countReferenced } from '../../utils/sessionDuration';
 import useAI from '../../hooks/useAI';
-import { useLocalStorage } from '../../hooks/useLocalStorage';
-import { LIBRARY_HIDDEN_KEY } from '../../constants/storage';
+import { useStore, isDraftDirty, isDraftStale } from '../../data/store';
 import {
   defaultSection,
   libraryPayloadToSection,
   sectionToLibraryPayload,
   toast,
   downloadJson,
+  uid,
 } from '../../utils/helpers';
 import { PPP_TEMPLATES } from '../../constants/coaching';
 
-// AutoSaved chip — small inline pill confirming everything persists automatically.
-function AutoSavedChip() {
+// Save state chip — edits stay in this tab until the coach hits Save.
+function SaveStateChip({ dirty, saving }) {
+  const tone = saving ? 'var(--ink-2)' : dirty ? 'var(--warn)' : 'var(--good)';
+  const rgb = saving ? null : dirty ? 'var(--warn-rgb)' : 'var(--good-rgb)';
   return (
     <span
       className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full"
-      style={{ background: 'rgb(var(--good-rgb) / 0.12)', color: 'var(--good)', fontSize: 11.5 }}
-      title="Auto-saved — no Save button needed"
+      style={{ background: rgb ? `rgb(${rgb} / 0.12)` : 'var(--bg-sunken)', color: tone, fontSize: 11.5 }}
     >
-      <span className="inline-block rounded-full" style={{ width: 6, height: 6, background: 'var(--good)' }} />
-      <span>Auto-saved</span>
+      <span className="inline-block rounded-full" style={{ width: 6, height: 6, background: tone }} />
+      <span>{saving ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved'}</span>
     </span>
+  );
+}
+
+// Small modal used for "leave with unsaved changes?" and save conflicts.
+function ChoiceDialog({ title, body, actions, onCancel }) {
+  return (
+    <>
+      <div className="modal-backdrop" onClick={onCancel} />
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="card p-6 w-full max-w-md animate-fade-in" style={{ boxShadow: 'var(--shadow-lg)' }}>
+          <h2 className="text-[18px] font-semibold mb-2" style={{ letterSpacing: '-0.015em' }}>{title}</h2>
+          <p className="text-[13.5px] mb-5" style={{ color: 'var(--ink-2)' }}>{body}</p>
+          <div className="flex flex-col gap-2">
+            {actions.map(a => (
+              <button key={a.label} onClick={a.onClick} className={`btn ${a.primary ? 'btn-primary' : a.danger ? 'btn-ghost' : 'btn-secondary'}`} style={a.danger ? { color: 'var(--danger)' } : undefined}>
+                {a.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -64,37 +87,14 @@ function DurationChip({ current, target }) {
   );
 }
 
-export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHook, syncContext, sharingContext, accountContext, onShowLinkDevice }) {
-  const {
-    selectedTeamId,
-    selectedSessionId,
-    getTeam,
-    getSession,
-    updateSession,
-    updateTeam,
-    navigateToTeams,
-    navigateToTeamDetail,
-    navigateToLibraryInsert,
-  } = teamsContext;
-
-  // Get the current session from team context
+// Wrapper so the builder's hooks always run in the same order: a session
+// can vanish mid-edit (deleted in another tab → snapshot reload), and an
+// early return above the hooks would crash React.
+export default function SessionBuilder(props) {
+  const { selectedTeamId, selectedSessionId, getTeam, getSession, navigateToTeams, navigateToTeamDetail } = props.teamsContext;
   const team = getTeam(selectedTeamId);
   const session = getSession(selectedTeamId, selectedSessionId);
-
-  // Modal states
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isLibraryModalOpen, setIsLibraryModalOpen] = useState(false);
-  const [libraryOpenedFromSectionId, setLibraryOpenedFromSectionId] = useState(null);
-  const [libraryInsertMode, setLibraryInsertMode] = useState('append');
-  const [saveAsState, setSaveAsState] = useState(null); // { name, description } when open
-  const [sharePopoverOpen, setSharePopoverOpen] = useState(false);
-  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const shareBtnRef = useRef(null);
-
-  // AI Hook
-  const aiHook = useAI();
-
-  // Handle missing team or session (corrupt data, stale URL, etc.)
+  // Missing team or session (deleted elsewhere, stale URL, corrupt data)
   if (!team || !session || !session.summary) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
@@ -121,11 +121,90 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
     );
   }
 
-  // Helper to update session in team context
+  return <SessionBuilderInner {...props} />;
+}
+
+function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncContext, sharingContext, accountContext, onShowLinkDevice }) {
+  const {
+    selectedTeamId,
+    selectedSessionId,
+    getTeam,
+    getSession,
+    updateTeam,
+    editSessionDraft,
+    saveSessionDraft,
+    discardSessionDraft,
+    navigateToTeamDetail,
+    navigateToLibraryInsert,
+  } = teamsContext;
+
+  // Get the current session from team context
+  const team = getTeam(selectedTeamId);
+  const session = getSession(selectedTeamId, selectedSessionId);
+
+  // Modal states
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isLibraryModalOpen, setIsLibraryModalOpen] = useState(false);
+  const [libraryOpenedFromSectionId, setLibraryOpenedFromSectionId] = useState(null);
+  const [libraryInsertMode, setLibraryInsertMode] = useState('append');
+  const [saveAsState, setSaveAsState] = useState(null); // { name, description } when open
+  const [sharePopoverOpen, setSharePopoverOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const shareBtnRef = useRef(null);
+
+  // Explicit save: edits live in a draft until Save. These selectors return
+  // primitives, so they're safe to compute against the whole store.
+  const dirty = useStore(() => isDraftDirty(selectedSessionId));
+  const stale = useStore(() => isDraftStale(selectedSessionId));
+  const [saving, setSaving] = useState(false);
+  const [leaveTo, setLeaveTo] = useState(null);     // () => void, pending navigation
+  const [conflict, setConflict] = useState(false);
+
+  // A draft with no real edits that fell behind the server: drop it so the
+  // coach sees the latest saved version.
+  useEffect(() => {
+    if (stale && !dirty) discardSessionDraft(selectedSessionId);
+  }, [stale, dirty, selectedSessionId, discardSessionDraft]);
+
+  // AI Hook
+  const aiHook = useAI();
+
+  // Every builder edit goes into this tab's draft; nothing is written to the
+  // server until Save. The updater runs against the latest draft value.
   const setSession = useCallback((updater) => {
-    const newSession = typeof updater === 'function' ? updater(session) : updater;
-    updateSession(selectedTeamId, selectedSessionId, newSession);
-  }, [selectedTeamId, selectedSessionId, session, updateSession]);
+    editSessionDraft(selectedTeamId, selectedSessionId, prev =>
+      typeof updater === 'function' ? updater(prev) : updater
+    );
+  }, [selectedTeamId, selectedSessionId, editSessionDraft]);
+
+  const handleSave = useCallback(async ({ overwrite = false } = {}) => {
+    setSaving(true);
+    const r = await saveSessionDraft(selectedSessionId, { overwrite });
+    setSaving(false);
+    if (r.ok) { setConflict(false); toast('Session saved'); return true; }
+    if (r.conflict) { setConflict(true); return false; }
+    if (r.gone) { toast('This session was deleted somewhere else.'); return false; }
+    toast(`Couldn't save — ${r.error}`);
+    return false;
+  }, [saveSessionDraft, selectedSessionId]);
+
+  // Leaving the session (not just hopping to its diagram or the library)
+  // with unsaved edits asks first.
+  const guardLeave = useCallback((go) => {
+    if (dirty) setLeaveTo(() => go);
+    else { discardSessionDraft(selectedSessionId); go(); }
+  }, [dirty, discardSessionDraft, selectedSessionId]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (dirty && !saving) handleSave();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dirty, saving, handleSave]);
 
   // Session Summary handlers
   const handleUpdateSummary = useCallback((updatedSummary) => {
@@ -278,11 +357,9 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
     toast('Practice added ✅');
   }, [session.sections, setSession]);
 
-  // Hidden ids — mirrors what Library.jsx tracks so the modal lists the same items.
-  const [hiddenIds, setHiddenIds] = useLocalStorage(LIBRARY_HIDDEN_KEY, { exercises: [], sessions: [] });
-  const hideExerciseId = useCallback((id) => {
-    setHiddenIds(prev => ({ ...prev, exercises: Array.from(new Set([...(prev.exercises || []), id])) }));
-  }, [setHiddenIds]);
+  // Hidden ids — the same server-backed set Library.jsx reads.
+  const hiddenIds = libraryHook.hidden;
+  const hideExerciseId = libraryHook.hideExercise;
 
   // Merged exercise items for the LibraryModal: every section across every team
   // (auto-tracked) plus any manually saved entries. Same shape Library.jsx uses
@@ -484,8 +561,8 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
   }, [session]);
 
   const handleBackToTeam = useCallback(() => {
-    navigateToTeamDetail(selectedTeamId);
-  }, [navigateToTeamDetail, selectedTeamId]);
+    guardLeave(() => navigateToTeamDetail(selectedTeamId));
+  }, [guardLeave, navigateToTeamDetail, selectedTeamId]);
 
   // Selection: null = Summary view; otherwise = a section id.
   const selectedSectionId = session.selectedSectionId ?? null;
@@ -562,9 +639,18 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
           >
             {session.summary?.title || 'Untitled session'}
           </span>
-          <AutoSavedChip />
+          <SaveStateChip dirty={dirty} saving={saving} />
 
           <div className="flex-1" />
+
+          <button
+            onClick={() => handleSave()}
+            disabled={!dirty || saving}
+            className="btn btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Save (⌘S)"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
 
           <DurationChip current={planMinutes} target={targetMinutes} />
 
@@ -631,7 +717,7 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
             onClick={() => {
               if (!aiHook.isConfigured()) {
                 // Coach panel isn't wired yet; nudge to AI setup until Phase 4 lands.
-                if (teamsContext.navigateToSettings) teamsContext.navigateToSettings();
+                if (teamsContext.navigateToSettings) guardLeave(teamsContext.navigateToSettings);
                 return;
               }
               // Phase 4 will mount the slide-in Coach overlay here.
@@ -680,7 +766,7 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
                 aiContext={{
                   aiHook,
                   sessionSummary: session.summary,
-                  onConfigureAI: () => teamsContext.navigateToSettings?.(),
+                  onConfigureAI: () => teamsContext.navigateToSettings && guardLeave(teamsContext.navigateToSettings),
                 }}
               />
             </>
@@ -766,7 +852,7 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
             <div className="card p-6 w-full max-w-md animate-fade-in" style={{ boxShadow: 'var(--shadow-lg)' }}>
               <h2 className="text-[18px] font-semibold mb-1" style={{ letterSpacing: '-0.015em' }}>Save a copy to Library</h2>
               <p className="text-[13px] mb-4" style={{ color: 'var(--ink-2)' }}>
-                Your work autosaves. Save As snapshots this session under a new name so you can reuse it as a template — pick something unique.
+                Save As snapshots this session under a new name so you can reuse it as a template — pick something unique.
               </p>
               <label className="label-text">Name</label>
               <input
@@ -797,6 +883,52 @@ export default function SessionBuilder({ teamsContext, diagramLibrary, libraryHo
             </div>
           </div>
         </>
+      )}
+      {stale && dirty && !conflict && (
+        <div
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 px-4 py-2.5 rounded-xl text-[13px]"
+          style={{ background: 'var(--bg-elev)', border: '1px solid var(--warn)', color: 'var(--ink)', boxShadow: 'var(--shadow-lg)' }}
+        >
+          This session was saved somewhere else while you were editing. Saving will ask before overwriting.
+        </div>
+      )}
+
+      {leaveTo && (
+        <ChoiceDialog
+          title="Save changes to this session?"
+          body="You have edits that haven't been saved."
+          onCancel={() => setLeaveTo(null)}
+          actions={[
+            { label: 'Save', primary: true, onClick: async () => {
+              const go = leaveTo;
+              setLeaveTo(null);
+              if (await handleSave()) go();
+            } },
+            { label: "Don't save", danger: true, onClick: () => {
+              const go = leaveTo;
+              setLeaveTo(null);
+              discardSessionDraft(selectedSessionId);
+              go();
+            } },
+            { label: 'Keep editing', onClick: () => setLeaveTo(null) },
+          ]}
+        />
+      )}
+
+      {conflict && (
+        <ChoiceDialog
+          title="This session changed somewhere else"
+          body="It was saved from another tab, device, or the iOS app after you started editing. Keep your version, or throw your edits away and load the latest?"
+          onCancel={() => setConflict(false)}
+          actions={[
+            { label: 'Save my version over it', primary: true, onClick: () => handleSave({ overwrite: true }) },
+            { label: 'Discard my edits, load latest', danger: true, onClick: () => {
+              setConflict(false);
+              discardSessionDraft(selectedSessionId);
+            } },
+            { label: 'Cancel', onClick: () => setConflict(false) },
+          ]}
+        />
       )}
     </div>
   );

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import SessionCard from './SessionCard';
 import ScheduleSessionModal from './ScheduleSessionModal';
 import ShareModal from './ShareModal';
@@ -6,8 +6,8 @@ import SessionLibraryModal from './SessionLibraryModal';
 import TeamGames from './TeamGames';
 import TeamSpine from './TeamSpine';
 import CreateTeamModal from './CreateTeamModal';
-import { toast, sessionToLibraryPayload, libraryPayloadToSession, uid, nowIso, downloadJson } from '../../utils/helpers';
-import { COACH_IDENTITY_KEY, SESSION_LIBRARY_KEY } from '../../constants/storage';
+import { toast, sessionToLibraryPayload, libraryPayloadToSession, uid, downloadJson } from '../../utils/helpers';
+import { COACH_IDENTITY_KEY } from '../../constants/storage';
 
 const TEAM_TONES = ['#c8553d', '#3d7a4a', '#3d5a8a', '#9a5a3a', '#6a4a8a', '#3a6a7a'];
 function teamTone(team) {
@@ -52,15 +52,20 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
   const [linkBusy, setLinkBusy] = useState(false);
   const [gamesRefreshKey, setGamesRefreshKey] = useState(0);
   const teamGamesRef = useRef(null);
-  const [sessionLibrary, setSessionLibrary] = useState(() => {
-    try {
-      const lib = JSON.parse(localStorage.getItem(SESSION_LIBRARY_KEY)) || { version: 1, items: [] };
-      // Note: we no longer strip base64 data URLs from old library items here.
-      // Clearing imageDataUrl would destroy the only image reference for pre-CDN
-      // library items. The CDN upload flow handles new saves going forward.
-      return lib;
-    } catch { return { version: 1, items: [] }; }
-  });
+  // The session library is the account-wide one (server-backed). This view
+  // just flattens its tags into the fields SessionLibraryModal filters on.
+  const librarySessions = libraryHook?.sessions?.items;
+  const sessionLibrary = useMemo(() => ({
+    version: 1,
+    items: (librarySessions || []).map(i => ({
+      ...i,
+      ageGroup: i.tags?.ageGroup || i.ageGroup || '',
+      moment: i.tags?.moment || i.moment || '',
+      sectionCount: i.payload?.sections?.length || 0,
+      playerActions: i.payload?.summary?.playerActions || i.playerActions || [],
+      keyQualities: i.payload?.summary?.keyQualities || i.keyQualities || [],
+    })),
+  }), [librarySessions]);
 
   const team = getTeam(selectedTeamId);
 
@@ -132,16 +137,6 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
     }
   };
 
-  const saveSessionLibrary = (lib) => {
-    setSessionLibrary(lib);
-    try {
-      localStorage.setItem(SESSION_LIBRARY_KEY, JSON.stringify(lib));
-    } catch (e) {
-      toast('Storage full — could not save library');
-      console.error('localStorage save failed:', e);
-    }
-  };
-
   const handleSaveSessionToLibrary = async (sessionId) => {
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
@@ -195,24 +190,7 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
       console.warn('CDN upload failed, saving with data URLs:', err);
     }
 
-    const item = {
-      id: itemId,
-      name: session.summary.title || 'Untitled Session',
-      ageGroup: session.summary.ageGroup || '',
-      moment: session.summary.moment || '',
-      sectionCount: session.sections?.length || 0,
-      playerActions: session.summary.playerActions || [],
-      keyQualities: session.summary.keyQualities || [],
-      payload,
-      updatedAt: nowIso(),
-    };
-    const lib = { ...sessionLibrary, items: [...sessionLibrary.items, item] };
-    saveSessionLibrary(lib);
-
-    // Also save to unified library hook for cross-team browsing
-    if (libraryHook) {
-      libraryHook.saveSession(session, session.summary.title || 'Untitled Session');
-    }
+    libraryHook?.saveSession(session, session.summary.title || 'Untitled Session', payload);
 
     toast('Session saved to library');
   };
@@ -229,8 +207,7 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
   };
 
   const handleDeleteSessionLibraryItem = (itemId) => {
-    const lib = { ...sessionLibrary, items: sessionLibrary.items.filter(i => i.id !== itemId) };
-    saveSessionLibrary(lib);
+    libraryHook?.deleteSession(itemId);
     toast('Removed from library');
   };
 
@@ -247,11 +224,14 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
           toast('Invalid library file');
           return;
         }
-        const merged = {
-          ...sessionLibrary,
-          items: [...sessionLibrary.items, ...data.items],
-        };
-        saveSessionLibrary(merged);
+        for (const item of data.items) {
+          if (!item?.payload) continue;
+          libraryHook?.saveSession(
+            { summary: { title: item.name, ageGroup: item.ageGroup, moment: item.moment } },
+            item.name || 'Untitled Session',
+            item.payload,
+          );
+        }
         toast(`Imported ${data.items.length} session(s)`);
       } catch {
         toast('Failed to import');
@@ -262,7 +242,7 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
 
   const handleClearSessionLibrary = () => {
     if (window.confirm('Clear your entire session library? This cannot be undone.')) {
-      saveSessionLibrary({ version: 1, items: [] });
+      libraryHook?.clearSessions();
       toast('Session library cleared');
     }
   };
