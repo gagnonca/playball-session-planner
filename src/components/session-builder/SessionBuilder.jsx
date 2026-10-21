@@ -149,7 +149,6 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
   const [isLibraryModalOpen, setIsLibraryModalOpen] = useState(false);
   const [libraryOpenedFromSectionId, setLibraryOpenedFromSectionId] = useState(null);
   const [libraryInsertMode, setLibraryInsertMode] = useState('append');
-  const [saveAsState, setSaveAsState] = useState(null); // { name, description } when open
   const [sharePopoverOpen, setSharePopoverOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const shareBtnRef = useRef(null);
@@ -504,27 +503,6 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
     toast('Session cleared ✅');
   }, [setSession, session]);
 
-  const handleOpenSaveAs = useCallback(() => {
-    setSaveAsState({
-      name: `${session.summary?.title || 'Untitled session'} (copy)`,
-      description: '',
-    });
-  }, [session.summary?.title]);
-
-  const handleConfirmSaveAs = useCallback(() => {
-    const name = (saveAsState?.name || '').trim();
-    if (!name) return;
-    const description = (saveAsState?.description || '').trim();
-    // Snapshot into the manual library. New id because saveSession dedupes by name
-    // against existing manual items — if the name is unique, this creates a new entry.
-    const sessionToSave = description
-      ? { ...session, summary: { ...session.summary, notes: description } }
-      : session;
-    libraryHook.saveSession(sessionToSave, name);
-    setSaveAsState(null);
-    toast('Saved to Library ✅');
-  }, [saveAsState, session, libraryHook]);
-
   const handleDownloadPDF = useCallback(async () => {
     try {
       console.log('=== PDF Generation Started ===');
@@ -707,13 +685,6 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
             Export PDF
           </button>
           <button
-            onClick={handleOpenSaveAs}
-            className="btn btn-ghost"
-            title="Save a renamed copy to library"
-          >
-            Save as…
-          </button>
-          <button
             onClick={() => {
               if (!aiHook.isConfigured()) {
                 // Coach panel isn't wired yet; nudge to AI setup until Phase 4 lands.
@@ -854,45 +825,6 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
         />
       )}
 
-      {saveAsState && (
-        <>
-          <div className="modal-backdrop" onClick={() => setSaveAsState(null)} />
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="card p-6 w-full max-w-md animate-fade-in" style={{ boxShadow: 'var(--shadow-lg)' }}>
-              <h2 className="text-[18px] font-semibold mb-1" style={{ letterSpacing: '-0.015em' }}>Save a copy to Library</h2>
-              <p className="text-[13px] mb-4" style={{ color: 'var(--ink-2)' }}>
-                Save As snapshots this session under a new name so you can reuse it as a template — pick something unique.
-              </p>
-              <label className="label-text">Name</label>
-              <input
-                type="text"
-                autoFocus
-                value={saveAsState.name}
-                onChange={e => setSaveAsState(s => ({ ...s, name: e.target.value }))}
-                className="input-field mb-3"
-              />
-              <label className="label-text">Description (optional)</label>
-              <textarea
-                rows={3}
-                value={saveAsState.description}
-                onChange={e => setSaveAsState(s => ({ ...s, description: e.target.value }))}
-                placeholder="What makes this session unique? Age group, focus, etc."
-                className="input-field mb-4 resize-none"
-              />
-              <div className="flex gap-3">
-                <button onClick={() => setSaveAsState(null)} className="flex-1 btn btn-secondary">Cancel</button>
-                <button
-                  onClick={handleConfirmSaveAs}
-                  disabled={!saveAsState.name.trim()}
-                  className="flex-1 btn btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Save copy
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
       {stale && dirty && !conflict && (
         <div
           className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 px-4 py-2.5 rounded-xl text-[13px]"

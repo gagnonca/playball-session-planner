@@ -418,7 +418,10 @@ export default function SessionLibraryModal({
                 )}
 
                 <div className="flex justify-between items-center">
-                  <span className="text-xs text-blue-400">Click to preview</span>
+                  <span className="text-xs text-blue-400">
+                    {item.source === 'auto' ? `From ${item.teamName || 'a team'}` : 'Click to preview'}
+                  </span>
+                  {item.source !== 'auto' && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -430,6 +433,7 @@ export default function SessionLibraryModal({
                   >
                     Delete
                   </button>
+                  )}
                 </div>
               </div>
             ))
@@ -450,9 +454,11 @@ export default function SessionLibraryModal({
               className="hidden"
             />
           </label>
-          <button onClick={onClear} className="btn btn-danger text-sm">
-            Clear library
-          </button>
+          {(library.items || []).some(i => i.source !== 'auto') && (
+            <button onClick={onClear} className="btn btn-danger text-sm" title="Team sessions are not affected">
+              Remove saved copies
+            </button>
+          )}
         </div>
       </div>
     </>

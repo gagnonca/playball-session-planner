@@ -6,7 +6,7 @@ import SessionLibraryModal from './SessionLibraryModal';
 import TeamGames from './TeamGames';
 import TeamSpine from './TeamSpine';
 import CreateTeamModal from './CreateTeamModal';
-import { toast, sessionToLibraryPayload, libraryPayloadToSession, uid, downloadJson } from '../../utils/helpers';
+import { toast, sessionToLibraryPayload, libraryPayloadToSession, downloadJson } from '../../utils/helpers';
 import { request } from '../../data/api';
 import { load as reloadData } from '../../data/store';
 
@@ -53,20 +53,41 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
   const [linkBusy, setLinkBusy] = useState(false);
   const [gamesRefreshKey, setGamesRefreshKey] = useState(0);
   const teamGamesRef = useRef(null);
-  // The session library is the account-wide one (server-backed). This view
-  // just flattens its tags into the fields SessionLibraryModal filters on.
+  // "From library" offers every session on every team (the same set the
+  // Library's Sessions tab shows) plus copies saved to the library before
+  // sessions were listed there automatically. Flattened into the fields
+  // SessionLibraryModal filters on.
   const librarySessions = libraryHook?.sessions?.items;
-  const sessionLibrary = useMemo(() => ({
-    version: 1,
-    items: (librarySessions || []).map(i => ({
-      ...i,
-      ageGroup: i.tags?.ageGroup || i.ageGroup || '',
-      moment: i.tags?.moment || i.moment || '',
-      sectionCount: i.payload?.sections?.length || 0,
-      playerActions: i.payload?.summary?.playerActions || i.playerActions || [],
-      keyQualities: i.payload?.summary?.keyQualities || i.keyQualities || [],
-    })),
-  }), [librarySessions]);
+  const sessionLibrary = useMemo(() => {
+    const byId = new Map();
+    for (const t of allTeams) {
+      for (const s of t.sessions || []) {
+        byId.set(s.id, {
+          id: s.id,
+          name: s.summary?.title || 'Untitled Session',
+          payload: sessionToLibraryPayload(s),
+          tags: { ageGroup: s.summary?.ageGroup || '', moment: s.summary?.moment || '' },
+          updatedAt: s.updatedAt,
+          source: 'auto',
+          teamName: t.name,
+        });
+      }
+    }
+    for (const i of librarySessions || []) if (!byId.has(i.id)) byId.set(i.id, { ...i, source: 'manual' });
+    return {
+      version: 1,
+      items: [...byId.values()]
+        .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))
+        .map(i => ({
+          ...i,
+          ageGroup: i.tags?.ageGroup || i.ageGroup || '',
+          moment: i.tags?.moment || i.moment || '',
+          sectionCount: i.payload?.sections?.length || 0,
+          playerActions: i.payload?.summary?.playerActions || i.playerActions || [],
+          keyQualities: i.payload?.summary?.keyQualities || i.keyQualities || [],
+        })),
+    };
+  }, [allTeams, librarySessions]);
 
   const team = getTeam(selectedTeamId);
 
@@ -138,64 +159,6 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
     }
   };
 
-  const handleSaveSessionToLibrary = async (sessionId) => {
-    const session = sessions.find(s => s.id === sessionId);
-    if (!session) return;
-    const payload = sessionToLibraryPayload(session);
-
-    // Upload diagram images to CDN to keep localStorage compact
-    const itemId = uid();
-    try {
-      const uploadImage = async (base64, suffix) => {
-        const res = await fetch('/api/session-library/upload-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base64, key: `${itemId}-${suffix}` }),
-        });
-        const data = await res.json();
-        return data.success ? data.url : null;
-      };
-
-      const sections = payload.sections || [];
-      for (let i = 0; i < sections.length; i++) {
-        const sec = sections[i];
-        // Upload section diagram image
-        if (sec.imageDataUrl && sec.imageDataUrl.startsWith('data:')) {
-          const cdnUrl = await uploadImage(sec.imageDataUrl, `s${i}`);
-          if (cdnUrl) {
-            sec.imageDataUrl = cdnUrl;
-            // Strip the large dataUrl from diagramData but keep elements/lines
-            if (sec.diagramData) {
-              delete sec.diagramData.dataUrl;
-            }
-          }
-        }
-        // Upload variation diagram images
-        if (Array.isArray(sec.variations)) {
-          for (let j = 0; j < sec.variations.length; j++) {
-            const v = sec.variations[j];
-            if (v.imageDataUrl && v.imageDataUrl.startsWith('data:')) {
-              const cdnUrl = await uploadImage(v.imageDataUrl, `s${i}v${j}`);
-              if (cdnUrl) {
-                v.imageDataUrl = cdnUrl;
-                if (v.diagramData) {
-                  delete v.diagramData.dataUrl;
-                }
-              }
-            }
-          }
-        }
-      }
-    } catch (err) {
-      // CDN upload failed — save with data URLs as fallback
-      console.warn('CDN upload failed, saving with data URLs:', err);
-    }
-
-    libraryHook?.saveSession(session, session.summary.title || 'Untitled Session', payload);
-
-    toast('Session saved to library');
-  };
-
   const handleInsertSessionFromLibrary = (itemId) => {
     const item = sessionLibrary.items.find(i => i.id === itemId);
     if (!item) return;
@@ -242,9 +205,9 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
   };
 
   const handleClearSessionLibrary = () => {
-    if (window.confirm('Clear your entire session library? This cannot be undone.')) {
+    if (window.confirm('Remove the copies you saved to the library with "Save as"? Sessions on your teams are not affected.')) {
       libraryHook?.clearSessions();
-      toast('Session library cleared');
+      toast('Saved copies removed');
     }
   };
 
@@ -539,7 +502,6 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
                 onSelect={handleSelectSession}
                 onDuplicate={handleDuplicateSession}
                 onDelete={handleDeleteSession}
-                onSaveToLibrary={handleSaveSessionToLibrary}
               />
             ))}
           </div>
