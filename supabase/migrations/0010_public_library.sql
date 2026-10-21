@@ -18,6 +18,7 @@ create table if not exists public_items (
   add_count       integer not null default 0,
   report_count    integer not null default 0,
   hidden          boolean not null default false, -- moderation: hidden from everyone but the owner
+  moderated_at    timestamptz,                   -- set when the admin removed it (stays hidden on re-publish)
   published_at    timestamptz not null default now(),
   updated_at      timestamptz not null default now(),
   unpublished_at  timestamptz,

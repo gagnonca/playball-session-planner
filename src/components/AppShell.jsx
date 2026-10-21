@@ -21,6 +21,8 @@ import Library from './Library';
 import Schedule from './Schedule';
 import Settings from './Settings';
 import Welcome from './Welcome';
+import Community from './Community';
+import playballIcon from '../assets/playball-icon.png';
 import AboutModal from './AboutModal';
 import AppHeader from './AppHeader';
 import ImportLanding from './ImportLanding';
@@ -143,6 +145,7 @@ export default function AppShell() {
     }
     return null;
   });
+  const [browsingCommunity, setBrowsingCommunity] = useState(() => initialUrl.path.startsWith('/community'));
   const [staticPage, setStaticPage] = useState(() => {
     if (initialUrl.path === '/privacy') return 'privacy';
     if (initialUrl.path === '/support') return 'support';
@@ -438,7 +441,7 @@ export default function AppShell() {
               <h2 className="text-xl font-semibold mt-8 mb-4">What we store</h2>
               <ul className="text-slate-300 space-y-2 list-disc list-inside">
                 <li><strong className="text-white">Your email address</strong> — to sign you in. If you use Sign in with Google or Apple, we receive the email address (and name, if provided) that service shares. If you choose Apple&rsquo;s &ldquo;Hide My Email&rdquo;, we only see the relay address.</li>
-                <li><strong className="text-white">What you create</strong> — teams, rosters, sessions, games, diagrams and library items — so they are available wherever you sign in.</li>
+                <li><strong className="text-white">What you create</strong> — teams, rosters, sessions, games, diagrams and library items — so they are available wherever you sign in. It stays private unless you share or publish it.</li>
               </ul>
               <p className="text-slate-300 leading-relaxed mt-4 mb-6">
                 PlayBall never has a password for you. Sign-in happens through Google, Apple, or a one-time code emailed to you.
@@ -456,6 +459,14 @@ export default function AppShell() {
               <p className="text-slate-300 leading-relaxed mb-6">
                 If you share a team, anyone with that link can view its sessions (read-only) until you turn sharing off.
                 People viewing a shared link do not need an account, and we don&rsquo;t collect anything about them.
+              </p>
+
+              <h2 className="text-xl font-semibold mt-8 mb-4">Publishing to the Community</h2>
+              <p className="text-slate-300 leading-relaxed mb-6">
+                If you choose to publish a session, exercise or diagram, a copy becomes visible to anyone, signed in or not,
+                and other coaches can add it to their own teams. Only its text and drawn diagrams are published, never images,
+                and your name and email are not shown. You can unpublish at any time. We may remove published items that are
+                reported or that we judge inappropriate.
               </p>
 
               <h2 className="text-xl font-semibold mt-8 mb-4">The PlayBall iOS app</h2>
@@ -580,9 +591,34 @@ export default function AppShell() {
   }
 
   // Signed out → the front door: sign in (no passwords) or try the demo.
+  // The public Community is browsable without an account at /community.
+  if (storeStatus === 'signed-out' && browsingCommunity) {
+    const goSignIn = () => { window.history.pushState({}, '', '/'); setBrowsingCommunity(false); };
+    return (
+      <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+        <header className="flex items-center gap-3 px-6 py-3" style={{ borderBottom: '1px solid var(--line)', background: 'var(--bg-elev)' }}>
+          <button onClick={goSignIn} className="flex items-center gap-2.5" style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+            <img src={playballIcon} alt="" style={{ width: 28, height: 28, borderRadius: 8 }} />
+            <span className="font-bold">PlayBall</span>
+          </button>
+          <span className="text-[13px]" style={{ color: 'var(--ink-3)' }}>Community</span>
+          <div className="flex-1" />
+          <button className="btn btn-primary" onClick={goSignIn}>Sign in to add</button>
+        </header>
+        <main className="max-w-6xl mx-auto px-6 py-8">
+          <h1 className="text-[32px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>Community</h1>
+          <p className="text-[14px] mb-6" style={{ color: 'var(--ink-2)' }}>
+            Sessions, exercises and diagrams shared by PlayBall coaches. Sign in to add any of them to your team.
+          </p>
+          <Community onSignIn={goSignIn} createSessionOnTeam={() => {}} />
+        </main>
+      </div>
+    );
+  }
   if (storeStatus === 'signed-out') {
     return (
       <Welcome
+        onBrowseCommunity={() => { window.history.pushState({}, '', '/community'); setBrowsingCommunity(true); }}
         accountContext={accountContext}
         onStartDemo={() => {
           startDemo(buildDemoSnapshot());

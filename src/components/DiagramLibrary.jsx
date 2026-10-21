@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { migrateLegacyToShapes, canMigrateDiagram } from '../utils/diagramMigration';
 import FilterChipGroup from './FilterChipGroup';
 import PublishButton from './PublishButton';
+import { DiagramStatic } from './DiagramPlayground';
 
 export default function DiagramLibrary({ teamsContext, diagramLibrary, embedded = false }) {
   const {
@@ -259,6 +260,10 @@ export default function DiagramLibrary({ teamsContext, diagramLibrary, embedded 
                       alt={diagram.name}
                       className="w-full h-full object-contain"
                     />
+                  ) : diagram.shapes?.length ? (
+                    <div className="w-full h-full flex items-center justify-center overflow-hidden" style={{ background: '#475E47' }}>
+                      <DiagramStatic diagram={diagram} width={360} maxHeight={270} />
+                    </div>
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-slate-600">
                       No preview

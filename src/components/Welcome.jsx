@@ -37,7 +37,7 @@ function ProviderButton({ onClick, children, disabled }) {
   );
 }
 
-export default function Welcome({ accountContext, onStartDemo }) {
+export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity }) {
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [stage, setStage] = useState('start'); // start | code
@@ -177,6 +177,11 @@ export default function Welcome({ accountContext, onStartDemo }) {
           <p className="mt-2 text-[11.5px] text-center" style={{ color: 'var(--ink-3)' }}>
             Nothing in the demo is saved.
           </p>
+          {onBrowseCommunity && (
+            <button className="btn btn-ghost w-full mt-2" onClick={onBrowseCommunity}>
+              Browse sessions shared by other coaches
+            </button>
+          )}
 
           <p className="mt-5 text-[11.5px] leading-snug" style={{ color: 'var(--ink-3)' }}>
             Your account exists only so you can sign in, keep your teams, and use them on all your

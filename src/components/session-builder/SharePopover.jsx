@@ -77,7 +77,6 @@ export default function SharePopover({
   syncEnabled,
   hasAccount,
   exerciseCount = 0,
-  diagramCount = 0,
   onMakePrivate,       // revoke team sharing
   onMakeCoCoaches,     // open ShareModal to generate link
   onTurnOnSync,        // sign up (demo)

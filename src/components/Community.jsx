@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { DiagramStatic } from './DiagramPlayground';
-import { listCommunity, getCommunityItem, countAdd, reportItem } from '../data/community';
+import { listCommunity, getCommunityItem, countAdd, reportItem, listReview, removeItem, restoreItem } from '../data/community';
 import { useStore, library, diagrams as diagramStore } from '../data/store';
 import { libraryPayloadToSession, toast, uid, nowIso } from '../utils/helpers';
 import { sessionWithRenderedImages, withRenderedImages, imageFor } from '../utils/renderDiagram';
@@ -32,7 +32,7 @@ function plainText(html) {
     .trim();
 }
 
-function Preview({ diagram, width }) {
+function Preview({ diagram, width, height }) {
   if (!diagram) {
     return (
       <div className="w-full flex items-center justify-center text-[11.5px]" style={{ aspectRatio: '16 / 10', background: 'var(--bg-sunken)', color: 'var(--ink-3)' }}>
@@ -41,8 +41,8 @@ function Preview({ diagram, width }) {
     );
   }
   return (
-    <div className="w-full flex items-center justify-center overflow-hidden" style={{ background: '#475E47' }}>
-      <DiagramStatic diagram={diagram} width={width} />
+    <div className="w-full flex items-center justify-center overflow-hidden" style={{ background: '#475E47', ...(height ? { height } : {}) }}>
+      <DiagramStatic diagram={diagram} width={width} maxHeight={height || Infinity} />
     </div>
   );
 }
@@ -122,10 +122,17 @@ function AddControls({ item, full, onAdded, onSignIn }) {
   );
 }
 
-function DetailModal({ item, onClose, onAdded, onSignIn, mine }) {
+function DetailModal({ item, onClose, onAdded, onSignIn, mine, onRemoved }) {
   const [full, setFull] = useState(null);
   const [error, setError] = useState('');
   const signedIn = useStore(s => s.status === 'ready' && !s.demo);
+  const isAdmin = useStore(s => s.isAdmin);
+
+  const remove = async () => {
+    if (!window.confirm(`Remove "${item.title}" from the Community?\n\nIt disappears for everyone and stays hidden even if its owner publishes it again. You can restore it from Needs review.`)) return;
+    try { await removeItem(item.id); toast('Removed from the Community'); onRemoved?.(item.id); onClose(); }
+    catch (e) { toast(e.message || "Couldn't remove it."); }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -164,7 +171,7 @@ function DetailModal({ item, onClose, onAdded, onSignIn, mine }) {
           <div className="p-5 overflow-y-auto flex-1">
             {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
             {!full && !error && <p style={{ color: 'var(--ink-3)' }}>Loading…</p>}
-            {item.kind === 'diagram' && p && <Preview diagram={p} width={600} />}
+            {item.kind === 'diagram' && p && <Preview diagram={p} width={600} height={420} />}
             {p?.summary?.notes && <p className="text-[13.5px] whitespace-pre-line mb-4" style={{ color: 'var(--ink-2)' }}>{plainText(p.summary.notes)}</p>}
             {blocks.map((b, i) => (
               <div key={i} className="mb-5">
@@ -173,7 +180,7 @@ function DetailModal({ item, onClose, onAdded, onSignIn, mine }) {
                 </div>
                 <div className="text-[15px] font-semibold mb-2">{b.name || 'Untitled'}</div>
                 {(b.diagramData || b.variations?.find(v => v.diagramData)) && (
-                  <div className="mb-2 rounded-[10px] overflow-hidden"><Preview diagram={b.diagramData || b.variations.find(v => v.diagramData).diagramData} width={600} /></div>
+                  <div className="mb-2 rounded-[10px] overflow-hidden"><Preview diagram={b.diagramData || b.variations.find(v => v.diagramData).diagramData} width={600} height={360} /></div>
                 )}
                 {b.objective && <p className="text-[13px] whitespace-pre-line mb-1"><strong>Objective:</strong> {plainText(b.objective)}</p>}
                 {b.organization && <p className="text-[13px] whitespace-pre-line mb-1"><strong>Organization:</strong> {plainText(b.organization)}</p>}
@@ -186,9 +193,10 @@ function DetailModal({ item, onClose, onAdded, onSignIn, mine }) {
           </div>
 
           <div className="p-4 flex items-center justify-between gap-3" style={{ borderTop: '1px solid var(--line)' }}>
-            {signedIn && !mine
-              ? <button className="text-[12px]" style={{ color: 'var(--ink-3)' }} onClick={report}>Report</button>
-              : <span />}
+            <span className="inline-flex items-center gap-3">
+              {signedIn && !mine && !isAdmin && <button className="text-[12px]" style={{ color: 'var(--ink-3)' }} onClick={report}>Report</button>}
+              {isAdmin && !mine && <button className="text-[12px] font-medium" style={{ color: 'var(--danger)' }} onClick={remove}>Remove from Community</button>}
+            </span>
             {mine
               ? <span className="text-[12.5px]" style={{ color: 'var(--ink-3)' }}>This is yours</span>
               : <AddControls item={item} full={full} onAdded={onAdded} onSignIn={onSignIn} />}
@@ -196,6 +204,61 @@ function DetailModal({ item, onClose, onAdded, onSignIn, mine }) {
         </div>
       </div>
     </>
+  );
+}
+
+// Admin only: everything reported or removed, with the reasons given.
+function ReviewQueue() {
+  const [items, setItems] = useState(null);
+  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState(null);
+  const load = () => listReview().then(setItems).catch(e => setError(e.message));
+  useEffect(() => { load(); }, []);
+
+  const act = async (id, fn, done) => {
+    setBusyId(id);
+    try { await fn(id); toast(done); await load(); }
+    catch (e) { toast(e.message || 'That didn\'t work.'); }
+    finally { setBusyId(null); }
+  };
+
+  if (error) return <div className="card p-6" style={{ color: 'var(--danger)' }}>{error}</div>;
+  if (!items) return <div className="card p-6" style={{ color: 'var(--ink-3)' }}>Loading…</div>;
+  if (items.length === 0) return <div className="card p-10 text-center" style={{ color: 'var(--ink-2)' }}>Nothing reported or removed.</div>;
+
+  return (
+    <div className="flex flex-col gap-3">
+      {items.map(item => (
+        <div key={item.id} className="card p-4 flex gap-4 items-start">
+          <div className="w-40 shrink-0 rounded-[8px] overflow-hidden"><Preview diagram={item.preview} width={160} height={100} /></div>
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold">{item.title}</span>
+              <Tag>{item.kind}</Tag>
+              {item.removed ? <Tag accent>Removed by you</Tag> : item.hidden ? <Tag accent>Auto-hidden ({item.reportCount} reports)</Tag> : <Tag>{item.reportCount} report{item.reportCount === 1 ? '' : 's'}</Tag>}
+              {item.unpublished && <Tag>Owner unpublished</Tag>}
+            </div>
+            {item.reasons.length > 0 && (
+              <ul className="mt-2 text-[12.5px] list-disc pl-5" style={{ color: 'var(--ink-2)' }}>
+                {item.reasons.slice(0, 5).map((r, i) => <li key={i}>{r}</li>)}
+              </ul>
+            )}
+          </div>
+          <div className="flex flex-col gap-2 shrink-0">
+            {(item.hidden || item.reportCount > 0) && (
+              <button className="btn btn-secondary" disabled={busyId === item.id} onClick={() => act(item.id, restoreItem, 'Restored')}>
+                {item.hidden ? 'Restore' : 'Dismiss reports'}
+              </button>
+            )}
+            {!item.removed && (
+              <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} disabled={busyId === item.id} onClick={() => act(item.id, removeItem, 'Removed from the Community')}>
+                Remove
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -209,6 +272,8 @@ export default function Community({ onSignIn, createSessionOnTeam }) {
   const [error, setError] = useState('');
   const [open, setOpen] = useState(null);
   const published = useStore(s => s.published);
+  const isAdmin = useStore(s => s.isAdmin);
+  const [reviewing, setReviewing] = useState(false);
   const mineIds = useMemo(() => new Set(published.map(p => p.id)), [published]);
 
   // Debounce typing into the search box.
@@ -242,6 +307,15 @@ export default function Community({ onSignIn, createSessionOnTeam }) {
             </button>
           ))}
         </div>
+        {isAdmin && (
+          <button
+            onClick={() => setReviewing(r => !r)}
+            className="px-3.5 py-1.5 rounded-[8px] text-[13px]"
+            style={reviewing ? { background: 'var(--accent)', color: '#fff' } : { border: '1px solid var(--line)', color: 'var(--ink-2)' }}
+          >
+            Needs review
+          </button>
+        )}
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search the Community…" className="input-field flex-1 min-w-[180px] max-w-xs" />
         <select value={ageGroup} onChange={e => setAgeGroup(e.target.value)} className="input-field w-auto">
           <option value="">All ages</option>
@@ -255,6 +329,7 @@ export default function Community({ onSignIn, createSessionOnTeam }) {
         )}
       </div>
 
+      {reviewing && isAdmin ? <ReviewQueue /> : <>
       {error && <div className="card p-6 text-center" style={{ color: 'var(--danger)' }}>{error}</div>}
       {!error && items === null && <div className="card p-6 text-center" style={{ color: 'var(--ink-3)' }}>Loading the Community…</div>}
       {!error && items?.length === 0 && (
@@ -267,7 +342,7 @@ export default function Community({ onSignIn, createSessionOnTeam }) {
       <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
         {(items || []).map(item => (
           <button key={item.id} onClick={() => setOpen(item)} className="card text-left overflow-hidden flex flex-col hover:opacity-95" style={{ padding: 0 }}>
-            <Preview diagram={item.preview} width={300} />
+            <Preview diagram={item.preview} width={300} height={188} />
             <div className="p-4 flex flex-col gap-2 flex-1">
               <div className="flex items-start justify-between gap-2">
                 <div className="font-semibold" style={{ letterSpacing: '-0.015em' }}>{item.title}</div>
@@ -292,10 +367,13 @@ export default function Community({ onSignIn, createSessionOnTeam }) {
         ))}
       </div>
 
+      </>}
+
       {open && (
         <DetailModal
           item={open}
           mine={mineIds.has(open.id)}
+          onRemoved={(id) => setItems(list => (list || []).filter(i => i.id !== id))}
           onClose={() => setOpen(null)}
           onAdded={onAdded}
           onSignIn={onSignIn}

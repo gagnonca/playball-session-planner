@@ -17,6 +17,7 @@ import {
   defaultSection,
   libraryPayloadToSection,
   sectionToLibraryPayload,
+  sessionToLibraryPayload,
   toast,
   downloadJson,
   uid,
@@ -668,7 +669,7 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
               aria-haspopup="dialog"
               aria-expanded={sharePopoverOpen}
             >
-              {shareScope === 'coaches' ? (
+              {shareScope !== 'private' ? (
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent)' }}>
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M17 21v-2a4 4 0 00-3-3.87M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2" />
                   <circle cx="9" cy="7" r="4" strokeWidth={1.6} />
@@ -680,7 +681,7 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
                   <path d="M8 11V7a4 4 0 018 0v4" strokeWidth={1.6} strokeLinecap="round" />
                 </svg>
               )}
-              {shareScope === 'coaches' ? 'Co-coaches' : 'Private'}
+              {shareScope === 'public' ? 'Public' : shareScope === 'coaches' ? 'Co-coaches' : 'Private'}
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--ink-3)' }}>
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M19 9l-7 7-7-7" />
               </svg>

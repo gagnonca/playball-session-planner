@@ -859,13 +859,15 @@ function ToolRail({ tool, onTool }) {
 // Read-only render of a diagram from its vector data (shapes + pitch),
 // drawn with exactly the editor's pieces. Used wherever we must not trust an
 // image — the public Community shows diagrams only this way.
-export function DiagramStatic({ diagram, width = 320, stageRef }) {
+export function DiagramStatic({ diagram, width: maxWidth = 320, maxHeight = Infinity, stageRef }) {
   const shapes = Array.isArray(diagram?.shapes) ? diagram.shapes : [];
   const pitchSize = diagram?.pitchSize || DEFAULT_PITCH_SIZE;
   const pitchView = diagram?.pitchView || DEFAULT_PITCH_VIEW;
   const isVertical = diagram?.orientation === 'vertical';
   const fieldAspect = pitchAspectFor(pitchSize, pitchView);
   const displayAspect = isVertical ? 1 / fieldAspect : fieldAspect;
+  // Fit inside maxWidth × maxHeight, keeping the pitch's proportions.
+  const width = Math.min(maxWidth, maxHeight * displayAspect);
   const stageW = Math.round(width);
   const stageH = Math.round(width / displayAspect);
   const scale = (isVertical ? stageH : stageW) / VB_W;
@@ -879,9 +881,11 @@ export function DiagramStatic({ diagram, width = 320, stageRef }) {
           <FieldBackground w={fieldW} h={fieldH} size={pitchSize} view={pitchView} />
           {shapes.map(s => {
             if (isMarkerKind(s.kind)) {
-              // Markers are fixed-pixel in the editor (~PITCH_MAX_WIDTH wide);
-              // scale them with the pitch here so a thumbnail keeps proportions.
-              const markerScale = (s.scale ?? 1) * (stageW / PITCH_MAX_WIDTH) * (isVertical ? fieldAspect : 1);
+              // Markers are fixed-pixel in the editor, whose canvas is at most
+              // PITCH_MAX_WIDTH wide and ~700px tall; scale them by how this
+              // canvas compares, so a thumbnail keeps the editor's proportions.
+              const editorW = Math.min(PITCH_MAX_WIDTH, 700 * displayAspect);
+              const markerScale = (s.scale ?? 1) * (stageW / editorW);
               return <MarkerShape key={s.id} shape={{ ...s, x: s.x * scale, y: s.y * scale, scale: markerScale }} draggable={false} onClick={noop} />;
             }
             if (isLineKind(s.kind)) {

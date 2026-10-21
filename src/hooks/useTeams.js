@@ -22,7 +22,7 @@ import {
 // Paths that are handled by AppShell or reserved — never match as team slugs
 const RESERVED_PATHS = new Set([
   'teams', 'diagrams', 'library', 'shared', 'import', 'share',
-  'privacy', 'support', 'api', 'assets', 'favicon', 'double-booked',
+  'privacy', 'support', 'api', 'assets', 'favicon', 'double-booked', 'community',
 ]);
 
 // Build a unique URL slug for a team. Appends short ID suffix if names collide.
@@ -122,6 +122,12 @@ function resolveUrl(pathname, teams) {
   // /library
   if (segments[0] === 'library') {
     return { currentView: VIEWS.LIBRARY };
+  }
+
+  // /community → the Library's Community tab (signed-out visitors get the
+  // standalone page in AppShell instead)
+  if (segments[0] === 'community') {
+    return { currentView: VIEWS.LIBRARY, libraryTab: 'community' };
   }
 
   // /schedule

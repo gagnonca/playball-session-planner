@@ -36,3 +36,18 @@ export function countAdd(id) {
 export async function reportItem(id, reason) {
   await request('POST', `/api/v2/public/${encodeURIComponent(id)}/report`, { reason });
 }
+
+// ---- moderation (admin only; the server enforces it) ----
+
+export async function listReview() {
+  const data = await request('GET', '/api/v2/public?review=1');
+  return data.items;
+}
+
+export async function removeItem(id) {
+  await request('DELETE', `/api/v2/public/${encodeURIComponent(id)}`);
+}
+
+export async function restoreItem(id) {
+  await request('POST', `/api/v2/public/${encodeURIComponent(id)}/restore`);
+}

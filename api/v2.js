@@ -1,6 +1,6 @@
 import { put } from '@vercel/blob';
 import { supabase } from './_lib/supabase.js';
-import { authenticate, resolveUser, verifyDevice, sendError } from './_lib/auth.js';
+import { authenticate, resolveUser, verifyDevice, isAdmin, sendError } from './_lib/auth.js';
 import { redis } from './_lib/redis.js';
 import { mirrorTeamsBlob, mirrorLibraryBlob } from './_lib/dualWrite.js';
 import { versionedWrite, softDelete, readBaseVersion } from './_lib/versioned.js';
@@ -25,7 +25,9 @@ import { teamFromRow, sessionFromRow, gameFromRow, libraryItemFromRow, diagramFr
 //   GET    /public                           Community listing (no sign-in) ?kind=&q=&ageGroup=&moment=
 //   GET    /public/:id                       one Community item, full (no sign-in)
 //   POST   /public                           publish / update   body: { kind, sourceId, title, tags, payload }
-//   DELETE /public/:id                       unpublish (owner)
+//   DELETE /public/:id                       unpublish (owner) · remove (admin, any item)
+//   GET    /public?review=1                  admin: reported + removed items
+//   POST   /public/:id/restore               admin: put a removed/reported item back
 //   POST   /public/:id/add                   count an "add to my team/library"
 //   POST   /public/:id/report                report an item     body: { reason }
 //   POST   /admin/public-moderate            Bearer MIGRATION_SECRET  body: { id, hidden }
@@ -229,6 +231,31 @@ function publicCard(r) {
 }
 
 async function routePublic(id, action, req, res) {
+  // Moderation queue (admin only): anything reported or removed.
+  if (req.method === 'GET' && !id && req.query?.review) {
+    const auth = await authenticate(req);
+    if (!auth.ok) return res.status(auth.status).json(auth.body);
+    if (!isAdmin(auth)) return sendError(res, 403, 'forbidden');
+    const { data, error } = await supabase.from('public_items').select('*')
+      .or('hidden.eq.true,report_count.gt.0').order('updated_at', { ascending: false }).limit(200);
+    if (error) { console.error('[public.review]', error); return sendError(res, 500, 'server_error'); }
+    const ids = data.map(r => r.id);
+    const { data: reports } = ids.length
+      ? await supabase.from('public_reports').select('item_id, reason, created_at').in('item_id', ids)
+      : { data: [] };
+    return res.status(200).json({
+      success: true,
+      items: data.map(r => ({
+        ...publicCard(r),
+        hidden: r.hidden,
+        removed: Boolean(r.moderated_at),
+        unpublished: Boolean(r.unpublished_at),
+        reportCount: r.report_count,
+        reasons: (reports || []).filter(x => x.item_id === r.id).map(x => x.reason).filter(Boolean),
+      })),
+    });
+  }
+
   // Browsing needs no account.
   if (req.method === 'GET' && !id) {
     const { kind, q, ageGroup, moment } = req.query || {};
@@ -280,10 +307,30 @@ async function routePublic(id, action, req, res) {
   }
 
   if (req.method === 'DELETE' && id && !action) {
-    const { error } = await supabase.from('public_items')
-      .update({ unpublished_at: new Date().toISOString() })
-      .eq('id', id).eq('coach_id', auth.coachId);
+    const { data: item, error: readErr } = await supabase.from('public_items').select('id, coach_id').eq('id', id).maybeSingle();
+    if (readErr) return sendError(res, 500, 'server_error');
+    if (!item) return sendError(res, 404, 'not_found');
+    const now = new Date().toISOString();
+    if (item.coach_id === auth.coachId) {
+      // The owner unpublishes their own item.
+      const { error } = await supabase.from('public_items').update({ unpublished_at: now }).eq('id', id);
+      if (error) return sendError(res, 500, 'server_error');
+      return res.status(200).json({ success: true, removed: false });
+    }
+    // Anyone else's item: only the admin can take it down. It stays hidden
+    // even if the owner publishes it again, until the admin restores it.
+    if (!isAdmin(auth)) return sendError(res, 403, 'forbidden', 'Only the owner can unpublish this.');
+    const { error } = await supabase.from('public_items').update({ hidden: true, moderated_at: now }).eq('id', id);
     if (error) return sendError(res, 500, 'server_error');
+    return res.status(200).json({ success: true, removed: true });
+  }
+
+  if (req.method === 'POST' && id && action === 'restore') {
+    if (!isAdmin(auth)) return sendError(res, 403, 'forbidden');
+    const { error } = await supabase.from('public_items')
+      .update({ hidden: false, moderated_at: null, report_count: 0 }).eq('id', id);
+    if (error) return sendError(res, 500, 'server_error');
+    await supabase.from('public_reports').delete().eq('item_id', id);
     return res.status(200).json({ success: true });
   }
 
@@ -315,7 +362,7 @@ async function adminPublicModerate(req, res) {
   const { id, hidden } = req.body || {};
   if (!id || typeof hidden !== 'boolean') return sendError(res, 400, 'missing_fields');
   const { data, error } = await supabase.from('public_items')
-    .update({ hidden, ...(hidden ? {} : { report_count: 0 }) }).eq('id', id).select('id, title, hidden');
+    .update({ hidden, ...(hidden ? { moderated_at: new Date().toISOString() } : { report_count: 0, moderated_at: null }) }).eq('id', id).select('id, title, hidden');
   if (error) return sendError(res, 500, 'server_error');
   if (!hidden) await supabase.from('public_reports').delete().eq('item_id', id);
   return res.status(200).json({ success: true, item: data?.[0] || null });
@@ -364,7 +411,7 @@ async function routeSnapshot(req, res, auth) {
 
   return res.status(200).json({
     success: true,
-    coach: { coachId: c, defaultTeamId: auth.coach.default_team_id || null },
+    coach: { coachId: c, defaultTeamId: auth.coach.default_team_id || null, isAdmin: isAdmin(auth) },
     teams,
     library: {
       exercises: exR.data.map(libraryItemFromRow),

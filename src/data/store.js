@@ -36,6 +36,7 @@ const EMPTY = {
   diagrams: [],
   templates: [],           // [{ id, name, exerciseIds, version }]
   favorites: { sessions: [], exercises: [], diagrams: [] },
+  isAdmin: false,          // Community moderator (server decides, see api/_lib/auth.js)
   published: [],           // my Community items: [{ id, kind, sourceId, title, hidden, updatedAt }]
   drafts: {},              // sessionId → { teamId, base, value }
 };
@@ -258,6 +259,7 @@ function stateFromSnapshot(snap) {
       diagrams: snap.favorites?.diagrams || [],
     },
     published: snap.published || [],
+    isAdmin: Boolean(snap.coach?.isAdmin),
   };
   // Re-apply writes still in flight so they don't visibly revert.
   for (const o of overrides.values()) {

@@ -83,6 +83,15 @@ export async function verifyDevice(req) {
   return { ok: true, coach, coachId, deviceId, legacy: true };
 }
 
+// Community moderator: a signed-in account whose verified email is listed in
+// the server-only ADMIN_EMAILS env var (comma-separated). Never a device link.
+export function isAdmin(auth) {
+  const email = auth?.user?.email?.toLowerCase();
+  if (!email || !auth.user.email_confirmed_at) return false;
+  const admins = String(process.env.ADMIN_EMAILS || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+  return admins.includes(email);
+}
+
 export function sendError(res, status, error, message) {
   return res.status(status).json({ success: false, error, message });
 }
