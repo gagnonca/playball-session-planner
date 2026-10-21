@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text, Path, Shape, Image as KImage, Transformer } from 'react-konva';
 import useKonvaImage from '../hooks/useKonvaImage';
+import { setLeaveGuard } from '../hooks/useTeams';
 import { migrateLegacyToShapes } from '../utils/diagramMigration';
 import ballSvg from '../assets/ball.svg';
 import coneOrangeSvg from '../assets/cone_orange.svg';
@@ -1426,6 +1427,26 @@ export default function DiagramPlayground({
     future: [],
   });
   const shapes = shapeHistory.shapes;
+
+  // Unsaved-changes tracking: compare what's on screen with what the editor
+  // opened with. Leaving dirty (Back, any link, browser Back, closing the tab)
+  // asks first; Save clears it.
+  const editState = JSON.stringify({ shapes, title, description, pitchSize, pitchView, orientation });
+  const [openedWith] = useState(editState);
+  const savedRef = useRef(false);
+  const dirty = editState !== openedWith && !savedRef.current;
+  const [leaveTo, setLeaveTo] = useState(null);
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const unguard = setLeaveGuard((_target, proceed) => {
+      if (savedRef.current) return false;
+      setLeaveTo(() => proceed);
+      return true;
+    });
+    const onUnload = (e) => { if (!savedRef.current) { e.preventDefault(); e.returnValue = ''; } };
+    window.addEventListener('beforeunload', onUnload);
+    return () => { unguard(); window.removeEventListener('beforeunload', onUnload); };
+  }, [dirty]);
   const setShapes = useCallback((updater) => {
     setShapeHistory(curr => {
       const next = typeof updater === 'function' ? updater(curr.shapes) : updater;
@@ -1897,6 +1918,46 @@ export default function DiagramPlayground({
     );
   })() : null;
 
+  const handleSave = () => {
+    // Render the current Konva stage to PNG so library/PDF/section
+    // thumbnails keep working. pixelRatio=2 for retina-quality output.
+    let dataUrl = '';
+    try {
+      dataUrl = stageRef.current?.toDataURL({ pixelRatio: 2 }) || '';
+    } catch {
+      // toDataURL throws on tainted canvases; image-less diagrams are
+      // still savable without a thumbnail.
+      dataUrl = '';
+    }
+    if (typeof onSave !== 'function') {
+      alert(`(playground) save "${title}" — ${shapes.length} shapes`);
+      return;
+    }
+    // While still in legacy mode (no Convert / Start over taken), the
+    // user hasn't replaced the legacy data. Preserve the original
+    // elements/lines so a stray Save doesn't wipe their diagram into
+    // an empty shell.
+    const stillLegacy = isLegacy && shapes.length === 0;
+    savedRef.current = true;
+    onSave({
+      name: title || 'Diagram',
+      description,
+      dataUrl: dataUrl || legacyImage || '',
+      shapes,
+      pitchSize,
+      pitchView,
+      orientation,
+      elements: stillLegacy ? (initialDiagram?.elements || []) : [],
+      lines: stillLegacy ? (initialDiagram?.lines || []) : [],
+      fieldType: pitchView === 'full' ? 'full' : 'small',
+      tags: {
+        ageGroup,
+        moments: moment ? [moment] : [],
+        type: sectionType,
+      },
+    });
+  };
+
   return (
     // Locked to the viewport height (not min-height): otherwise a tall
     // inspector grows the page, and the vertically centered canvas slides down
@@ -1913,44 +1974,7 @@ export default function DiagramPlayground({
         orientation={orientation}
         onOrientation={setOrientation}
         onBack={onClose || (() => { window.location.href = '/'; })}
-        onSave={() => {
-          // Render the current Konva stage to PNG so library/PDF/section
-          // thumbnails keep working. pixelRatio=2 for retina-quality output.
-          let dataUrl = '';
-          try {
-            dataUrl = stageRef.current?.toDataURL({ pixelRatio: 2 }) || '';
-          } catch {
-            // toDataURL throws on tainted canvases; image-less diagrams are
-            // still savable without a thumbnail.
-            dataUrl = '';
-          }
-          if (typeof onSave !== 'function') {
-            alert(`(playground) save "${title}" — ${shapes.length} shapes`);
-            return;
-          }
-          // While still in legacy mode (no Convert / Start over taken), the
-          // user hasn't replaced the legacy data. Preserve the original
-          // elements/lines so a stray Save doesn't wipe their diagram into
-          // an empty shell.
-          const stillLegacy = isLegacy && shapes.length === 0;
-          onSave({
-            name: title || 'Diagram',
-            description,
-            dataUrl: dataUrl || legacyImage || '',
-            shapes,
-            pitchSize,
-            pitchView,
-            orientation,
-            elements: stillLegacy ? (initialDiagram?.elements || []) : [],
-            lines: stillLegacy ? (initialDiagram?.lines || []) : [],
-            fieldType: pitchView === 'full' ? 'full' : 'small',
-            tags: {
-              ageGroup,
-              moments: moment ? [moment] : [],
-              type: sectionType,
-            },
-          });
-        }}
+        onSave={handleSave}
         onExport={() => {
           try {
             const dataUrl = stageRef.current?.toDataURL({ pixelRatio: 2 });
@@ -2214,6 +2238,22 @@ export default function DiagramPlayground({
           onDescriptionChange={setDescription}
         />
       </div>
+      {leaveTo && (
+        <>
+          <div className="modal-backdrop" onClick={() => setLeaveTo(null)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="card p-6 w-full max-w-md animate-fade-in" style={{ boxShadow: 'var(--shadow-lg)' }}>
+              <h2 className="text-[18px] font-semibold mb-2" style={{ letterSpacing: '-0.015em' }}>Leave without saving?</h2>
+              <p className="text-[13.5px] mb-5" style={{ color: 'var(--ink-2)' }}>You'll lose the changes you made to this diagram.</p>
+              <div className="flex flex-col gap-2">
+                <button className="btn btn-primary" onClick={() => { setLeaveTo(null); handleSave(); }}>Save diagram</button>
+                <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => { const go = leaveTo; setLeaveTo(null); go(); }}>Leave without saving</button>
+                <button className="btn btn-secondary" onClick={() => setLeaveTo(null)}>Keep editing</button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -7,8 +7,7 @@ import {
   diagramThumbFromPayload,
   toast,
 } from '../utils/helpers';
-import { useLocalStorage } from '../hooks/useLocalStorage';
-import { LIBRARY_PINS_KEY } from '../constants/storage';
+import { useStore, setFavorite } from '../data/store';
 import DiagramLibrary from './DiagramLibrary';
 import FilterChipGroup from './FilterChipGroup';
 import SharePopover from './session-builder/SharePopover';
@@ -40,7 +39,7 @@ function PinButton({ pinned, onToggle, size = 'md' }) {
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onToggle(); }}
-      title={pinned ? 'Pinned to top' : 'Pin to top'}
+      title={pinned ? 'Favorite — shown first' : 'Add to favorites'}
       aria-pressed={pinned}
       style={{
         width: dim,
@@ -59,8 +58,7 @@ function PinButton({ pinned, onToggle, size = 'md' }) {
       }}
     >
       <svg width={size === 'sm' ? 12 : 14} height={size === 'sm' ? 12 : 14} viewBox="0 0 24 24" fill={pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M9 4h6v6l3 3v2H6v-2l3-3z" />
-        <path d="M12 15v6" />
+        <path d="M12 3.5l2.6 5.3 5.9.9-4.25 4.1 1 5.8L12 16.9l-5.25 2.7 1-5.8L3.5 9.7l5.9-.9z" />
       </svg>
     </button>
   );
@@ -249,19 +247,15 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
   const hiddenExerciseSet = useMemo(() => new Set(hiddenIds.exercises || []), [hiddenIds.exercises]);
   const hiddenSessionSet = useMemo(() => new Set(hiddenIds.sessions || []), [hiddenIds.sessions]);
 
-  // Pinned items — keyed by group key (lowercased name) for sessions/exercises
-  // and by raw item id for diagrams. Persists across sessions in localStorage.
-  const [pins, setPins] = useLocalStorage(LIBRARY_PINS_KEY, { sessions: [], exercises: [], diagrams: [] });
+  // Favorite items — keyed by group key (lowercased name) for sessions/exercises
+  // and by raw item id for diagrams.
+  // Favorites are stored in the account, so they follow the coach everywhere.
+  const pins = useStore(st => st.favorites);
   const exercisePinSet = useMemo(() => new Set(pins.exercises || []), [pins.exercises]);
   const sessionPinSet = useMemo(() => new Set(pins.sessions || []), [pins.sessions]);
   const togglePin = useCallback((kind, key) => {
-    setPins(prev => {
-      const list = prev[kind] || [];
-      const has = list.includes(key);
-      const next = has ? list.filter(k => k !== key) : [...list, key];
-      return { ...prev, [kind]: next };
-    });
-  }, [setPins]);
+    setFavorite(kind.replace(/s$/, ''), key, !(pins[kind] || []).includes(key));
+  }, [pins]);
 
   // Sync awareness — drives the per-item green/gray dot and the auto-save copy.
   const syncOn = Boolean(syncContext?.isSyncEnabled);
@@ -693,7 +687,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
             Your playbook
           </h1>
           <p className="mt-2 text-[14px]" style={{ color: 'var(--ink-2)' }}>
-            {isInsertMode ? 'Select an item to insert into your session.' : 'Every session you save shows up here. Pin what you reuse, share what’s worth sharing.'}
+            {isInsertMode ? 'Select an item to insert into your session.' : 'Every session you save shows up here. Star your favorites, share what’s worth sharing.'}
           </p>
         </div>
         {!isInsertMode && (

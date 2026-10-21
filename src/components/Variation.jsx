@@ -112,7 +112,7 @@ export default function Variation({
       />
 
       {/* Diagram surface — small, optional */}
-      <div className="relative rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--line)', background: variation.imageDataUrl ? 'color-mix(in oklab, #6aa365 55%, var(--bg-elev))' : undefined }}>
+      <div className="relative rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--line)', background: variation.imageDataUrl ? '#475E47' : undefined }}>
         {variation.imageDataUrl ? (
           (() => {
             const legacy = !(Array.isArray(variation.diagramData?.shapes) && variation.diagramData.shapes.length > 0);

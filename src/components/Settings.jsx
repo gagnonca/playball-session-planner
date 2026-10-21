@@ -86,6 +86,8 @@ function LegacyDataPanel() {
     found.exercises.length && `${found.exercises.length} library exercise${found.exercises.length === 1 ? '' : 's'}`,
     found.librarySessions.length && `${found.librarySessions.length} library session${found.librarySessions.length === 1 ? '' : 's'}`,
     found.diagrams.length && `${found.diagrams.length} diagram${found.diagrams.length === 1 ? '' : 's'}`,
+    found.templates?.length && `${found.templates.length} template${found.templates.length === 1 ? '' : 's'}`,
+    found.favorites?.length && `${found.favorites.length} favorite${found.favorites.length === 1 ? '' : 's'}`,
   ].filter(Boolean);
 
   return (

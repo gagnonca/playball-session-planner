@@ -72,3 +72,13 @@ export function diagramFromRow(r) {
     version: r.version ?? 1,
   };
 }
+
+export function templateFromRow(r) {
+  return {
+    id: r.id,
+    name: r.name,
+    exerciseIds: Array.isArray(r.exercise_ids) ? r.exercise_ids : [],
+    updatedAt: r.updated_at,
+    version: r.version ?? 1,
+  };
+}

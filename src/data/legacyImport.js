@@ -1,6 +1,6 @@
 import { getTeamsData } from '../utils/indexedDBHelper';
-import { SECTION_LIBRARY_KEY, SESSION_LIBRARY_KEY, DIAGRAMS_KEY } from '../constants/storage';
-import { getState, teams as teamStore, sessions as sessionStore, library, diagrams as diagramStore } from './store';
+import { SECTION_LIBRARY_KEY, SESSION_LIBRARY_KEY, DIAGRAMS_KEY, SESSION_TEMPLATES_KEY, LIBRARY_PINS_KEY } from '../constants/storage';
+import { getState, teams as teamStore, sessions as sessionStore, library, diagrams as diagramStore, templates as templateStore, setFavorite } from './store';
 
 // Before v3, each browser kept its own copy of everything (IndexedDB blob for
 // teams, localStorage for the library and diagrams). v3 never reads or writes
@@ -42,9 +42,19 @@ export async function findLegacyOnlyData() {
   const librarySessions = (readJson(SESSION_LIBRARY_KEY)?.items || []).filter(x => x?.id && !serverLibSess.has(x.id));
   const diagrams = (readJson(DIAGRAMS_KEY)?.diagrams || []).filter(x => x?.id && !serverDiagrams.has(x.id));
 
+  const serverTemplates = new Set(s.templates.map(x => x.id));
+  const templates = (readJson(SESSION_TEMPLATES_KEY)?.items || []).filter(x => x?.id && !serverTemplates.has(x.id));
+  const pins = readJson(LIBRARY_PINS_KEY) || {};
+  const favorites = ['sessions', 'exercises', 'diagrams'].flatMap(field =>
+    (pins[field] || [])
+      .filter(key => !(s.favorites[field] || []).includes(key))
+      .map(key => ({ kind: field.replace(/s$/, ''), key }))
+  );
+
   return {
-    teams, sessions, exercises, librarySessions, diagrams,
-    total: teams.length + sessions.length + exercises.length + librarySessions.length + diagrams.length,
+    teams, sessions, exercises, librarySessions, diagrams, templates, favorites,
+    total: teams.length + sessions.length + exercises.length + librarySessions.length + diagrams.length
+      + templates.length + favorites.length,
   };
 }
 
@@ -64,5 +74,7 @@ export async function uploadLegacyData(found) {
   for (const x of found.exercises) library.putExercise({ ...x, version: null });
   for (const x of found.librarySessions) library.putSession({ ...x, version: null });
   for (const d of found.diagrams) diagramStore.put({ ...d, version: null });
+  for (const t of found.templates || []) templateStore.put({ ...t, version: null });
+  for (const f of found.favorites || []) setFavorite(f.kind, f.key, true);
   await Promise.all(writes);
 }

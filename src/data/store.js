@@ -34,6 +34,8 @@ const EMPTY = {
   library: { exercises: { version: 1, items: [] }, sessions: { version: 1, items: [] } },
   hidden: { exercises: [], sessions: [] },
   diagrams: [],
+  templates: [],           // [{ id, name, exerciseIds, version }]
+  favorites: { sessions: [], exercises: [], diagrams: [] },
   drafts: {},              // sessionId → { teamId, base, value }
 };
 
@@ -110,9 +112,14 @@ const KINDS = {
     resKey: 'diagram',
     body: (d) => ({ name: d.name || null, payload: stripBase64(d) }),
   },
+  template: {
+    path: (id) => `/api/v2/templates/${enc(id)}`,
+    resKey: 'template',
+    body: (t) => ({ name: t.name || 'Untitled template', exerciseIds: t.exerciseIds || [] }),
+  },
 };
 
-const LABEL = { team: 'team', session: 'session', exercise: 'exercise', libsession: 'library session', diagram: 'diagram' };
+const LABEL = { team: 'team', session: 'session', exercise: 'exercise', libsession: 'library session', diagram: 'diagram', template: 'template' };
 
 // ---------------------------------------------------------------------------
 // Pure state helpers
@@ -133,6 +140,7 @@ function getLocal(s, kind, id, ctx) {
     case 'exercise': return s.library.exercises.items.find(x => x.id === id) || null;
     case 'libsession': return s.library.sessions.items.find(x => x.id === id) || null;
     case 'diagram': return s.diagrams.find(x => x.id === id) || null;
+    case 'template': return s.templates.find(x => x.id === id) || null;
     default: return null;
   }
 }
@@ -175,6 +183,8 @@ function withPut(s, kind, entity, ctx) {
       return { ...s, library: { ...s.library, sessions: { ...s.library.sessions, items: replaceOrAdd(s.library.sessions.items, entity, true) } } };
     case 'diagram':
       return { ...s, diagrams: replaceOrAdd(s.diagrams, entity, true) };
+    case 'template':
+      return { ...s, templates: replaceOrAdd(s.templates, entity) };
     default:
       return s;
   }
@@ -199,6 +209,8 @@ function withRemove(s, kind, id, ctx) {
       return { ...s, library: { ...s.library, sessions: { ...s.library.sessions, items: s.library.sessions.items.filter(x => x.id !== id) } } };
     case 'diagram':
       return { ...s, diagrams: s.diagrams.filter(x => x.id !== id) };
+    case 'template':
+      return { ...s, templates: s.templates.filter(x => x.id !== id) };
     default:
       return s;
   }
@@ -238,6 +250,12 @@ function stateFromSnapshot(snap) {
       sessions: snap.hidden?.sessions || [],
     },
     diagrams: (snap.diagrams || []).slice().sort(byUpdatedDesc),
+    templates: (snap.templates || []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+    favorites: {
+      sessions: snap.favorites?.sessions || [],
+      exercises: snap.favorites?.exercises || [],
+      diagrams: snap.favorites?.diagrams || [],
+    },
   };
   // Re-apply writes still in flight so they don't visibly revert.
   for (const o of overrides.values()) {
@@ -319,6 +337,8 @@ function scheduleCacheWrite() {
       library: { exercises: s.library.exercises.items, sessions: s.library.sessions.items },
       hidden: s.hidden,
       diagrams: s.diagrams,
+      templates: s.templates,
+      favorites: s.favorites,
     });
   }, 1500);
 }
@@ -438,9 +458,22 @@ function describe(e) {
 
 // Optimistically put `entity` locally and persist it. `patch` is the set of
 // fields this call changed; on a 409 those are re-applied over the live row.
-function upsert(kind, entity, ctx = {}, patch = entity) {
+// Callers that hand over a whole entity (library items, diagrams, templates)
+// changed only the fields that differ from the current copy — rebasing must
+// not replay the rest, or a stale field would undo another tab's edit.
+function changedFields(before, after) {
+  if (!before) return after;
+  const out = {};
+  for (const k of Object.keys(after)) {
+    if (JSON.stringify(after[k]) !== JSON.stringify(before[k])) out[k] = after[k];
+  }
+  return out;
+}
+
+function upsert(kind, entity, ctx = {}, patch = null) {
   const key = `${kind}:${entity.id}`;
   if (state.demo) { setState(withPut(state, kind, { ...entity, version: entity.version ?? 1 }, ctx)); return; }
+  if (!patch) patch = changedFields(getLocal(state, kind, entity.id, ctx), entity);
   setState(withPut(state, kind, entity, ctx));
   overrides.set(key, { kind, ctx, op: 'put', entity: getLocal(state, kind, entity.id, ctx) });
   const q = queueFor(key);
@@ -458,6 +491,9 @@ async function pump(key) {
   let wrote = false;
 
   for (;;) {
+    // The server rejects a session for a team it hasn't stored yet.
+    const pending = overrides.get(key);
+    if (pending?.kind === 'session') await settle(`team:${pending.ctx.teamId}`);
     q.again = false;
     const o = overrides.get(key);
     if (!o || o.op !== 'put') break;
@@ -547,11 +583,10 @@ export const teams = {
 };
 
 export const sessions = {
-  // Creating a session waits for its team's create to land, so the server
-  // never sees a session for a team it doesn't know yet.
-  async create(teamId, session) {
-    setState(withPut(state, 'session', { ...session, version: null }, { teamId }));
-    await settle(`team:${teamId}`);
+  // Queued synchronously so an update made right after (template content,
+  // a date) coalesces onto the create instead of racing it. The send itself
+  // waits for the team's write (see pump).
+  create(teamId, session) {
     upsert('session', { ...session, version: null }, { teamId });
   },
   update(teamId, sessionId, updates) {
@@ -607,6 +642,27 @@ export const diagrams = {
   put(diagram) { upsert('diagram', diagram); },
   remove(id) { return remove('diagram', id); },
 };
+
+export const templates = {
+  put(template) { upsert('template', template); },
+  remove(id) { return remove('template', id); },
+};
+
+// kind: 'session' | 'exercise' | 'diagram'
+export async function setFavorite(kind, key, favorite) {
+  const field = `${kind}s`;
+  const before = state.favorites[field] || [];
+  const after = favorite ? [...new Set([...before, key])] : before.filter(k => k !== key);
+  setState({ favorites: { ...state.favorites, [field]: after } });
+  if (state.demo) return;
+  try {
+    await request('POST', '/api/v2/favorites', { kind, key, favorite });
+    announceChange();
+  } catch (e) {
+    setState({ favorites: { ...state.favorites, [field]: before } });
+    toast(`Couldn't update favorites — ${describe(e)}.`);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Session-builder drafts (explicit Save)

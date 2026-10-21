@@ -31,11 +31,10 @@ function FieldThumbnail({ src, label = 'TAP TO DRAW', onClick, dashed = false, l
       className="relative w-full overflow-hidden rounded-[14px]"
       style={{
         aspectRatio: '16 / 9',
-        // Matches the editor's pitch color (same CSS mix as the playground
-        // container) so any letterboxing blends seamlessly with the embedded
-        // pitch background. Theme-aware via the CSS variables.
+        // Matches the editor's pitch surround (#475E47, DiagramPlayground) so
+        // any letterboxing blends into the saved image's own edges.
         background: src
-          ? 'color-mix(in oklab, #6aa365 55%, var(--bg-elev))'
+          ? '#475E47'
           : 'color-mix(in oklab, #6aa365 30%, var(--bg-sunken))',
         border: dashed ? '1.5px dashed var(--line-2)' : '1px solid var(--line)',
         cursor: 'pointer',

@@ -8,8 +8,9 @@ import useAccount from '../hooks/useAccount';
 import { VIEWS } from '../constants/navigation';
 import { HAS_SEEN_WELCOME_KEY } from '../constants/storage';
 import { uploadDiagramImage } from '../utils/uploadImage';
-import { startStore, useStore, startDemo, endDemo } from '../data/store';
+import { startStore, useStore, startDemo, endDemo, getState } from '../data/store';
 import { buildDemoSnapshot } from '../data/demo';
+import { findLegacyOnlyData, uploadLegacyData } from '../data/legacyImport';
 import TeamList from './teams/TeamList';
 import TeamDetail from './teams/TeamDetail';
 import SessionBuilder from './session-builder/SessionBuilder';
@@ -89,6 +90,26 @@ export default function AppShell() {
   // One store for the whole tab; loads the server snapshot and keeps it fresh.
   useEffect(() => { startStore(); }, []);
   const storeStatus = useStore(st => st.status);
+  const storeSource = useStore(st => st.source);
+
+  // One-time: templates and favorites used to live only in this browser.
+  // If the account has none yet, bring this browser's over automatically
+  // (teams/sessions stay a manual choice in Settings — see LegacyDataPanel).
+  useEffect(() => {
+    if (storeStatus !== 'ready' || storeSource !== 'server') return;
+    const FLAG = 'ppp_v3_prefs_imported';
+    try { if (localStorage.getItem(FLAG)) return; } catch { return; }
+    const { templates, favorites } = getState();
+    const accountHasSome = templates.length > 0 || Object.values(favorites).some(list => list.length > 0);
+    (async () => {
+      const found = accountHasSome ? { templates: [], favorites: [] } : await findLegacyOnlyData();
+      await uploadLegacyData({
+        teams: [], sessions: [], exercises: [], librarySessions: [], diagrams: [],
+        templates: found.templates, favorites: found.favorites,
+      });
+      try { localStorage.setItem(FLAG, '1'); } catch { /* ignore */ }
+    })();
+  }, [storeStatus, storeSource]);
 
   const teamsContext = useTeams();
   const diagramLibrary = useDiagramLibrary();
@@ -190,7 +211,7 @@ export default function AppShell() {
       </div>
     );
   }
-  if (!teamsData && storeStatus !== 'signed-out') {
+  if ((!teamsData || !teamsContext.navReady) && storeStatus !== 'signed-out') {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
         <div className="text-center">

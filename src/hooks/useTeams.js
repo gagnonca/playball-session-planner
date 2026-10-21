@@ -181,6 +181,24 @@ function resolveUrl(pathname, teams) {
   };
 }
 
+// --- Leave guard ------------------------------------------------------------
+// An open editor with unsaved changes (session builder, diagram builder)
+// registers a guard. Every navigation — in-app links and the browser's Back /
+// Forward — asks it first. The guard returns true to intercept (and later
+// calls `proceed` if the coach decides to leave), false to let it through.
+// target: { view, sessionId }
+let leaveGuard = null;
+
+export function setLeaveGuard(fn) {
+  leaveGuard = fn;
+  return () => { if (leaveGuard === fn) leaveGuard = null; };
+}
+
+function guarded(target, go) {
+  if (leaveGuard && leaveGuard(target, () => { leaveGuard = null; go(); })) return;
+  go();
+}
+
 export default function useTeams() {
   // Teams data lives in the shared store (server snapshot); this hook adds
   // navigation on top of it.
@@ -209,18 +227,23 @@ export default function useTeams() {
   };
 
   // Resolve the initial URL once, the first time teams are available (from
-  // the offline cache or the server, whichever lands first).
+  // the offline cache or the server, whichever lands first). Views don't
+  // render until this has run (navReady) — otherwise a child view's own
+  // effects (e.g. Teams auto-opening the default team) rewrite the URL first
+  // and the deep link is lost. Resolve from the path the page loaded with.
   const resolvedInitialUrl = useRef(false);
+  const initialPath = useRef(window.location.pathname);
+  const [navReady, setNavReady] = useState(false);
   useEffect(() => {
     if (!teamsData || resolvedInitialUrl.current) return;
     resolvedInitialUrl.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setNavReady(true);
 
-    const pathname = window.location.pathname;
+    const pathname = initialPath.current;
     const urlResolved = resolveUrl(pathname, teamsData.teams);
 
     if (urlResolved) {
-      // One-shot: adopt the deep-linked view once data first exists.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCurrentView(urlResolved.currentView);
       setSelectedTeamId(urlResolved.selectedTeamId || null);
       setSelectedSessionId(urlResolved.selectedSessionId || null);
@@ -240,6 +263,10 @@ export default function useTeams() {
       window.history.replaceState(viewState, '', pathname);
       return;
     }
+
+    // Static / special pages (privacy, support, shared links…) own their URL.
+    const firstSegment = pathname.split('/').filter(Boolean)[0];
+    if (firstSegment && RESERVED_PATHS.has(firstSegment)) return;
 
     // URL didn't match — fall back to saved navigation state
     try {
@@ -275,20 +302,41 @@ export default function useTeams() {
     }
   }, [currentView, selectedTeamId, selectedSessionId, selectedSectionId, selectedVariationId, editingDiagramId]);
 
+  // Last URL/state this tab showed, so a guarded Back can be undone.
+  const shownRef = useRef({ url: window.location.pathname, state: null });
+  useEffect(() => {
+    shownRef.current = { url: window.location.pathname, state: window.history.state };
+  });
+
   // Listen for browser back/forward buttons
   useEffect(() => {
+    const apply = (state) => {
+      skipNextPush.current = true;
+      setCurrentView(state.currentView);
+      setSelectedTeamId(state.selectedTeamId || null);
+      setSelectedSessionId(state.selectedSessionId || null);
+      setSelectedSectionId(state.selectedSectionId || null);
+      setSelectedVariationId(state.selectedVariationId || null);
+      setEditingDiagramId(state.editingDiagramId || null);
+      if (state.libraryTab) setLibraryTab(state.libraryTab);
+    };
     const handlePopState = (event) => {
       const state = event.state;
-      if (state && state.currentView) {
-        skipNextPush.current = true;
-        setCurrentView(state.currentView);
-        setSelectedTeamId(state.selectedTeamId || null);
-        setSelectedSessionId(state.selectedSessionId || null);
-        setSelectedSectionId(state.selectedSectionId || null);
-        setSelectedVariationId(state.selectedVariationId || null);
-        setEditingDiagramId(state.editingDiagramId || null);
-        if (state.libraryTab) setLibraryTab(state.libraryTab);
+      if (!state || !state.currentView) return;
+      const target = { view: state.currentView, sessionId: state.selectedSessionId || null };
+      const targetUrl = window.location.pathname;
+      const shown = shownRef.current;
+      const intercepted = leaveGuard && leaveGuard(target, () => {
+        leaveGuard = null;
+        window.history.pushState(state, '', targetUrl);
+        apply(state);
+      });
+      if (intercepted) {
+        // The browser already moved; put the editor's entry back on top.
+        window.history.pushState(shown.state, '', shown.url);
+        return;
       }
+      apply(state);
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -549,6 +597,7 @@ export default function useTeams() {
 
   // ============ Return API ============
 
+  // Navigation goes through the leave guard (see setLeaveGuard).
   return {
     // State
     teamsData,
@@ -560,6 +609,7 @@ export default function useTeams() {
     editingDiagramId,
     libraryTab,
     drafts,
+    navReady,
 
     // Team operations
     createTeam,
@@ -581,18 +631,18 @@ export default function useTeams() {
     discardSessionDraft: discardDraft,
 
     // Navigation
-    navigateToTeams,
-    navigateToTeamDetail,
-    navigateToSessionBuilder,
-    navigateToDiagramBuilder,
-    navigateToVariationDiagramBuilder,
-    navigateToDiagramLibrary,
-    navigateToEditLibraryDiagram,
-    navigateBackFromDiagramBuilder,
-    navigateToSchedule,
-    navigateToSettings,
-    navigateToWelcome,
-    navigateToLibrary,
-    navigateToLibraryInsert,
+    navigateToTeams: (...a) => guarded((() => ({ view: VIEWS.TEAMS }))(...a), () => navigateToTeams(...a)),
+    navigateToTeamDetail: (...a) => guarded(((teamId) => ({ view: VIEWS.TEAM_DETAIL, teamId }))(...a), () => navigateToTeamDetail(...a)),
+    navigateToSessionBuilder: (...a) => guarded(((teamId, sessionId) => ({ view: VIEWS.SESSION_BUILDER, sessionId }))(...a), () => navigateToSessionBuilder(...a)),
+    navigateToDiagramBuilder: (...a) => guarded(((teamId, sessionId) => ({ view: VIEWS.DIAGRAM_BUILDER, sessionId }))(...a), () => navigateToDiagramBuilder(...a)),
+    navigateToVariationDiagramBuilder: (...a) => guarded(((teamId, sessionId) => ({ view: VIEWS.DIAGRAM_BUILDER, sessionId }))(...a), () => navigateToVariationDiagramBuilder(...a)),
+    navigateToDiagramLibrary: (...a) => guarded(((insertMode, teamId, sessionId) => ({ view: VIEWS.DIAGRAM_LIBRARY, sessionId: insertMode ? sessionId : null }))(...a), () => navigateToDiagramLibrary(...a)),
+    navigateToEditLibraryDiagram: (...a) => guarded((() => ({ view: VIEWS.DIAGRAM_BUILDER, sessionId: null }))(...a), () => navigateToEditLibraryDiagram(...a)),
+    navigateBackFromDiagramBuilder: (...a) => guarded((() => ({ view: selectedSessionId ? VIEWS.SESSION_BUILDER : VIEWS.LIBRARY, sessionId: selectedSessionId }))(...a), () => navigateBackFromDiagramBuilder(...a)),
+    navigateToSchedule: (...a) => guarded((() => ({ view: VIEWS.SCHEDULE }))(...a), () => navigateToSchedule(...a)),
+    navigateToSettings: (...a) => guarded((() => ({ view: VIEWS.SETTINGS }))(...a), () => navigateToSettings(...a)),
+    navigateToWelcome: (...a) => guarded((() => ({ view: VIEWS.WELCOME }))(...a), () => navigateToWelcome(...a)),
+    navigateToLibrary: (...a) => guarded((() => ({ view: VIEWS.LIBRARY }))(...a), () => navigateToLibrary(...a)),
+    navigateToLibraryInsert: (...a) => guarded(((tab, teamId, sessionId) => ({ view: VIEWS.LIBRARY, sessionId }))(...a), () => navigateToLibraryInsert(...a)),
   };
 }

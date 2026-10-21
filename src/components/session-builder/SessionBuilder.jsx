@@ -11,6 +11,8 @@ import SharePopover from './SharePopover';
 import { planTotal, parseMinutes, countReferenced } from '../../utils/sessionDuration';
 import useAI from '../../hooks/useAI';
 import { useStore, isDraftDirty, isDraftStale } from '../../data/store';
+import { setLeaveGuard } from '../../hooks/useTeams';
+import { VIEWS } from '../../constants/navigation';
 import {
   defaultSection,
   libraryPayloadToSection,
@@ -188,12 +190,18 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
     return false;
   }, [saveSessionDraft, selectedSessionId]);
 
-  // Leaving the session (not just hopping to its diagram or the library)
-  // with unsaved edits asks first.
-  const guardLeave = useCallback((go) => {
-    if (dirty) setLeaveTo(() => go);
-    else { discardSessionDraft(selectedSessionId); go(); }
-  }, [dirty, discardSessionDraft, selectedSessionId]);
+  // Leaving the session with unsaved edits — via any link or the browser's
+  // Back — asks first. Hopping to this session's diagram editor or library
+  // picker isn't leaving: those edits land in the same draft.
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const staysHere = [VIEWS.SESSION_BUILDER, VIEWS.DIAGRAM_BUILDER, VIEWS.LIBRARY, VIEWS.DIAGRAM_LIBRARY];
+    return setLeaveGuard((target, proceed) => {
+      if (target.sessionId === selectedSessionId && staysHere.includes(target.view)) return false;
+      setLeaveTo(() => proceed);
+      return true;
+    });
+  }, [dirty, selectedSessionId]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -561,8 +569,8 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
   }, [session]);
 
   const handleBackToTeam = useCallback(() => {
-    guardLeave(() => navigateToTeamDetail(selectedTeamId));
-  }, [guardLeave, navigateToTeamDetail, selectedTeamId]);
+    navigateToTeamDetail(selectedTeamId);
+  }, [navigateToTeamDetail, selectedTeamId]);
 
   // Selection: null = Summary view; otherwise = a section id.
   const selectedSectionId = session.selectedSectionId ?? null;
@@ -643,14 +651,6 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
 
           <div className="flex-1" />
 
-          <button
-            onClick={() => handleSave()}
-            disabled={!dirty || saving}
-            className="btn btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Save (⌘S)"
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
 
           <DurationChip current={planMinutes} target={targetMinutes} />
 
@@ -717,7 +717,7 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
             onClick={() => {
               if (!aiHook.isConfigured()) {
                 // Coach panel isn't wired yet; nudge to AI setup until Phase 4 lands.
-                if (teamsContext.navigateToSettings) guardLeave(teamsContext.navigateToSettings);
+                if (teamsContext.navigateToSettings) teamsContext.navigateToSettings();
                 return;
               }
               // Phase 4 will mount the slide-in Coach overlay here.
@@ -728,6 +728,15 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
           >
             <span aria-hidden style={{ marginRight: 4 }}>✨</span>
             Ask Coach
+          </button>
+          {/* Save is always the last control on the right. */}
+          <button
+            onClick={() => handleSave()}
+            disabled={!dirty || saving}
+            className="btn btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Save (⌘S)"
+          >
+            {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
       </header>
@@ -766,7 +775,7 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
                 aiContext={{
                   aiHook,
                   sessionSummary: session.summary,
-                  onConfigureAI: () => teamsContext.navigateToSettings && guardLeave(teamsContext.navigateToSettings),
+                  onConfigureAI: () => teamsContext.navigateToSettings?.(),
                 }}
               />
             </>
@@ -895,16 +904,16 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
 
       {leaveTo && (
         <ChoiceDialog
-          title="Save changes to this session?"
-          body="You have edits that haven't been saved."
+          title="Leave without saving?"
+          body="You'll lose the changes you made to this session."
           onCancel={() => setLeaveTo(null)}
           actions={[
-            { label: 'Save', primary: true, onClick: async () => {
+            { label: 'Save and leave', primary: true, onClick: async () => {
               const go = leaveTo;
               setLeaveTo(null);
               if (await handleSave()) go();
             } },
-            { label: "Don't save", danger: true, onClick: () => {
+            { label: 'Leave without saving', danger: true, onClick: () => {
               const go = leaveTo;
               setLeaveTo(null);
               discardSessionDraft(selectedSessionId);

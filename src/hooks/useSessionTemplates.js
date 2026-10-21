@@ -1,45 +1,26 @@
 import { useCallback } from 'react';
-import { useLocalStorage } from './useLocalStorage';
-import { SESSION_TEMPLATES_KEY } from '../constants/storage';
 import { uid, nowIso } from '../utils/helpers';
+import { useStore, getState, templates as templateStore } from '../data/store';
 
-// User-defined session templates. A template is { id, name, exerciseIds[],
-// updatedAt }. exerciseIds reference items in the library (SECTION_LIBRARY_KEY)
-// — they're resolved fresh at session-creation time so library edits flow
-// through to future sessions. Templates live in localStorage only for now;
-// sync can be layered on later.
+// User-defined session templates: { id, name, exerciseIds[], version }.
+// exerciseIds reference library items and are resolved fresh at
+// session-creation time, so library edits flow through to future sessions.
+// Stored in the coach's account (session_templates table).
 export default function useSessionTemplates() {
-  const [store, setStore] = useLocalStorage(SESSION_TEMPLATES_KEY, {
-    version: 1,
-    items: [],
-  });
-
-  const templates = store.items || [];
+  const templates = useStore(s => s.templates);
 
   const saveTemplate = useCallback((template) => {
-    const name = (template?.name || '').trim() || 'Untitled template';
-    const exerciseIds = Array.isArray(template?.exerciseIds) ? template.exerciseIds : [];
-    setStore(prev => {
-      const items = prev.items || [];
-      const existingIdx = template?.id ? items.findIndex(t => t.id === template.id) : -1;
-      const next = {
-        id: template?.id || uid(),
-        name,
-        exerciseIds,
-        updatedAt: nowIso(),
-      };
-      if (existingIdx >= 0) {
-        const merged = [...items];
-        merged[existingIdx] = next;
-        return { ...prev, items: merged };
-      }
-      return { ...prev, items: [...items, next] };
+    const existing = template?.id ? getState().templates.find(t => t.id === template.id) : null;
+    templateStore.put({
+      id: existing?.id || template?.id || uid(),
+      version: existing?.version ?? null,
+      name: (template?.name || '').trim() || 'Untitled template',
+      exerciseIds: Array.isArray(template?.exerciseIds) ? template.exerciseIds : [],
+      updatedAt: nowIso(),
     });
-  }, [setStore]);
+  }, []);
 
-  const deleteTemplate = useCallback((id) => {
-    setStore(prev => ({ ...prev, items: (prev.items || []).filter(t => t.id !== id) }));
-  }, [setStore]);
+  const deleteTemplate = useCallback((id) => templateStore.remove(id), []);
 
   return { templates, saveTemplate, deleteTemplate };
 }

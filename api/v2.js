@@ -4,7 +4,7 @@ import { authenticate, resolveUser, verifyDevice, sendError } from './_lib/auth.
 import { redis } from './_lib/redis.js';
 import { mirrorTeamsBlob, mirrorLibraryBlob } from './_lib/dualWrite.js';
 import { versionedWrite, softDelete, readBaseVersion } from './_lib/versioned.js';
-import { teamFromRow, sessionFromRow, gameFromRow, libraryItemFromRow, diagramFromRow } from './_lib/shapes.js';
+import { teamFromRow, sessionFromRow, gameFromRow, libraryItemFromRow, diagramFromRow, templateFromRow } from './_lib/shapes.js';
 
 // Routed via vercel.json rewrite: /api/v2/:slug* → /api/v2?slug=:slug*
 
@@ -44,6 +44,9 @@ import { teamFromRow, sessionFromRow, gameFromRow, libraryItemFromRow, diagramFr
 //   GET    /library/hidden                   list
 //   POST   /library/hidden                   add   body: { kind, id }
 //   DELETE /library/hidden/:kind/:id
+//   PUT    /templates/:id                    upsert a session template
+//   DELETE /templates/:id
+//   POST   /favorites                        body: { kind, key, favorite: bool }
 //   GET    /diagrams                         list
 //   PUT    /diagrams/:id                     upsert
 //   DELETE /diagrams/:id
@@ -86,6 +89,8 @@ export default async function handler(req, res) {
     if (root === 'games') return routeGames(a, req, res, auth);
     if (root === 'diagrams') return routeDiagrams(a, req, res, auth);
     if (root === 'library') return routeLibrary(a, b, c, req, res, auth);
+    if (root === 'templates') return routeTemplates(a, req, res, auth);
+    if (root === 'favorites') return routeFavorites(req, res, auth);
 
     return sendError(res, 404, 'not_found');
   } catch (e) {
@@ -122,7 +127,7 @@ async function routeCoach(coachId, req, res, auth) {
 
 // ---------- account ----------
 
-const COACH_TABLES = ['games', 'sessions', 'teams', 'library_exercises', 'library_sessions', 'library_hidden', 'diagrams'];
+const COACH_TABLES = ['games', 'sessions', 'teams', 'library_exercises', 'library_sessions', 'library_hidden', 'diagrams', 'session_templates', 'favorites'];
 
 async function routeAccount(action, req, res) {
   const user = await resolveUser(req);
@@ -197,13 +202,15 @@ async function routeSnapshot(req, res, auth) {
   if (req.method !== 'GET') return sendError(res, 405, 'method_not_allowed');
   const c = auth.coachId;
   const live = (table) => supabase.from(table).select('*').eq('coach_id', c).is('deleted_at', null);
-  const [teamsR, sessionsR, gamesR, exR, libSessR, hiddenR, diagramsR] = await Promise.all([
+  const [teamsR, sessionsR, gamesR, exR, libSessR, hiddenR, diagramsR, templatesR, favoritesR] = await Promise.all([
     live('teams'), live('sessions'), live('games'),
     live('library_exercises'), live('library_sessions'),
     supabase.from('library_hidden').select('*').eq('coach_id', c),
     live('diagrams'),
+    live('session_templates'),
+    supabase.from('favorites').select('*').eq('coach_id', c),
   ]);
-  const failed = [teamsR, sessionsR, gamesR, exR, libSessR, hiddenR, diagramsR].find(r => r.error);
+  const failed = [teamsR, sessionsR, gamesR, exR, libSessR, hiddenR, diagramsR, templatesR, favoritesR].find(r => r.error);
   if (failed) { console.error('[snapshot]', failed.error); return sendError(res, 500, 'server_error'); }
 
   const sessionsByTeam = groupBy(sessionsR.data, 'team_id', sessionFromRow);
@@ -220,6 +227,12 @@ async function routeSnapshot(req, res, auth) {
     else if (h.entity_kind === 'session') hidden.sessions.push(h.entity_id);
   }
 
+  const favorites = { sessions: [], exercises: [], diagrams: [] };
+  for (const f of favoritesR.data) {
+    const list = favorites[`${f.kind}s`];
+    if (list) list.push(f.key);
+  }
+
   return res.status(200).json({
     success: true,
     coach: { coachId: c, defaultTeamId: auth.coach.default_team_id || null },
@@ -230,6 +243,8 @@ async function routeSnapshot(req, res, auth) {
     },
     hidden,
     diagrams: diagramsR.data.map(diagramFromRow),
+    templates: templatesR.data.map(templateFromRow),
+    favorites,
     serverTime: new Date().toISOString(),
   });
 }
@@ -524,6 +539,44 @@ async function routeDiagrams(id, req, res, auth) {
   }
 
   return sendError(res, 405, 'method_not_allowed');
+}
+
+// ---------- session templates ----------
+
+async function routeTemplates(id, req, res, auth) {
+  if (!id) return sendError(res, 405, 'method_not_allowed');
+  if (req.method === 'PUT') {
+    const { name, exerciseIds } = req.body || {};
+    if (!name) return sendError(res, 400, 'missing_name');
+    const result = await versionedWrite('session_templates', {
+      id,
+      coachId: auth.coachId,
+      baseVersion: readBaseVersion(req.body),
+      fields: { name, exercise_ids: Array.isArray(exerciseIds) ? exerciseIds : [] },
+    });
+    return sendWrite(res, result, templateFromRow, 'template');
+  }
+  if (req.method === 'DELETE') {
+    await softDelete('session_templates', { id, coachId: auth.coachId });
+    return res.status(200).json({ success: true });
+  }
+  return sendError(res, 405, 'method_not_allowed');
+}
+
+// ---------- favorites ----------
+
+const FAVORITE_KINDS = new Set(['session', 'exercise', 'diagram']);
+
+// Keys are names (may contain '/'), so they travel in the body, not the path.
+async function routeFavorites(req, res, auth) {
+  if (req.method !== 'POST') return sendError(res, 405, 'method_not_allowed');
+  const { kind, key, favorite } = req.body || {};
+  if (!FAVORITE_KINDS.has(kind) || !key) return sendError(res, 400, 'missing_fields');
+  const { error } = favorite === false
+    ? await supabase.from('favorites').delete().eq('coach_id', auth.coachId).eq('kind', kind).eq('key', String(key))
+    : await supabase.from('favorites').upsert({ coach_id: auth.coachId, kind, key: String(key) });
+  if (error) return sendError(res, 500, 'server_error');
+  return res.status(200).json({ success: true });
 }
 
 // ---------- library ----------
