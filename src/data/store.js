@@ -377,11 +377,26 @@ function announceChange() {
 let started = false;
 let lastFocusLoad = 0;
 
+// The sign-in email's link points at PlayBall itself
+// (/auth/confirm?token_hash=…&type=email) rather than at Supabase's domain —
+// a link to an unrelated domain is a strong spam signal. Finish that sign-in
+// here, then tidy the URL.
+async function finishEmailLinkSignIn() {
+  const url = new URL(window.location.href);
+  const tokenHash = url.searchParams.get('token_hash');
+  if (!tokenHash) return;
+  const type = url.searchParams.get('type') || 'email';
+  const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
+  window.history.replaceState({}, '', '/');
+  if (error) toast(`That sign-in link didn't work (${error.message}). Request a new code.`, 5000);
+}
+
 export async function startStore() {
   if (started) return;
   started = true;
 
   if (supabase) {
+    await finishEmailLinkSignIn();
     const { data } = await supabase.auth.getSession();
     setAuthSession(data?.session);
     supabase.auth.onAuthStateChange((event, session) => {
