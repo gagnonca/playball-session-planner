@@ -36,6 +36,7 @@ const EMPTY = {
   diagrams: [],
   templates: [],           // [{ id, name, exerciseIds, version }]
   favorites: { sessions: [], exercises: [], diagrams: [] },
+  published: [],           // my Community items: [{ id, kind, sourceId, title, hidden, updatedAt }]
   drafts: {},              // sessionId → { teamId, base, value }
 };
 
@@ -256,6 +257,7 @@ function stateFromSnapshot(snap) {
       exercises: snap.favorites?.exercises || [],
       diagrams: snap.favorites?.diagrams || [],
     },
+    published: snap.published || [],
   };
   // Re-apply writes still in flight so they don't visibly revert.
   for (const o of overrides.values()) {
@@ -339,6 +341,7 @@ function scheduleCacheWrite() {
       diagrams: s.diagrams,
       templates: s.templates,
       favorites: s.favorites,
+      published: s.published,
     });
   }, 1500);
 }
@@ -680,6 +683,44 @@ export const templates = {
   put(template) { upsert('template', template); },
   remove(id) { return remove('template', id); },
 };
+
+// ---------------------------------------------------------------------------
+// Community publishing (see api/v2.js → routePublic)
+// ---------------------------------------------------------------------------
+
+export function findPublished(s, kind, sourceId) {
+  return s.published.find(p => p.kind === kind && p.sourceId === sourceId) || null;
+}
+
+// Publish (or update the public copy of) one of my items. The server keeps
+// only text + vector diagram data from `payload`. Returns { ok } | { error }.
+export async function publishItem(kind, sourceId, { title, tags, payload }) {
+  if (state.demo) return { error: 'Create a free account to publish to the Community.' };
+  try {
+    const res = await request('POST', '/api/v2/public', { kind, sourceId, title, tags, payload });
+    const others = state.published.filter(p => !(p.kind === kind && p.sourceId === sourceId));
+    setState({ published: [...others, res.item] });
+    announceChange();
+    return { ok: true, item: res.item };
+  } catch (e) {
+    return { error: e.body?.message || describe(e) };
+  }
+}
+
+export async function unpublishItem(kind, sourceId) {
+  const item = findPublished(state, kind, sourceId);
+  if (!item) return { ok: true };
+  const before = state.published;
+  setState({ published: before.filter(p => p.id !== item.id) });
+  try {
+    await request('DELETE', `/api/v2/public/${enc(item.id)}`);
+    announceChange();
+    return { ok: true };
+  } catch (e) {
+    setState({ published: before });
+    return { error: describe(e) };
+  }
+}
 
 // kind: 'session' | 'exercise' | 'diagram'
 export async function setFavorite(kind, key, favorite) {

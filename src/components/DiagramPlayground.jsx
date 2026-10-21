@@ -856,6 +856,46 @@ function ToolRail({ tool, onTool }) {
 
 // --- Inspector --------------------------------------------------------------
 
+// Read-only render of a diagram from its vector data (shapes + pitch),
+// drawn with exactly the editor's pieces. Used wherever we must not trust an
+// image — the public Community shows diagrams only this way.
+export function DiagramStatic({ diagram, width = 320, stageRef }) {
+  const shapes = Array.isArray(diagram?.shapes) ? diagram.shapes : [];
+  const pitchSize = diagram?.pitchSize || DEFAULT_PITCH_SIZE;
+  const pitchView = diagram?.pitchView || DEFAULT_PITCH_VIEW;
+  const isVertical = diagram?.orientation === 'vertical';
+  const fieldAspect = pitchAspectFor(pitchSize, pitchView);
+  const displayAspect = isVertical ? 1 / fieldAspect : fieldAspect;
+  const stageW = Math.round(width);
+  const stageH = Math.round(width / displayAspect);
+  const scale = (isVertical ? stageH : stageW) / VB_W;
+  const fieldW = VB_W * scale;
+  const fieldH = (VB_W / fieldAspect) * scale;
+  const noop = () => {};
+  return (
+    <Stage ref={stageRef} width={stageW} height={stageH} listening={false}>
+      <Layer listening={false}>
+        <Group rotation={isVertical ? 90 : 0} x={isVertical ? stageW : 0}>
+          <FieldBackground w={fieldW} h={fieldH} size={pitchSize} view={pitchView} />
+          {shapes.map(s => {
+            if (isMarkerKind(s.kind)) {
+              // Markers are fixed-pixel in the editor (~PITCH_MAX_WIDTH wide);
+              // scale them with the pitch here so a thumbnail keeps proportions.
+              const markerScale = (s.scale ?? 1) * (stageW / PITCH_MAX_WIDTH) * (isVertical ? fieldAspect : 1);
+              return <MarkerShape key={s.id} shape={{ ...s, x: s.x * scale, y: s.y * scale, scale: markerScale }} draggable={false} onClick={noop} />;
+            }
+            if (isLineKind(s.kind)) {
+              const pts = pointsOf(s).map(p => ({ x: p.x * scale, y: p.y * scale }));
+              return <LineShape key={s.id} shape={s} scaledPoints={pts} onClick={noop} onDblClick={noop} />;
+            }
+            return null;
+          })}
+        </Group>
+      </Layer>
+    </Stage>
+  );
+}
+
 const KIND_PLURALS = {
   attacker: 'attackers',
   defender: 'defenders',

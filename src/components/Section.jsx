@@ -377,10 +377,6 @@ export default function Section({
                   From library
                 </button>
               )}
-              <label className="btn btn-ghost cursor-pointer" style={{ fontSize: 12.5 }}>
-                Upload image
-                <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-              </label>
             </>
           )}
         </div>

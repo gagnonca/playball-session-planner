@@ -176,12 +176,6 @@ export default function Variation({
             Start from parent
           </button>
         ) : null}
-        {!variation.imageDataUrl && (
-          <label className="btn btn-ghost cursor-pointer" style={{ fontSize: 11.5 }}>
-            Upload
-            <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-          </label>
-        )}
       </div>
 
       <AIField

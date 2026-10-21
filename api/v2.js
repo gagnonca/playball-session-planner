@@ -4,6 +4,7 @@ import { authenticate, resolveUser, verifyDevice, sendError } from './_lib/auth.
 import { redis } from './_lib/redis.js';
 import { mirrorTeamsBlob, mirrorLibraryBlob } from './_lib/dualWrite.js';
 import { versionedWrite, softDelete, readBaseVersion } from './_lib/versioned.js';
+import { sanitizePublic, safeTags } from './_lib/publicContent.js';
 import { teamFromRow, sessionFromRow, gameFromRow, libraryItemFromRow, diagramFromRow, templateFromRow } from './_lib/shapes.js';
 
 // Routed via vercel.json rewrite: /api/v2/:slug* → /api/v2?slug=:slug*
@@ -21,6 +22,13 @@ import { teamFromRow, sessionFromRow, gameFromRow, libraryItemFromRow, diagramFr
 //   POST   /account/claim                    attach (or create) this account's coach
 //                                            body: { legacyCoachId?, legacyDeviceId? }
 //   DELETE /account                          delete the account and all its data
+//   GET    /public                           Community listing (no sign-in) ?kind=&q=&ageGroup=&moment=
+//   GET    /public/:id                       one Community item, full (no sign-in)
+//   POST   /public                           publish / update   body: { kind, sourceId, title, tags, payload }
+//   DELETE /public/:id                       unpublish (owner)
+//   POST   /public/:id/add                   count an "add to my team/library"
+//   POST   /public/:id/report                report an item     body: { reason }
+//   POST   /admin/public-moderate            Bearer MIGRATION_SECRET  body: { id, hidden }
 //   GET    /snapshot                         everything the web app renders
 //   GET    /coaches/:coachId                 bootstrap
 //   GET    /teams                            list
@@ -78,6 +86,7 @@ export default async function handler(req, res) {
     if (root === 'admin') return routeAdmin(a, req, res);
 
     if (root === 'account') return routeAccount(a, req, res);
+    if (root === 'public') return routePublic(a, b, req, res);
 
     const auth = await authenticate(req);
     if (!auth.ok) return res.status(auth.status).json(auth.body);
@@ -127,7 +136,7 @@ async function routeCoach(coachId, req, res, auth) {
 
 // ---------- account ----------
 
-const COACH_TABLES = ['games', 'sessions', 'teams', 'library_exercises', 'library_sessions', 'library_hidden', 'diagrams', 'session_templates', 'favorites'];
+const COACH_TABLES = ['public_reports', 'public_items', 'games', 'sessions', 'teams', 'library_exercises', 'library_sessions', 'library_hidden', 'diagrams', 'session_templates', 'favorites'];
 
 async function routeAccount(action, req, res) {
   const user = await resolveUser(req);
@@ -193,6 +202,125 @@ async function routeAccount(action, req, res) {
   return sendError(res, 405, 'method_not_allowed');
 }
 
+// ---------- public Community ----------
+
+const PUBLIC_KINDS = new Set(['session', 'exercise', 'diagram']);
+const AUTO_HIDE_REPORTS = 3;
+
+// Card-sized view of an item: enough to list and preview it.
+function publicCard(r) {
+  const p = r.payload || {};
+  let preview = null;
+  if (r.kind === 'diagram') preview = p;
+  else if (r.kind === 'exercise') preview = p.diagramData || (p.variations || []).map(v => v.diagramData).find(Boolean) || null;
+  else preview = (p.sections || []).map(s => s.diagramData || (s.variations || []).map(v => v.diagramData).find(Boolean)).find(Boolean) || null;
+  return {
+    id: r.id,
+    kind: r.kind,
+    title: r.title,
+    tags: r.tags || {},
+    preview,
+    sectionNames: r.kind === 'session' ? (p.sections || []).map(s => s.name).filter(Boolean).slice(0, 8) : undefined,
+    sectionCount: r.kind === 'session' ? (p.sections || []).length : undefined,
+    objective: r.kind === 'exercise' ? p.objective : undefined,
+    addCount: r.add_count,
+    updatedAt: r.updated_at,
+  };
+}
+
+async function routePublic(id, action, req, res) {
+  // Browsing needs no account.
+  if (req.method === 'GET' && !id) {
+    const { kind, q, ageGroup, moment } = req.query || {};
+    let query = supabase.from('public_items').select('*')
+      .is('unpublished_at', null).eq('hidden', false)
+      .order('updated_at', { ascending: false }).limit(60);
+    if (PUBLIC_KINDS.has(kind)) query = query.eq('kind', kind);
+    if (ageGroup) query = query.eq('tags->>ageGroup', String(ageGroup));
+    if (moment) query = query.eq('tags->>moment', String(moment));
+    if (q) query = query.ilike('title', `%${String(q).replace(/[%_]/g, '').slice(0, 60)}%`);
+    const { data, error } = await query;
+    if (error) { console.error('[public.list]', error); return sendError(res, 500, 'server_error'); }
+    return res.status(200).json({ success: true, items: data.map(publicCard) });
+  }
+  if (req.method === 'GET' && id && !action) {
+    const { data, error } = await supabase.from('public_items').select('*')
+      .eq('id', id).is('unpublished_at', null).eq('hidden', false).maybeSingle();
+    if (error) return sendError(res, 500, 'server_error');
+    if (!data) return sendError(res, 404, 'not_found', 'This item is no longer in the Community.');
+    return res.status(200).json({ success: true, item: { ...publicCard(data), payload: data.payload } });
+  }
+
+  // Everything else needs a signed-in coach.
+  const auth = await authenticate(req);
+  if (!auth.ok) return res.status(auth.status).json(auth.body);
+
+  if (req.method === 'POST' && !id) {
+    const { kind, sourceId, title, tags, payload } = req.body || {};
+    if (!PUBLIC_KINDS.has(kind) || !sourceId) return sendError(res, 400, 'missing_fields');
+    const clean = sanitizePublic(kind, payload);
+    if (!clean) return sendError(res, 400, 'nothing_to_publish', 'Only diagrams drawn in the PlayBall editor can be published.');
+    const name = String(title || clean.summary?.title || clean.name || '').trim().slice(0, 120);
+    if (!name) return sendError(res, 400, 'missing_title', 'Give it a name before publishing.');
+    const now = new Date().toISOString();
+    // Re-publishing the same source updates its public copy (same id). A
+    // moderator's hide stays in place.
+    const { data: existing } = await supabase.from('public_items').select('id')
+      .eq('coach_id', auth.coachId).eq('kind', kind).eq('source_id', String(sourceId)).maybeSingle();
+    const row = {
+      id: existing?.id || `pub_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`,
+      coach_id: auth.coachId, kind, source_id: String(sourceId),
+      title: name, tags: safeTags(tags), payload: clean,
+      updated_at: now, unpublished_at: null,
+      ...(existing ? {} : { published_at: now }),
+    };
+    const { data, error } = await supabase.from('public_items').upsert(row).select().single();
+    if (error) { console.error('[public.publish]', error); return sendError(res, 500, 'server_error'); }
+    return res.status(200).json({ success: true, item: { id: data.id, kind, sourceId: data.source_id, title: data.title, hidden: data.hidden, updatedAt: data.updated_at, addCount: data.add_count } });
+  }
+
+  if (req.method === 'DELETE' && id && !action) {
+    const { error } = await supabase.from('public_items')
+      .update({ unpublished_at: new Date().toISOString() })
+      .eq('id', id).eq('coach_id', auth.coachId);
+    if (error) return sendError(res, 500, 'server_error');
+    return res.status(200).json({ success: true });
+  }
+
+  if (req.method === 'POST' && id && action === 'add') {
+    const { data: item } = await supabase.from('public_items').select('add_count')
+      .eq('id', id).is('unpublished_at', null).eq('hidden', false).maybeSingle();
+    if (item) await supabase.from('public_items').update({ add_count: (item.add_count || 0) + 1 }).eq('id', id);
+    return res.status(200).json({ success: true });
+  }
+
+  if (req.method === 'POST' && id && action === 'report') {
+    const reason = String(req.body?.reason || '').slice(0, 500);
+    const { error } = await supabase.from('public_reports').insert({ item_id: id, coach_id: auth.coachId, reason });
+    if (error && error.code !== '23505') { console.error('[public.report]', error); return sendError(res, 500, 'server_error'); }
+    if (!error) {
+      const { count } = await supabase.from('public_reports').select('id', { count: 'exact', head: true }).eq('item_id', id);
+      const reports = count || 0;
+      await supabase.from('public_items')
+        .update({ report_count: reports, ...(reports >= AUTO_HIDE_REPORTS ? { hidden: true } : {}) })
+        .eq('id', id);
+    }
+    return res.status(200).json({ success: true });
+  }
+
+  return sendError(res, 405, 'method_not_allowed');
+}
+
+async function adminPublicModerate(req, res) {
+  const { id, hidden } = req.body || {};
+  if (!id || typeof hidden !== 'boolean') return sendError(res, 400, 'missing_fields');
+  const { data, error } = await supabase.from('public_items')
+    .update({ hidden, ...(hidden ? {} : { report_count: 0 }) }).eq('id', id).select('id, title, hidden');
+  if (error) return sendError(res, 500, 'server_error');
+  if (!hidden) await supabase.from('public_reports').delete().eq('item_id', id);
+  return res.status(200).json({ success: true, item: data?.[0] || null });
+}
+
 // ---------- snapshot ----------
 
 // One round-trip for the whole app: teams (with sessions + games nested the
@@ -202,15 +330,16 @@ async function routeSnapshot(req, res, auth) {
   if (req.method !== 'GET') return sendError(res, 405, 'method_not_allowed');
   const c = auth.coachId;
   const live = (table) => supabase.from(table).select('*').eq('coach_id', c).is('deleted_at', null);
-  const [teamsR, sessionsR, gamesR, exR, libSessR, hiddenR, diagramsR, templatesR, favoritesR] = await Promise.all([
+  const [teamsR, sessionsR, gamesR, exR, libSessR, hiddenR, diagramsR, templatesR, favoritesR, publishedR] = await Promise.all([
     live('teams'), live('sessions'), live('games'),
     live('library_exercises'), live('library_sessions'),
     supabase.from('library_hidden').select('*').eq('coach_id', c),
     live('diagrams'),
     live('session_templates'),
     supabase.from('favorites').select('*').eq('coach_id', c),
+    supabase.from('public_items').select('id, kind, source_id, title, hidden, updated_at, add_count').eq('coach_id', c).is('unpublished_at', null),
   ]);
-  const failed = [teamsR, sessionsR, gamesR, exR, libSessR, hiddenR, diagramsR, templatesR, favoritesR].find(r => r.error);
+  const failed = [teamsR, sessionsR, gamesR, exR, libSessR, hiddenR, diagramsR, templatesR, favoritesR, publishedR].find(r => r.error);
   if (failed) { console.error('[snapshot]', failed.error); return sendError(res, 500, 'server_error'); }
 
   const sessionsByTeam = groupBy(sessionsR.data, 'team_id', sessionFromRow);
@@ -245,6 +374,10 @@ async function routeSnapshot(req, res, auth) {
     diagrams: diagramsR.data.map(diagramFromRow),
     templates: templatesR.data.map(templateFromRow),
     favorites,
+    published: publishedR.data.map(r => ({
+      id: r.id, kind: r.kind, sourceId: r.source_id, title: r.title,
+      hidden: r.hidden, updatedAt: r.updated_at, addCount: r.add_count,
+    })),
     serverTime: new Date().toISOString(),
   });
 }
@@ -660,6 +793,7 @@ async function routeAdmin(action, req, res) {
     return sendError(res, 401, 'unauthorized');
   }
 
+  if (action === 'public-moderate') return adminPublicModerate(req, res);
   if (action === 'migrate') return adminMigrate(req, res);
   if (action === 'import-backup') return adminImportBackup(req, res);
   if (action === 'migrate-images') return adminMigrateImages(req, res);

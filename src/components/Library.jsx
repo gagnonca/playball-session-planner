@@ -12,6 +12,8 @@ import DiagramLibrary from './DiagramLibrary';
 import FilterChipGroup from './FilterChipGroup';
 import SharePopover from './session-builder/SharePopover';
 import ShareModal from './teams/ShareModal';
+import PublishButton from './PublishButton';
+import Community from './Community';
 
 const TABS = ['Sessions', 'Exercises', 'Diagrams', 'Community'];
 
@@ -181,7 +183,7 @@ function ShareControl({ team, sharingContext, syncContext, onOpenShareModal, onS
   );
 }
 
-export default function Library({ teamsContext, libraryHook, diagramLibrary, syncContext, sharingContext, isSignedIn = false, hasAccount = false, onShowSignIn, onShowLinkDevice }) {
+export default function Library({ teamsContext, libraryHook, diagramLibrary, syncContext, sharingContext, hasAccount = false, onShowSignIn, onShowLinkDevice }) {
   const {
     teamsData,
     selectedTeamId,
@@ -866,7 +868,16 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
                             </span>
                           )}
                         </div>
-                        <PinButton pinned={group.pinned} onToggle={() => togglePin('exercises', group.key)} size="sm" />
+                        <span className="inline-flex items-center gap-1.5 shrink-0">
+                          <PublishButton
+                            kind="exercise"
+                            sourceId={`ex:${group.key}`}
+                            title={group.name}
+                            tags={{ ageGroup: rep.tags?.ageGroup, moment: rep.tags?.moment, type: rep.type }}
+                            getPayload={() => rep.payload}
+                          />
+                          <PinButton pinned={group.pinned} onToggle={() => togglePin('exercises', group.key)} size="sm" />
+                        </span>
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2">
@@ -1096,7 +1107,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
 
         {/* ===== COMMUNITY TAB ===== */}
         {activeTabLabel === 'Community' && (
-          <CommunityTab isSignedIn={isSignedIn} onSignIn={() => onShowSignIn?.()} />
+          <Community onSignIn={() => onShowSignIn?.()} createSessionOnTeam={teamsContext.createSession} />
         )}
 
         {/* ===== SESSIONS TAB ===== */}
@@ -1376,47 +1387,3 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
   );
 }
 
-// Community tab — anyone can browse. Publishing is the only thing gated:
-// guests see a small hint pointing to the (optional, free) account.
-function CommunityTab({ isSignedIn, onSignIn }) {
-  return (
-    <>
-      <div className="card p-12 text-center" style={{ background: 'var(--bg-elev)' }}>
-        <div className="eyebrow mb-3">COMING SOON</div>
-        <h3 className="text-[18px] font-semibold mb-2" style={{ letterSpacing: '-0.015em' }}>
-          Discover sessions from other coaches
-        </h3>
-        <p className="text-[13.5px] max-w-md mx-auto" style={{ color: 'var(--ink-2)' }}>
-          Coaches will be able to publish sessions, exercises, and diagrams here — and decide per item what to share. We&rsquo;re building this carefully so privacy stays the default.
-        </p>
-      </div>
-
-      {!isSignedIn && (
-        <div
-          className="rounded-[14px] p-4 mt-4 flex items-center gap-3"
-          style={{ background: 'var(--bg-elev)', border: '1px solid var(--line)' }}
-        >
-          <div
-            style={{
-              width: 32, height: 32, borderRadius: 9, background: 'var(--accent-soft)',
-              color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 19V5M5 12l7-7 7 7" />
-            </svg>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[13.5px] font-semibold" style={{ color: 'var(--ink)', letterSpacing: '-0.01em' }}>
-              Want to publish your own sessions?
-            </div>
-            <div className="text-[12.5px]" style={{ color: 'var(--ink-2)' }}>
-              Browsing is free; publishing needs a free account so other coaches can find your work.
-            </div>
-          </div>
-          <button className="btn btn-secondary" onClick={onSignIn}>Create account</button>
-        </div>
-      )}
-    </>
-  );
-}

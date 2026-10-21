@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { migrateLegacyToShapes, canMigrateDiagram } from '../utils/diagramMigration';
 import FilterChipGroup from './FilterChipGroup';
+import PublishButton from './PublishButton';
 
 export default function DiagramLibrary({ teamsContext, diagramLibrary, embedded = false }) {
   const {
@@ -275,7 +276,19 @@ export default function DiagramLibrary({ teamsContext, diagramLibrary, embedded 
 
                 {/* Info */}
                 <div className="p-4">
-                  <h3 className="font-semibold text-slate-100 truncate">{diagram.name}</h3>
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="font-semibold text-slate-100 truncate">{diagram.name}</h3>
+                    {!isInsertMode && (
+                      <PublishButton
+                        kind="diagram"
+                        sourceId={diagram.id}
+                        title={diagram.name}
+                        tags={{ ageGroup: diagram.tags?.ageGroup, moment: diagram.tags?.moments?.[0] || diagram.tags?.moment, type: diagram.tags?.type }}
+                        getPayload={() => ({ shapes: diagram.shapes, pitchSize: diagram.pitchSize, pitchView: diagram.pitchView, orientation: diagram.orientation })}
+                        disabledReason={Array.isArray(diagram.shapes) && diagram.shapes.length ? null : 'Open it in the editor and redraw it first — only drawn diagrams can be published'}
+                      />
+                    )}
+                  </div>
                   {diagram.description && (
                     <p className="text-sm text-slate-400 mt-1 line-clamp-2">{diagram.description}</p>
                   )}

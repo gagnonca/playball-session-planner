@@ -3,14 +3,13 @@ import React, { useEffect, useRef } from 'react';
 // 320px share-scope popover anchored to the SessionBuilder topbar.
 // Three states, gated by what the user has actually turned on:
 //
-//   Private    | Co-coaches                       | Public
-//   ---------- | -------------------------------- | -------------------
-//   always ok  | needs sync (pairing identity)    | needs an account
+//   Private    | Co-coaches                  | Public
+//   ---------- | --------------------------- | ----------------------------
+//   only you   | the team's read-only link   | a copy in the public Community
 //
-// The current backend models share scope per-team, not per-session — so
-// flipping to "Co-coaches" actually shares the parent team and everything
-// in it. The cascading explainer is honest about that. Per-item scope is
-// listed in the open-questions section of the design handoff.
+// Co-coaches is per team (the link shows every session in the team). Public
+// is per session: it publishes a copy of this saved session — text and
+// drawn diagrams only, never images — that any coach can add to a team.
 
 function ShareOption({ icon, label, body, selected, disabled, lockHint, onClick }) {
   return (
@@ -81,7 +80,10 @@ export default function SharePopover({
   diagramCount = 0,
   onMakePrivate,       // revoke team sharing
   onMakeCoCoaches,     // open ShareModal to generate link
-  onTurnOnSync,        // open LinkDeviceModal
+  onTurnOnSync,        // sign up (demo)
+  onMakePublic,        // publish this session to the Community
+  onUpdatePublic,      // re-publish the current saved version
+  publicHidden = false, // hidden by moderation after reports
 }) {
   const popoverRef = useRef(null);
 
@@ -102,8 +104,6 @@ export default function SharePopover({
   }, [open, onClose, anchorRef]);
 
   if (!open) return null;
-
-  const showCascading = current === 'coaches' || current === 'public';
 
   return (
     <div
@@ -179,23 +179,31 @@ export default function SharePopover({
               <path d="M3 12h18M12 3a13 13 0 010 18M12 3a13 13 0 000 18" />
             </svg>
           }
+          onClick={current === 'public' ? undefined : onMakePublic}
           label="Public"
-          body="Listed in the Community for any coach to find."
+          body="A copy in the Community that any coach can add to their team."
         />
       </div>
 
-      {showCascading && (
-        <div
-          className="rounded-[10px] mt-2.5 p-2.5"
-          style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)' }}
-        >
+      {current === 'public' && (
+        <div className="rounded-[10px] mt-2.5 p-2.5" style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)' }}>
           <div className="text-[12px]" style={{ color: 'var(--ink)' }}>
-            <strong style={{ fontWeight: 600 }}>Also shares</strong> the{' '}
-            <strong style={{ fontWeight: 600 }}>{exerciseCount}</strong> exercise{exerciseCount === 1 ? '' : 's'} and{' '}
-            <strong style={{ fontWeight: 600 }}>{diagramCount}</strong> diagram{diagramCount === 1 ? '' : 's'} used here.
+            {publicHidden
+              ? 'Hidden from the Community after reports. Contact support@getplayball.app if this is a mistake.'
+              : 'Published. Your later edits stay private until you update the public copy.'}
+          </div>
+          <div className="flex gap-2 mt-2">
+            <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: 12 }} onClick={onUpdatePublic}>Update public copy</button>
           </div>
           <div className="text-[11.5px] mt-1.5" style={{ color: 'var(--ink-3)' }}>
-            Sharing scope is currently per team — every session inside the team becomes visible to co-coaches with the link. Per-item scope is coming.
+            Includes the {exerciseCount} exercise{exerciseCount === 1 ? '' : 's'} and drawn diagrams in it. Uploaded images are never published, and your name isn't shown.
+          </div>
+        </div>
+      )}
+      {current === 'coaches' && (
+        <div className="rounded-[10px] mt-2.5 p-2.5" style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)' }}>
+          <div className="text-[11.5px]" style={{ color: 'var(--ink-3)' }}>
+            Co-coaches is per team: everyone with the team link sees every session in it, read-only.
           </div>
         </div>
       )}

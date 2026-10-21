@@ -10,7 +10,7 @@ import SessionRail from './SessionRail';
 import SharePopover from './SharePopover';
 import { planTotal, parseMinutes, countReferenced } from '../../utils/sessionDuration';
 import useAI from '../../hooks/useAI';
-import { useStore, isDraftDirty, isDraftStale } from '../../data/store';
+import { useStore, isDraftDirty, isDraftStale, getState, findSession, findPublished, publishItem, unpublishItem } from '../../data/store';
 import { setLeaveGuard } from '../../hooks/useTeams';
 import { VIEWS } from '../../constants/navigation';
 import {
@@ -565,10 +565,34 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
   const syncEnabled = Boolean(syncContext?.isSyncEnabled);
   const hasAccount = Boolean(accountContext?.isSignedIn);
   const isTeamShared = Boolean(team?.sharing?.isShared && team?.sharing?.shareToken);
-  const shareScope = isTeamShared ? 'coaches' : 'private';
+  const publishedCopy = useStore(st => findPublished(st, 'session', selectedSessionId));
+  const shareScope = publishedCopy ? 'public' : isTeamShared ? 'coaches' : 'private';
+
+  // Public = a copy of the SAVED session in the Community (unsaved edits are
+  // saved first). Moving back down to Co-coaches/Private unpublishes it.
+  const publishSaved = async (isUpdate) => {
+    setSharePopoverOpen(false);
+    if (dirty && !(await handleSave())) return;
+    if (!isUpdate && !window.confirm('Publish this session to the PlayBall Community?\n\nAny coach can view it and add a copy to their team. Your name is not shown, and uploaded images are never published. You can unpublish any time.')) return;
+    const saved = findSession(getState(), selectedTeamId, selectedSessionId);
+    if (!saved) return;
+    const r = await publishItem('session', selectedSessionId, {
+      title: saved.summary?.title || 'Untitled session',
+      tags: { ageGroup: saved.summary?.ageGroup, moment: saved.summary?.moment },
+      payload: sessionToLibraryPayload(saved),
+    });
+    toast(r.ok ? (isUpdate ? 'Public copy updated' : 'Published to the Community') : r.error, r.ok ? 1600 : 4000);
+  };
+  const unpublishIfPublic = async () => {
+    if (!publishedCopy) return true;
+    const r = await unpublishItem('session', selectedSessionId);
+    if (!r.ok) toast(`Couldn't unpublish — ${r.error}`);
+    return r.ok;
+  };
   const refCounts = countReferenced(session.sections);
 
   const handleMakePrivate = async () => {
+    if (!(await unpublishIfPublic())) return;
     if (!sharingContext || !team?.sharing?.shareToken) {
       // Already private — just close.
       setSharePopoverOpen(false);
@@ -585,8 +609,10 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
     }
   };
 
-  const handleMakeCoCoaches = () => {
+  const handleMakeCoCoaches = async () => {
     setSharePopoverOpen(false);
+    if (!(await unpublishIfPublic())) return;
+    if (isTeamShared) return;
     if (!syncEnabled) {
       onShowLinkDevice?.();
       return;
@@ -670,6 +696,9 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
               diagramCount={refCounts.diagrams}
               onMakePrivate={handleMakePrivate}
               onMakeCoCoaches={handleMakeCoCoaches}
+              onMakePublic={() => publishSaved(false)}
+              onUpdatePublic={() => publishSaved(true)}
+              publicHidden={Boolean(publishedCopy?.hidden)}
               onTurnOnSync={() => { setSharePopoverOpen(false); onShowLinkDevice?.(); }}
             />
           </div>
