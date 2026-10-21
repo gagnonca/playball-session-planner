@@ -54,8 +54,10 @@ export default function useAccount() {
     if (error) throw error;
   }, []);
 
+  // Back to the front page (sign-in) rather than wherever you were.
   const signOut = useCallback(async () => {
     if (supabase) await supabase.auth.signOut();
+    window.history.replaceState({}, '', '/');
   }, []);
 
   // Permanently deletes the account and every team, session, game, library
@@ -63,6 +65,7 @@ export default function useAccount() {
   const deleteAccount = useCallback(async () => {
     await request('DELETE', '/api/v2/account', { confirm: 'DELETE' });
     if (supabase) await supabase.auth.signOut();
+    window.history.replaceState({}, '', '/');
   }, []);
 
   return {

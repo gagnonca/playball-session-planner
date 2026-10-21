@@ -286,9 +286,14 @@ async function claimAccount() {
 
 let loadPromise = null;
 let cacheTimer = null;
+// Bumped on every sign-in / sign-out (resetStore): a load that started under
+// the previous account finishes into the void instead of overwriting state.
+let generation = 0;
 
 export function load() {
   if (loadPromise) return loadPromise;
+  const myGen = generation;
+  const stale = () => myGen !== generation;
   loadPromise = (async () => {
     if (state.demo) return;
     if (!isSignedIn()) {
@@ -298,6 +303,7 @@ export function load() {
     const userKey = identityKey();
     if (!state.teamsData) {
       const cached = await readCachedSnapshot(userKey);
+      if (stale()) return;
       if (cached && !state.teamsData) {
         setState({ ...stateFromSnapshot(cached), status: 'ready', source: 'cache' });
       } else if (!cached) {
@@ -313,13 +319,21 @@ export function load() {
         await claimAccount();
         snap = await request('GET', '/api/v2/snapshot');
       }
+      if (stale()) return;
       setState({ ...stateFromSnapshot(snap), status: 'ready', source: 'server', error: null, lastLoadedAt: Date.now() });
       writeCachedSnapshot(userKey, snap);
     } catch (e) {
+      if (stale()) return;
+      // Signed out (or the session ended) mid-load: that's the sign-in page,
+      // not a server problem.
+      if (e.status === 401 && !isSignedIn()) {
+        setState({ ...EMPTY, status: 'signed-out', drafts: state.drafts });
+        return;
+      }
       console.error('[store] snapshot failed', e);
       setState({ status: state.teamsData ? 'ready' : 'error', error: e });
     }
-  })().finally(() => { loadPromise = null; });
+  })().finally(() => { if (!stale()) loadPromise = null; });
   return loadPromise;
 }
 
@@ -410,6 +424,8 @@ export async function startStore() {
 
 // Identity changed (sync turned on, device paired/unpaired): start over.
 export function resetStore() {
+  generation += 1;
+  loadPromise = null;
   clearTimeout(reloadTimer);
   overrides.clear();
   queues.clear();
