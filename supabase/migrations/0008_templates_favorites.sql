@@ -33,3 +33,7 @@ create table if not exists favorites (
   created_at  timestamptz not null default now(),
   primary key (coach_id, kind, key)
 );
+
+-- Locked to the API server (service role), like every PlayBall table: see 0009.
+alter table session_templates enable row level security;
+alter table favorites enable row level security;
