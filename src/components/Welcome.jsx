@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { googleButtonAvailable, renderGoogleButton } from '../data/googleSignIn';
 import playballIcon from '../assets/playball-icon.png';
 
 // Signed-out landing. PlayBall keeps every coach's data in their account, so
@@ -37,6 +38,18 @@ function ProviderButton({ onClick, children, disabled }) {
   );
 }
 
+// Google's own button (it names PlayBall, not Supabase, on Google's screen).
+function GoogleButton({ disabled, onError, onStart }) {
+  const ref = useRef(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!ref.current) return;
+    renderGoogleButton(ref.current, { onError, onStart }).catch(e => { setFailed(true); onError?.(e.message); });
+  }, [onError, onStart]);
+  if (failed) return null;
+  return <div ref={ref} className="w-full flex justify-center" style={{ minHeight: 44, opacity: disabled ? 0.5 : 1, pointerEvents: disabled ? 'none' : 'auto' }} />;
+}
+
 export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity }) {
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
@@ -45,6 +58,9 @@ export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity
   const [error, setError] = useState('');
 
   const configured = accountContext?.authConfigured;
+  // Stable callbacks so Google's button isn't re-drawn on every render.
+  const setGoogleError = React.useCallback((msg) => setError(msg || 'Google sign-in failed. Try again.'), []);
+  const clearError = React.useCallback(() => setError(''), []);
 
   const run = async (fn) => {
     setError('');
@@ -114,10 +130,14 @@ export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity
 
           {stage === 'start' && (
             <div className="flex flex-col gap-2.5">
-              <ProviderButton disabled={busy || !configured} onClick={() => run(accountContext.signInWithGoogle)}>
-                <svg className="w-4 h-4" viewBox="0 0 24 24" aria-hidden><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5a5.6 5.6 0 01-2.4 3.6v3h3.9c2.3-2.1 3.5-5.2 3.5-8.7z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-2.9l-3.9-3c-1.1.7-2.5 1.2-4.1 1.2-3.1 0-5.8-2.1-6.7-5H1.3v3.1A12 12 0 0012 24z"/><path fill="#FBBC05" d="M5.3 14.3a7.2 7.2 0 010-4.6V6.6H1.3a12 12 0 000 10.8l4-3.1z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 001.3 6.6l4 3.1c.9-2.9 3.6-4.9 6.7-4.9z"/></svg>
-                Continue with Google
-              </ProviderButton>
+              {googleButtonAvailable() ? (
+                <GoogleButton disabled={busy} onError={setGoogleError} onStart={clearError} />
+              ) : (
+                <ProviderButton disabled={busy || !configured} onClick={() => run(accountContext.signInWithGoogle)}>
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" aria-hidden><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5a5.6 5.6 0 01-2.4 3.6v3h3.9c2.3-2.1 3.5-5.2 3.5-8.7z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-2.9l-3.9-3c-1.1.7-2.5 1.2-4.1 1.2-3.1 0-5.8-2.1-6.7-5H1.3v3.1A12 12 0 0012 24z"/><path fill="#FBBC05" d="M5.3 14.3a7.2 7.2 0 010-4.6V6.6H1.3a12 12 0 000 10.8l4-3.1z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 001.3 6.6l4 3.1c.9-2.9 3.6-4.9 6.7-4.9z"/></svg>
+                  Continue with Google
+                </ProviderButton>
+              )}
               <ProviderButton disabled={busy || !configured} onClick={() => run(accountContext.signInWithApple)}>
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M16.4 12.6c0-2.4 2-3.5 2-3.6-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.8-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.7zM14.1 5.6c.6-.8 1.1-1.9 1-3-1 0-2.1.6-2.8 1.4-.6.7-1.2 1.8-1 2.9 1.1.1 2.1-.5 2.8-1.3z"/></svg>
                 Continue with Apple
