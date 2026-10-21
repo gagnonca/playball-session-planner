@@ -157,10 +157,35 @@ async function routeAccount(action, req, res) {
   }
 
   if (action === 'claim' && req.method === 'POST') {
-    if (mine) return res.status(200).json({ success: true, coachId: mine.coach_id, claimed: false });
-
     const now = new Date().toISOString();
     const { legacyCoachId, legacyDeviceId } = req.body || {};
+
+    if (mine) {
+      // Already has a coach. If that coach is still EMPTY (e.g. the account
+      // was first used on a browser with no PlayBall data) and this browser
+      // is linked to an older, unclaimed coach, move the account over to the
+      // older coach so its data isn't stranded. A coach with any teams is
+      // never switched away from.
+      if (legacyCoachId && legacyDeviceId && legacyCoachId !== mine.coach_id) {
+        const { count } = await supabase.from('teams').select('id', { count: 'exact', head: true })
+          .eq('coach_id', mine.coach_id).is('deleted_at', null);
+        const legacy = await verifyDevice({ headers: { 'x-coach-id': legacyCoachId, 'x-device-id': legacyDeviceId }, query: {} });
+        if ((count || 0) === 0 && legacy.ok) {
+          const { error: detachErr } = await supabase.from('coaches')
+            .update({ user_id: null, updated_at: now }).eq('coach_id', mine.coach_id).eq('user_id', user.id);
+          if (detachErr) return sendError(res, 500, 'server_error');
+          const { data, error: claimErr } = await supabase.from('coaches')
+            .update({ user_id: user.id, claimed_at: now, updated_at: now })
+            .eq('coach_id', legacyCoachId).is('user_id', null).select('coach_id');
+          if (!claimErr && data?.length === 1) {
+            return res.status(200).json({ success: true, coachId: legacyCoachId, claimed: true, switchedFromEmpty: mine.coach_id });
+          }
+          // Couldn't take the old coach after all: put the account back.
+          await supabase.from('coaches').update({ user_id: user.id }).eq('coach_id', mine.coach_id).is('user_id', null);
+        }
+      }
+      return res.status(200).json({ success: true, coachId: mine.coach_id, claimed: false });
+    }
 
     // This browser was device-linked before accounts existed: adopt that
     // coach (and all its data) — but only if no account owns it yet.

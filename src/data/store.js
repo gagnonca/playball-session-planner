@@ -312,6 +312,10 @@ export function load() {
     }
     try {
       let snap;
+      // A browser still linked to a pre-account coach always offers it at
+      // sign-in (the server adopts it if the account has none, or only an
+      // empty one), so seasons of data never end up stranded.
+      if (readLegacyIdentity()) await claimAccount();
       try {
         snap = await request('GET', '/api/v2/snapshot');
       } catch (e) {
