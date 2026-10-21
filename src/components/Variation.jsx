@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import RichTextEditor from './RichTextEditor';
 import GuidedQAEditor from './GuidedQAEditor';
 import AIField from './AIField';
-import { fileToDataUrl, migrateToGuidedQA, toast } from '../utils/helpers';
+import { migrateToGuidedQA, toast } from '../utils/helpers';
 
 // Variation renders inside a parent Section's variation card. The parent
 // owns the colored header strip + outer border; this component fills the
@@ -32,14 +32,6 @@ export default function Variation({
 
   const handleChange = (field, value) => {
     onUpdate({ ...variation, [field]: value });
-  };
-
-  const handleImageUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const dataUrl = await fileToDataUrl(file);
-    handleChange('imageDataUrl', dataUrl);
-    e.target.value = '';
   };
 
   const handleRemoveImage = () => {

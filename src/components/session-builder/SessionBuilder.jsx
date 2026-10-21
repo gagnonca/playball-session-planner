@@ -263,16 +263,6 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
     setSession(prev => ({ ...prev, sections: nextSections }));
   }, [setSession]);
 
-  const handleSaveToLibrary = useCallback((section, name) => {
-    const entryName = (name || section.name || 'Untitled section').trim() || 'Untitled section';
-    const sessionContext = {
-      ageGroup: session.summary?.ageGroup || '',
-      moment: session.summary?.moment || '',
-    };
-    libraryHook.saveExercise(section, entryName, sessionContext);
-    toast('Saved to Library ✅');
-  }, [libraryHook, session.summary]);
-
   // Add section handlers
   const handleAddSection = useCallback(() => {
     setIsAddModalOpen(true);
@@ -766,7 +756,6 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
                   handleRemoveSection(activeSection.id);
                   handleSelectSummary();
                 }}
-                onSaveToLibrary={handleSaveToLibrary}
                 onOpenLibrary={() => {
                   setLibraryOpenedFromSectionId(activeSection.id);
                   setIsLibraryModalOpen(true);

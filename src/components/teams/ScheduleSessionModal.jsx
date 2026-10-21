@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { toast, defaultSection, libraryPayloadToSection } from '../../utils/helpers';
+import { toast, defaultSection, libraryPayloadToSection, sectionToLibraryPayload } from '../../utils/helpers';
 import { PPP_TEMPLATES } from '../../constants/coaching';
 import useSessionTemplates from '../../hooks/useSessionTemplates';
 import TemplateEditorModal from './TemplateEditorModal';
@@ -11,12 +11,38 @@ export default function ScheduleSessionModal({ teamsContext, libraryHook, teamId
   const team = getTeam ? getTeam(teamId) : null;
   const { templates, saveTemplate, deleteTemplate } = useSessionTemplates();
 
-  const libraryExercises = libraryHook?.exercises?.items || [];
+  // Templates choose from every exercise the coach has used in any session
+  // (the same set as the Library's Exercises tab), one per name — its most
+  // recent version — plus any exercises saved to the library directly.
+  const manualExercises = libraryHook?.exercises?.items;
+  const allTeams = teamsContext.teamsData?.teams;
+  const libraryExercises = useMemo(() => {
+    const byName = new Map();
+    const offer = (item) => {
+      const key = (item.name || '').trim().toLowerCase();
+      if (!key) return;
+      const prev = byName.get(key);
+      if (!prev || (item.updatedAt || '') > (prev.updatedAt || '')) byName.set(key, item);
+    };
+    for (const t of allTeams || []) {
+      for (const sess of t.sessions || []) {
+        for (const sec of sess.sections || []) {
+          offer({ id: sec.id, name: sec.name, type: sec.type || 'Other', payload: sectionToLibraryPayload(sec), updatedAt: sess.updatedAt || '' });
+        }
+      }
+    }
+    for (const ex of manualExercises || []) offer(ex);
+    return [...byName.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [allTeams, manualExercises]);
+  // Look-ups by id also cover every version, so older templates keep resolving.
   const exercisesById = useMemo(() => {
     const m = {};
-    for (const ex of libraryExercises) m[ex.id] = ex;
+    for (const t of allTeams || []) for (const sess of t.sessions || []) for (const sec of sess.sections || []) {
+      m[sec.id] = { id: sec.id, name: sec.name, type: sec.type, payload: sectionToLibraryPayload(sec) };
+    }
+    for (const ex of manualExercises || []) m[ex.id] = ex;
     return m;
-  }, [libraryExercises]);
+  }, [allTeams, manualExercises]);
 
   const [sessionDate, setSessionDate] = useState('');
   const [showSchedule, setShowSchedule] = useState(false);

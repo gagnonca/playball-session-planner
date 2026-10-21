@@ -4,7 +4,7 @@ import ContextualHelp from './ContextualHelp';
 import RichTextEditor from './RichTextEditor';
 import GuidedQAEditor from './GuidedQAEditor';
 import AIField from './AIField';
-import { fileToDataUrl, defaultVariation, toast, migrateToGuidedQA } from '../utils/helpers';
+import { defaultVariation, toast, migrateToGuidedQA } from '../utils/helpers';
 
 // Kind colors mirror SessionRail tiles for visual continuity.
 function getKindTone(type) {
@@ -117,7 +117,6 @@ export default function Section({
   section,
   onUpdate,
   onRemove,
-  onSaveToLibrary,
   onOpenLibrary,
   teamsContext,
   diagramLibrary,
@@ -149,14 +148,6 @@ export default function Section({
 
   const handleChange = (field, value) => {
     onUpdate({ ...section, [field]: value });
-  };
-
-  const handleImageUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const dataUrl = await fileToDataUrl(file);
-    handleChange('imageDataUrl', dataUrl);
-    e.target.value = '';
   };
 
   const handleRemoveImage = () => {
@@ -194,12 +185,6 @@ export default function Section({
   const handleRemoveVariation = (index) => {
     const newVariations = (section.variations || []).filter((_, i) => i !== index);
     handleChange('variations', newVariations);
-  };
-
-  const handleSaveToLibrary = () => {
-    const name = prompt('Save this section as (name):', section.name || '');
-    if (name === null) return;
-    onSaveToLibrary(section, name);
   };
 
   const buildContext = () => ({
@@ -262,9 +247,6 @@ export default function Section({
                 Library
               </button>
             )}
-            <button onClick={handleSaveToLibrary} className="btn btn-ghost" style={{ fontSize: 12.5 }} title="Save to library">
-              Save
-            </button>
             <button
               onClick={onRemove}
               className="btn btn-ghost"
