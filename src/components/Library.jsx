@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
   libraryPayloadToSection,
+  sectionFromLibraryItem,
   libraryPayloadToSession,
   sectionToLibraryPayload,
   sessionToLibraryPayload,
@@ -313,12 +314,16 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
 
   // Merge manual + auto, preferring manual (explicit user save) when ids collide.
   // Hidden ids are filtered out — their underlying section/session still lives on the team.
+  // Two views of exercises: "Saved" = the ones the coach saved to the library
+  // on purpose; "From your sessions" = every exercise used in any session
+  // (session-only edits live here and never clutter Saved). Defaults to Saved
+  // once there's anything in it.
+  const [exerciseScopeChoice, setExerciseScope] = useState(null);
+  const exerciseScope = exerciseScopeChoice || (manualExerciseItems.length > 0 ? 'saved' : 'sessions');
   const exerciseItems = useMemo(() => {
-    const byId = new Map();
-    for (const item of autoExerciseItems) byId.set(item.id, item);
-    for (const item of manualExerciseItems) byId.set(item.id, { ...item, source: 'manual' });
-    return Array.from(byId.values()).filter(i => !hiddenExerciseSet.has(i.id));
-  }, [manualExerciseItems, autoExerciseItems, hiddenExerciseSet]);
+    if (exerciseScope === 'saved') return manualExerciseItems.map(item => ({ ...item, source: 'manual' }));
+    return autoExerciseItems.filter(i => !hiddenExerciseSet.has(i.id));
+  }, [exerciseScope, manualExerciseItems, autoExerciseItems, hiddenExerciseSet]);
 
   const sessionItems = useMemo(() => {
     const byId = new Map();
@@ -610,7 +615,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
     if (!isInsertMode) return;
     const session = getSession(selectedTeamId, selectedSessionId);
     if (!session) return;
-    const newSection = libraryPayloadToSection(item.payload, item.id);
+    const newSection = sectionFromLibraryItem(item);
     // Into the open session-builder draft; saved with the session.
     teamsContext.editSessionDraft(selectedTeamId, selectedSessionId, prev => ({
       ...prev,
@@ -784,6 +789,22 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
             {/* Filters */}
             <div className="flex flex-col gap-3 mb-6">
               <div className="flex flex-wrap items-center gap-3">
+                <div className="flex gap-1 p-1 rounded-[10px]" style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)' }}>
+                  {[
+                    { id: 'saved', label: `Saved (${manualExerciseItems.length})`, title: 'Exercises you saved to your library' },
+                    { id: 'sessions', label: 'From your sessions', title: 'Every exercise used in any session, including session-only edits' },
+                  ].map(o => (
+                    <button
+                      key={o.id}
+                      title={o.title}
+                      onClick={() => setExerciseScope(o.id)}
+                      className="px-3 py-1.5 rounded-[8px] text-[12.5px]"
+                      style={exerciseScope === o.id ? { background: 'var(--bg-elev)', border: '1px solid var(--line)', fontWeight: 500 } : { border: '1px solid transparent', color: 'var(--ink-2)' }}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
                 <input
                   type="text"
                   placeholder="Search exercises..."

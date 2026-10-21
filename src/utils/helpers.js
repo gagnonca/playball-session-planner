@@ -135,6 +135,7 @@ export function diagramThumbFromPayload(payload) {
 export function sectionToLibraryPayload(section) {
   const s = structuredClone(section);
   delete s.id;
+  delete s.libraryId; // the link belongs to the session's copy, not the library item
   if (Array.isArray(s.variations)) {
     s.variations = s.variations.map(v => {
       const vv = structuredClone(v);
@@ -143,6 +144,41 @@ export function sectionToLibraryPayload(section) {
     });
   }
   return s;
+}
+
+// A session's copy of a library exercise: its own id (the same exercise can
+// appear twice in a session), plus `libraryId` naming the saved library
+// exercise it came from. Copies of exercises from other sessions (Library →
+// "From your sessions", source 'auto') aren't linked to anything.
+export function sectionFromLibraryItem(item) {
+  const s = libraryPayloadToSection(item.payload);
+  if (item.source !== 'auto') s.libraryId = item.id;
+  return s;
+}
+
+// The saved library exercise a session's exercise is linked to, if any.
+// Older copies were linked by giving the section the library item's own id.
+export function libraryLinkFor(section, savedItems) {
+  if (!section) return null;
+  const id = section.libraryId || section.id;
+  return (savedItems || []).find(x => x.id === id) || null;
+}
+
+// What an exercise says (not ids or bookkeeping), for "is this copy still
+// the same as the library version?". Empty / missing values compare equal.
+function exerciseShape(b) {
+  const t = (v) => (v == null ? '' : String(v)).trim();
+  const diagram = (d) => (d && Array.isArray(d.shapes) ? JSON.stringify([d.shapes, d.pitchSize, d.pitchView, d.orientation]) : '');
+  return {
+    name: t(b?.name), type: t(b?.type), time: t(b?.time),
+    objective: t(b?.objective), organization: t(b?.organization), keywords: t(b?.keywords),
+    guidedQA: t(b?.guidedQA), notes: t(b?.notes), image: t(b?.imageDataUrl), diagram: diagram(b?.diagramData),
+  };
+}
+export function sameExerciseContent(a, b) {
+  const va = (a?.variations || []).map(exerciseShape);
+  const vb = (b?.variations || []).map(exerciseShape);
+  return JSON.stringify([exerciseShape(a), va]) === JSON.stringify([exerciseShape(b), vb]);
 }
 
 // Library payload to section.

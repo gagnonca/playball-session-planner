@@ -113,11 +113,52 @@ function varToneFor(idx, total) {
   return 'accent';
 }
 
+// Saving an exercise to the library is separate from saving the session:
+//   none   → "Save to library" adds it as a new saved exercise
+//   same   → "In library ✓" (this copy matches the saved version)
+//   edited → "Library ▾": update the saved version, or keep it as a new one.
+//            Doing neither keeps these edits in this session only.
+function LibrarySaveControl({ status, onSave }) {
+  const [open, setOpen] = React.useState(false);
+  if (status === 'same') {
+    return <span className="px-2 text-[12px]" style={{ color: 'var(--good)' }} title="Matches the version saved in your library">In library ✓</span>;
+  }
+  if (status === 'none') {
+    return (
+      <button onClick={() => onSave('new')} className="btn btn-ghost" style={{ fontSize: 12.5 }} title="Save this exercise to your library to reuse it">
+        Save to library
+      </button>
+    );
+  }
+  return (
+    <span className="relative inline-flex">
+      <button onClick={() => setOpen(o => !o)} className="btn btn-ghost" style={{ fontSize: 12.5 }} title="This differs from the version in your library">
+        Library ▾
+      </button>
+      {open && (
+        <span className="absolute right-0 top-full mt-1 z-30 flex flex-col rounded-[10px] p-1 w-[250px]" style={{ background: 'var(--bg-elev)', border: '1px solid var(--line)', boxShadow: 'var(--shadow-md)' }}>
+          <span className="px-3 py-2 text-[11.5px]" style={{ color: 'var(--ink-3)' }}>
+            Edited here. These changes stay in this session unless you choose:
+          </span>
+          <button className="text-left px-3 py-1.5 rounded-[8px] text-[12.5px] hover:bg-[var(--bg-sunken)]" onClick={() => { setOpen(false); onSave('update'); }}>
+            Update the library version
+          </button>
+          <button className="text-left px-3 py-1.5 rounded-[8px] text-[12.5px] hover:bg-[var(--bg-sunken)]" onClick={() => { setOpen(false); onSave('new'); }}>
+            Save as a new exercise
+          </button>
+        </span>
+      )}
+    </span>
+  );
+}
+
 export default function Section({
   section,
   onUpdate,
   onRemove,
   onOpenLibrary,
+  libraryStatus = 'none',   // 'none' | 'same' | 'edited' — vs. its saved library exercise
+  onSaveToLibrary,          // (mode: 'new' | 'update') => void
   teamsContext,
   diagramLibrary,
   aiContext,
@@ -243,10 +284,11 @@ export default function Section({
           </div>
           <div className="flex items-center gap-1 no-print">
             {onOpenLibrary && (
-              <button onClick={onOpenLibrary} className="btn btn-ghost" style={{ fontSize: 12.5 }} title="Load from library">
+              <button onClick={onOpenLibrary} className="btn btn-ghost" style={{ fontSize: 12.5 }} title="Replace with an exercise from your library">
                 Library
               </button>
             )}
+            {onSaveToLibrary && <LibrarySaveControl status={libraryStatus} onSave={onSaveToLibrary} />}
             <button
               onClick={onRemove}
               className="btn btn-ghost"

@@ -10,14 +10,17 @@ import SessionRail from './SessionRail';
 import SharePopover from './SharePopover';
 import { planTotal, parseMinutes, countReferenced } from '../../utils/sessionDuration';
 import useAI from '../../hooks/useAI';
-import { useStore, isDraftDirty, isDraftStale, getState, findSession, findPublished, publishItem, unpublishItem } from '../../data/store';
+import { useStore, isDraftDirty, isDraftStale, getState, findSession, findPublished, publishItem, unpublishItem, library as libraryStore } from '../../data/store';
 import { setLeaveGuard } from '../../hooks/useTeams';
 import { VIEWS } from '../../constants/navigation';
 import {
   defaultSection,
-  libraryPayloadToSection,
   sectionToLibraryPayload,
   sessionToLibraryPayload,
+  sectionFromLibraryItem,
+  libraryLinkFor,
+  sameExerciseContent,
+  nowIso,
   toast,
   downloadJson,
   uid,
@@ -263,6 +266,46 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
     setSession(prev => ({ ...prev, sections: nextSections }));
   }, [setSession]);
 
+  // ---- Saving an exercise to the library (separate from saving the session)
+  const savedExercises = libraryHook.exercises.items;
+  const libraryStatusFor = useCallback((section) => {
+    const link = libraryLinkFor(section, savedExercises);
+    if (!link) return 'none';
+    return sameExerciseContent(section, link.payload) ? 'same' : 'edited';
+  }, [savedExercises]);
+
+  const [nameClash, setNameClash] = useState(null); // { section, existing }
+  const handleSaveExerciseToLibrary = useCallback((section, mode, { force } = {}) => {
+    const tags = { type: section.type || '', ageGroup: session.summary?.ageGroup || '', moment: session.summary?.moment || '' };
+    const payload = sectionToLibraryPayload(section);
+    let link = libraryLinkFor(section, savedExercises);
+    // Not linked, but a saved exercise already has this name: ask first.
+    if (mode === 'new' && !link && !force) {
+      const existing = savedExercises.find(x => (x.name || '').trim().toLowerCase() === (section.name || '').trim().toLowerCase());
+      if (existing) { setNameClash({ section, existing }); return; }
+    }
+    if (mode === 'update' && !link && force?.existing) {
+      link = force.existing;
+      setSession(prev => ({ ...prev, sections: prev.sections.map(sec => sec.id === section.id ? { ...sec, libraryId: link.id } : sec) }));
+    }
+    if (mode === 'update' && link) {
+      libraryStore.putExercise({ ...link, name: section.name?.trim() || link.name, type: section.type || link.type, tags, payload, updatedAt: nowIso() });
+      toast('Library version updated');
+      return;
+    }
+    // New saved exercise. Never overwrite a different exercise that happens
+    // to share the name: number it instead.
+    const base = section.name?.trim() || 'Untitled exercise';
+    const taken = new Set(savedExercises.map(x => (x.name || '').trim().toLowerCase()));
+    let name = base;
+    for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${base} (${n})`;
+    const id = uid();
+    libraryStore.putExercise({ id, version: null, name, type: section.type || 'Other', tags, payload, updatedAt: nowIso() });
+    // Link this copy to it (saved with the session).
+    setSession(prev => ({ ...prev, sections: prev.sections.map(sec => sec.id === section.id ? { ...sec, libraryId: id } : sec) }));
+    toast(name === base ? 'Saved to your library' : `Saved to your library as "${name}"`);
+  }, [savedExercises, session.summary, setSession]);
+
   // Add section handlers
   const handleAddSection = useCallback(() => {
     setIsAddModalOpen(true);
@@ -396,7 +439,7 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
   // to do an id lookup (which used to silently fail for auto items).
   const handleInsertLibraryItem = useCallback((item) => {
     if (!item) return;
-    const newSection = libraryPayloadToSection(item.payload, item.id);
+    const newSection = sectionFromLibraryItem(item);
 
     setSession(prev => {
       const targetId = libraryInsertMode === 'after-selected' ? prev.selectedSectionId : null;
@@ -420,8 +463,8 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
 
   const handleReplaceWithLibraryItem = useCallback((item) => {
     if (!libraryOpenedFromSectionId || !item) return;
-    // Replace: section now carries the library item's id, so edits flow to that library entry.
-    const newSection = libraryPayloadToSection(item.payload, item.id);
+    // Replace: a fresh copy linked to that library exercise (libraryId).
+    const newSection = sectionFromLibraryItem(item);
 
     setSession(prev => ({
       ...prev,
@@ -760,6 +803,8 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
                   setLibraryOpenedFromSectionId(activeSection.id);
                   setIsLibraryModalOpen(true);
                 }}
+                libraryStatus={libraryStatusFor(activeSection)}
+                onSaveToLibrary={(mode) => handleSaveExerciseToLibrary(activeSection, mode)}
                 teamsContext={teamsContext}
                 diagramLibrary={diagramLibrary}
                 aiContext={{
@@ -851,6 +896,19 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
         >
           This session was saved somewhere else while you were editing. Saving will ask before overwriting.
         </div>
+      )}
+
+      {nameClash && (
+        <ChoiceDialog
+          title={`"${nameClash.existing.name}" is already in your library`}
+          body="Update that saved exercise with this version, or keep both by saving this one as a new exercise?"
+          onCancel={() => setNameClash(null)}
+          actions={[
+            { label: 'Update the library version', primary: true, onClick: () => { const c = nameClash; setNameClash(null); handleSaveExerciseToLibrary(c.section, 'update', { force: { existing: c.existing } }); } },
+            { label: 'Save as a new exercise', onClick: () => { const c = nameClash; setNameClash(null); handleSaveExerciseToLibrary(c.section, 'new', { force: true }); } },
+            { label: 'Cancel', onClick: () => setNameClash(null) },
+          ]}
+        />
       )}
 
       {leaveTo && (
