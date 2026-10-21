@@ -127,6 +127,18 @@ export default function AppShell() {
   }, [storeStatus, storeSource]);
 
   const teamsContext = useTeams();
+
+  // Signing in (from the sign-in page, in this tab) lands on Training, not
+  // wherever the previous session left off. A normal page load keeps its URL.
+  const wasSignedOut = React.useRef(false);
+  useEffect(() => {
+    if (storeStatus === 'signed-out') { wasSignedOut.current = true; return; }
+    if (storeStatus === 'ready' && wasSignedOut.current) {
+      wasSignedOut.current = false;
+      window.history.replaceState({ currentView: VIEWS.TEAMS }, '', '/');
+      teamsContext.navigateToTeams();
+    }
+  }, [storeStatus, teamsContext]);
   const diagramLibrary = useDiagramLibrary();
   const libraryHook = useLibrary();
   const syncContext = useSync();
