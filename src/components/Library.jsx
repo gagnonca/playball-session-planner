@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
   libraryPayloadToSection,
   sectionFromLibraryItem,
+  plainTextPreview,
   libraryPayloadToSession,
   sectionToLibraryPayload,
   sessionToLibraryPayload,
@@ -918,7 +919,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
                       </div>
 
                       {rep.payload?.objective && !isOpen && (
-                        <p className="text-[12.5px] line-clamp-2" style={{ color: 'var(--ink-2)' }}>{rep.payload.objective}</p>
+                        <p className="text-[12.5px] line-clamp-2" style={{ color: 'var(--ink-2)' }}>{plainTextPreview(rep.payload.objective)}</p>
                       )}
 
                       <div className="flex items-center justify-between gap-3 text-[11.5px]" style={{ color: 'var(--ink-3)' }}>
@@ -986,7 +987,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
                                     )}
                                   </div>
                                   {v.payload?.objective && (
-                                    <p className="text-xs text-slate-300 line-clamp-2">{v.payload.objective}</p>
+                                    <p className="text-xs text-slate-300 line-clamp-2">{plainTextPreview(v.payload.objective)}</p>
                                   )}
                                   {v.payload?.notes && (
                                     <p className="text-xs text-slate-500 line-clamp-1"><span className="text-slate-600">Notes: </span>{v.payload.notes}</p>

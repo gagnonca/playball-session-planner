@@ -35,7 +35,7 @@ function FieldThumbnail({ src, label = 'TAP TO DRAW', onClick, dashed = false, l
         // any letterboxing blends into the saved image's own edges.
         background: src
           ? '#475E47'
-          : 'color-mix(in oklab, #6aa365 30%, var(--bg-sunken))',
+          : 'color-mix(in oklab, #475E47 55%, var(--bg-sunken))',
         border: dashed ? '1.5px dashed var(--line-2)' : '1px solid var(--line)',
         cursor: 'pointer',
         padding: 0,
@@ -116,7 +116,7 @@ function varToneFor(idx, total) {
 // Saving an exercise to the library is separate from saving the session:
 //   none   → "Save to library" adds it as a new saved exercise
 //   same   → "In library ✓" (this copy matches the saved version)
-//   edited → "Library ▾": update the saved version, or keep it as a new one.
+//   edited → "Save to library ▾": update the saved version, or save a new one.
 //            Doing neither keeps these edits in this session only.
 function LibrarySaveControl({ status, onSave }) {
   const [open, setOpen] = React.useState(false);
@@ -132,8 +132,9 @@ function LibrarySaveControl({ status, onSave }) {
   }
   return (
     <span className="relative inline-flex">
-      <button onClick={() => setOpen(o => !o)} className="btn btn-ghost" style={{ fontSize: 12.5 }} title="This differs from the version in your library">
-        Library ▾
+      <button onClick={() => setOpen(o => !o)} className="btn btn-ghost" style={{ fontSize: 12.5 }} title="Edited here — differs from the version in your library">
+        <span className="inline-block rounded-full mr-1.5" style={{ width: 6, height: 6, background: 'var(--warn)' }} />
+        Save to library ▾
       </button>
       {open && (
         <span className="absolute right-0 top-full mt-1 z-30 flex flex-col rounded-[10px] p-1 w-[250px]" style={{ background: 'var(--bg-elev)', border: '1px solid var(--line)', boxShadow: 'var(--shadow-md)' }}>
@@ -285,7 +286,7 @@ export default function Section({
           <div className="flex items-center gap-1 no-print">
             {onOpenLibrary && (
               <button onClick={onOpenLibrary} className="btn btn-ghost" style={{ fontSize: 12.5 }} title="Replace with an exercise from your library">
-                Library
+                From library
               </button>
             )}
             {onSaveToLibrary && <LibrarySaveControl status={libraryStatus} onSave={onSaveToLibrary} />}

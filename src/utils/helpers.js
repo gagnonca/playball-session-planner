@@ -146,6 +146,18 @@ export function sectionToLibraryPayload(section) {
   return s;
 }
 
+// Rich-text fields (objective, organization, notes) are stored as HTML.
+// For one-line previews, show just the words.
+export function plainTextPreview(html) {
+  if (!html) return '';
+  return String(html)
+    .replace(/<br\s*\/?>|<\/(p|li|div)>/gi, ' ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // A session's copy of a library exercise: its own id (the same exercise can
 // appear twice in a session), plus `libraryId` naming the saved library
 // exercise it came from. Copies of exercises from other sessions (Library →
