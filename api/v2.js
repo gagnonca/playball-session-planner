@@ -119,7 +119,7 @@ async function routeTeams(id, action, req, res, auth) {
   if (action === 'link-ios') return linkIosShareToTeam(id, req, res, auth);
 
   if (req.method === 'PUT') {
-    const { name, ageGroup, defaultDuration, sharing } = req.body || {};
+    const { name, ageGroup, defaultDuration, sharing, archived } = req.body || {};
     if (!name) return sendError(res, 400, 'missing_name');
     const { data, error } = await supabase.from('teams').upsert({
       id,
@@ -128,6 +128,9 @@ async function routeTeams(id, action, req, res, auth) {
       age_group: ageGroup ?? null,
       default_duration: defaultDuration ?? null,
       sharing: sharing ?? { isShared: false },
+      // Only written when the client sends it, so older clients (and the iOS
+      // mirror) never un-archive a team by omission.
+      ...(typeof archived === 'boolean' ? { archived } : {}),
       updated_at: new Date().toISOString(),
     }).select().single();
     if (error) { console.error('[teams.put]', error); return sendError(res, 500, 'server_error'); }

@@ -259,6 +259,7 @@ function flushDirtyEntities() {
       ageGroup: team.ageGroup ?? null,
       defaultDuration: team.defaultDuration ?? null,
       sharing: team.sharing ?? { isShared: false },
+      archived: !!team.archived,
     });
   }
   _dirtyTeams.clear();
@@ -289,6 +290,7 @@ function putTeamNow(team) {
     ageGroup: team.ageGroup ?? null,
     defaultDuration: team.defaultDuration ?? null,
     sharing: team.sharing ?? { isShared: false },
+    archived: !!team.archived,
   });
 }
 
@@ -321,6 +323,7 @@ async function putAllToPostgres(teamsData) {
           ageGroup: team.ageGroup ?? null,
           defaultDuration: team.defaultDuration ?? null,
           sharing: team.sharing ?? { isShared: false },
+          archived: !!team.archived,
         }),
       });
     } catch (err) {

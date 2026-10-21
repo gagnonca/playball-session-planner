@@ -36,7 +36,8 @@ export default function TeamList({ teamsContext, sharingContext, iosReferral, on
   // straight into that team's Workshop view — picking a team IS the nav.
   React.useEffect(() => {
     if (teams.length > 0 && !selectedTeamId) {
-      navigateToTeamDetail(teams[0].id);
+      // Prefer a current team over a previous-season one.
+      navigateToTeamDetail((teams.find(t => !t.archived) || teams[0]).id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teams.length, selectedTeamId]);

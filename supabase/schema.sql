@@ -16,6 +16,7 @@ create table if not exists teams (
   age_group         text,
   default_duration  text,
   sharing           jsonb not null default '{"isShared":false}'::jsonb,
+  archived          boolean not null default false, -- 0005: previous-season team
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now()
 );

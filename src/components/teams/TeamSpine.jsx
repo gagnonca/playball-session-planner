@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 const TEAM_TONES = ['#c8553d', '#3d7a4a', '#3d5a8a', '#9a5a3a', '#6a4a8a', '#3a6a7a'];
 function teamTone(team) {
@@ -102,7 +102,14 @@ function TeamRow({ team, active, onSelect }) {
 
 // Sticky left rail of teams used on Training Home and Team Detail. The team
 // spine: pick a team here, the right pane updates.
+// Teams marked as a previous season (team.archived) sit in their own
+// collapsible section below the current ones.
 export default function TeamSpine({ teams, activeId, onSelect, onCreateTeam }) {
+  const currentTeams = teams.filter(t => !t.archived);
+  const previousTeams = teams.filter(t => t.archived);
+  const [showPrevious, setShowPrevious] = useState(false);
+  // Always expanded while viewing a previous-season team so it's highlighted.
+  const previousOpen = showPrevious || previousTeams.some(t => t.id === activeId);
   return (
     <aside
       style={{
@@ -152,7 +159,7 @@ export default function TeamSpine({ teams, activeId, onSelect, onCreateTeam }) {
         )}
       </div>
 
-      {teams.length === 0 ? (
+      {currentTeams.length === 0 ? (
         <div
           style={{
             padding: '14px 12px',
@@ -167,9 +174,48 @@ export default function TeamSpine({ teams, activeId, onSelect, onCreateTeam }) {
           A team holds your roster, sessions, and fixtures. Most coaches start with one.
         </div>
       ) : (
-        teams.map(t => (
+        currentTeams.map(t => (
           <TeamRow key={t.id} team={t} active={t.id === activeId} onSelect={onSelect} />
         ))
+      )}
+
+      {previousTeams.length > 0 && (
+        <>
+          <button
+            onClick={() => setShowPrevious(v => !v)}
+            aria-expanded={previousOpen}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              width: '100%',
+              marginTop: 12,
+              padding: '10px 4px 6px',
+              border: 0,
+              borderTop: '1px solid var(--line)',
+              background: 'transparent',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              color: 'var(--ink-3)',
+            }}
+          >
+            <span className="eyebrow">Previous Seasons</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+              {previousTeams.length}
+              <svg
+                width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+                style={{ transform: previousOpen ? 'rotate(90deg)' : 'none', transition: 'transform 120ms' }}
+              >
+                <path d="M9 6l6 6-6 6" />
+              </svg>
+            </span>
+          </button>
+          {previousOpen && previousTeams.map(t => (
+            <div key={t.id} style={{ opacity: t.id === activeId ? 1 : 0.75 }}>
+              <TeamRow team={t} active={t.id === activeId} onSelect={onSelect} />
+            </div>
+          ))}
+        </>
       )}
     </aside>
   );

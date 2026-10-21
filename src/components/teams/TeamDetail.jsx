@@ -358,6 +358,22 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
                     className="input-field w-28"
                   />
                 </div>
+                <label
+                  className="inline-flex items-center gap-2 text-[13px] self-center"
+                  style={{ color: 'var(--ink-2)', cursor: 'pointer' }}
+                  title="Moves this team to the Previous Seasons section of the sidebar. Nothing is deleted."
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!team.archived}
+                    onChange={(e) => {
+                      updateTeam(selectedTeamId, { archived: e.target.checked });
+                      toast(e.target.checked ? 'Moved to Previous Seasons' : 'Moved back to Teams');
+                    }}
+                    style={{ accentColor: 'var(--accent)' }}
+                  />
+                  Previous season
+                </label>
                 <button
                   onClick={() => {
                     setShowSettings(false);
