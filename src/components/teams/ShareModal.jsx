@@ -101,7 +101,7 @@ export default function ShareModal({
       <div className="bg-slate-800 rounded-xl shadow-xl max-w-md w-full p-6 border border-slate-700">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-bold text-white">
-            {isShared ? 'Sharing Settings' : 'Share with Assistants'}
+            {isShared ? 'Sharing Settings' : 'Share sessions'}
           </h2>
           <button
             onClick={onClose}
@@ -122,7 +122,7 @@ export default function ShareModal({
           // Not shared yet
           <div className="space-y-4">
             <p className="text-slate-400 text-sm">
-              Create a link to share this team with your assistant coaches. They'll be able to view all sessions (read-only).
+              Create a code and link for this team's sessions. Use the code to send them to the PlayBall iOS app, and the link for assistant coaches (read-only, no account needed).
             </p>
 
             {!syncActive && (
@@ -130,7 +130,7 @@ export default function ShareModal({
                 <svg className="w-5 h-5 text-amber-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
-                <span className="text-amber-300 text-sm">Set up sync first to share your team. Go to Settings and pair your device.</span>
+                <span className="text-amber-300 text-sm">Create a free account to share this team.</span>
               </div>
             )}
 
@@ -139,7 +139,7 @@ export default function ShareModal({
               disabled={isLoading || !syncActive}
               className="w-full btn btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isLoading ? 'Creating...' : 'Generate Share Link'}
+              {isLoading ? 'Creating...' : 'Create code and link'}
             </button>
           </div>
         ) : (
@@ -148,13 +148,13 @@ export default function ShareModal({
             {/* Share code displayed prominently */}
             <div className="text-center py-3">
               <label className="block text-slate-400 text-xs uppercase tracking-wider mb-2">
-                Share Code
+                iOS app code
               </label>
               <div className="text-4xl font-mono font-bold text-white tracking-[0.3em]">
                 {shareToken}
               </div>
               <p className="text-slate-500 text-xs mt-2">
-                Enter this code in the PlayBall iOS app
+                Enter this in the PlayBall iOS app to get this team's sessions there. Sessions only — rosters and games aren't sent.
               </p>
             </div>
 
@@ -185,22 +185,12 @@ export default function ShareModal({
               <svg className="w-5 h-5 text-green-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
-              <span className="text-green-300 text-sm">Changes sync automatically</span>
+              <span className="text-green-300 text-sm">Copy Link for assistant coaches. The iOS app and the link always show your latest saved sessions.</span>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="text-slate-500">Shared:</span>
-                <span className="ml-2 text-slate-300">
-                  {formatDate(team.sharing.sharedAt)}
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-500">Last sync:</span>
-                <span className="ml-2 text-slate-300">
-                  {formatDate(team.sharing.lastPushedAt)}
-                </span>
-              </div>
+            <div className="text-sm">
+              <span className="text-slate-500">Shared:</span>
+              <span className="ml-2 text-slate-300">{formatDate(team.sharing.sharedAt)}</span>
             </div>
 
             <button
