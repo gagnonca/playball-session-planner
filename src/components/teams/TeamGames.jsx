@@ -1,20 +1,5 @@
 import React, { useEffect, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
-import { COACH_IDENTITY_KEY } from '../../constants/storage';
-import GameEditorModal from './GameEditorModal';
-
-function authHeaders() {
-  try {
-    const raw = localStorage.getItem(COACH_IDENTITY_KEY);
-    if (!raw) return null;
-    const id = JSON.parse(raw);
-    if (!id?.coachId || !id?.deviceId) return null;
-    return {
-      'Content-Type': 'application/json',
-      'x-coach-id': id.coachId,
-      'x-device-id': id.deviceId,
-    };
-  } catch { return null; }
-}
+import { request } from '../../data/api';
 
 function formatGameDate(iso) {
   if (!iso) return null;
@@ -35,19 +20,13 @@ const TeamGames = forwardRef(function TeamGames({ teamId, players = [] }, ref) {
 
   const load = useCallback(async () => {
     if (!teamId) return;
-    const headers = authHeaders();
-    if (!headers) { setError('Sync not set up — pair this device to load games.'); return; }
     try {
-      const res = await fetch(`/api/v2/games?teamId=${encodeURIComponent(teamId)}`, { headers });
-      const data = await res.json();
-      if (!data.success) {
-        if (data.error === 'team_not_owned') { setGames([]); return; }
-        setError(data.message || 'Failed to load games.');
-        return;
-      }
+      const data = await request('GET', `/api/v2/games?teamId=${encodeURIComponent(teamId)}`);
       setError(null);
       setGames(data.games || []);
     } catch (e) {
+      // Unsaved / demo team: no games on the server yet.
+      if (e.body?.error === 'team_not_owned' || e.body?.error === 'not_signed_in') { setGames([]); return; }
       setError(e.message || 'Network error loading games.');
     }
   }, [teamId]);

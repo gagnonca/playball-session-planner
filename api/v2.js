@@ -1,6 +1,6 @@
 import { put } from '@vercel/blob';
 import { supabase } from './_lib/supabase.js';
-import { verifyDevice, sendError } from './_lib/auth.js';
+import { authenticate, resolveUser, verifyDevice, sendError } from './_lib/auth.js';
 import { redis } from './_lib/redis.js';
 import { mirrorTeamsBlob, mirrorLibraryBlob } from './_lib/dualWrite.js';
 import { versionedWrite, softDelete, readBaseVersion } from './_lib/versioned.js';
@@ -17,6 +17,10 @@ import { teamFromRow, sessionFromRow, gameFromRow, libraryItemFromRow, diagramFr
 // overwrite. Responses return the written entity in client shape.
 //
 // Routes (all under /api/v2):
+//   GET    /account                          signed-in user + whether they have data
+//   POST   /account/claim                    attach (or create) this account's coach
+//                                            body: { legacyCoachId?, legacyDeviceId? }
+//   DELETE /account                          delete the account and all its data
 //   GET    /snapshot                         everything the web app renders
 //   GET    /coaches/:coachId                 bootstrap
 //   GET    /teams                            list
@@ -70,7 +74,9 @@ export default async function handler(req, res) {
     // Admin routes (Bearer auth, not device auth)
     if (root === 'admin') return routeAdmin(a, req, res);
 
-    const auth = await verifyDevice(req);
+    if (root === 'account') return routeAccount(a, req, res);
+
+    const auth = await authenticate(req);
     if (!auth.ok) return res.status(auth.status).json(auth.body);
 
     if (root === 'snapshot') return routeSnapshot(req, res, auth);
@@ -112,6 +118,74 @@ async function routeCoach(coachId, req, res, auth) {
     teams: teamsRes.data,
     sessions: sessionsRes.data,
   });
+}
+
+// ---------- account ----------
+
+const COACH_TABLES = ['games', 'sessions', 'teams', 'library_exercises', 'library_sessions', 'library_hidden', 'diagrams'];
+
+async function routeAccount(action, req, res) {
+  const user = await resolveUser(req);
+  if (!user || user.invalid) return sendError(res, 401, 'not_signed_in', 'Sign in to PlayBall');
+
+  const { data: mine, error } = await supabase
+    .from('coaches').select('coach_id').eq('user_id', user.id).maybeSingle();
+  if (error) return sendError(res, 500, 'server_error');
+
+  if (!action && req.method === 'GET') {
+    return res.status(200).json({
+      success: true,
+      user: { id: user.id, email: user.email ?? null },
+      coachId: mine?.coach_id ?? null,
+    });
+  }
+
+  if (action === 'claim' && req.method === 'POST') {
+    if (mine) return res.status(200).json({ success: true, coachId: mine.coach_id, claimed: false });
+
+    const now = new Date().toISOString();
+    const { legacyCoachId, legacyDeviceId } = req.body || {};
+
+    // This browser was device-linked before accounts existed: adopt that
+    // coach (and all its data) — but only if no account owns it yet.
+    if (legacyCoachId && legacyDeviceId) {
+      const legacy = await verifyDevice({ headers: { 'x-coach-id': legacyCoachId, 'x-device-id': legacyDeviceId }, query: {} });
+      if (legacy.ok) {
+        const { data, error: claimErr } = await supabase
+          .from('coaches')
+          .update({ user_id: user.id, claimed_at: now, updated_at: now })
+          .eq('coach_id', legacyCoachId)
+          .is('user_id', null)
+          .select('coach_id');
+        if (claimErr) return sendError(res, 500, 'server_error');
+        if (data?.length === 1) return res.status(200).json({ success: true, coachId: legacyCoachId, claimed: true });
+      }
+    }
+
+    const coachId = `u:${user.id}`;
+    const { error: insErr } = await supabase.from('coaches').insert({
+      coach_id: coachId, user_id: user.id, devices: [], claimed_at: now, updated_at: now,
+    });
+    if (insErr && insErr.code !== '23505') { console.error('[account.claim]', insErr); return sendError(res, 500, 'server_error'); }
+    return res.status(200).json({ success: true, coachId, claimed: false, created: true });
+  }
+
+  // Delete the account: every row the coach owns, the coach, the auth user.
+  if (!action && req.method === 'DELETE') {
+    if ((req.body || {}).confirm !== 'DELETE') return sendError(res, 400, 'confirm_required');
+    if (mine) {
+      for (const table of COACH_TABLES) {
+        const { error: delErr } = await supabase.from(table).delete().eq('coach_id', mine.coach_id);
+        if (delErr) { console.error('[account.delete]', table, delErr); return sendError(res, 500, 'server_error'); }
+      }
+      await supabase.from('coaches').delete().eq('coach_id', mine.coach_id);
+    }
+    const { error: userErr } = await supabase.auth.admin.deleteUser(user.id);
+    if (userErr) { console.error('[account.delete.user]', userErr); return sendError(res, 500, 'server_error'); }
+    return res.status(200).json({ success: true });
+  }
+
+  return sendError(res, 405, 'method_not_allowed');
 }
 
 // ---------- snapshot ----------

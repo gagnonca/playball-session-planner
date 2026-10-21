@@ -8,8 +8,8 @@ import useAccount from '../hooks/useAccount';
 import { VIEWS } from '../constants/navigation';
 import { HAS_SEEN_WELCOME_KEY } from '../constants/storage';
 import { uploadDiagramImage } from '../utils/uploadImage';
-import { startStore, useStore } from '../data/store';
-import { findLegacyOnlyData, uploadLegacyData } from '../data/legacyImport';
+import { startStore, useStore, startDemo, endDemo } from '../data/store';
+import { buildDemoSnapshot } from '../data/demo';
 import TeamList from './teams/TeamList';
 import TeamDetail from './teams/TeamDetail';
 import SessionBuilder from './session-builder/SessionBuilder';
@@ -20,8 +20,6 @@ import Settings from './Settings';
 import Welcome from './Welcome';
 import AboutModal from './AboutModal';
 import AppHeader from './AppHeader';
-import LinkDeviceModal from './LinkDeviceModal';
-import AccountModal from './AccountModal';
 import ImportLanding from './ImportLanding';
 
 // Error boundary: catches rendering crashes and shows recovery UI
@@ -99,9 +97,6 @@ export default function AppShell() {
   const sharingContext = useSharing();
   const accountContext = useAccount();
 
-  const [showLinkDeviceModal, setShowLinkDeviceModal] = useState(false);
-  const [linkDeviceDefaultMode, setLinkDeviceDefaultMode] = useState(null);
-  const [showAccountModal, setShowAccountModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [iosReferral, setIosReferral] = useState(false);
   const [importCode, setImportCode] = useState(() => {
@@ -131,25 +126,20 @@ export default function AppShell() {
     return () => { meta.remove(); };
   }, [staticPage]);
 
-  // Held in state (not just localStorage) so dismissing the Welcome screen
-  // forces a re-render even when currentView is already TEAMS — without this,
-  // setCurrentView(TEAMS) bails and the gate keeps showing Welcome.
-  const [hasSeenWelcome, setHasSeenWelcome] = useState(() => {
-    try { return localStorage.getItem(HAS_SEEN_WELCOME_KEY) === 'true'; } catch { return false; }
-  });
-  const dismissWelcome = () => {
-    try { localStorage.setItem(HAS_SEEN_WELCOME_KEY, 'true'); } catch { /* ignore */ }
-    setHasSeenWelcome(true);
-  };
-
-  // First-sync activation: create the identity, then upload whatever this
-  // browser had stored locally (a brand-new coach has nothing on the server,
-  // so everything local is new).
-  const enableSyncForFirstTime = async () => {
-    await syncContext.initializeIdentity();
-    const found = await findLegacyOnlyData();
-    if (found.total > 0) await uploadLegacyData(found);
-  };
+  // In the demo, every "save / share / sync" affordance leads to sign-up.
+  const isDemo = useStore(st => st.demo);
+  const goSignUp = () => { if (isDemo) endDemo(); };
+  const demoBanner = isDemo ? (
+    <div
+      className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 rounded-full pl-4 pr-1.5 py-1.5 text-[13px]"
+      style={{ background: 'var(--ink)', color: 'var(--bg)', boxShadow: 'var(--shadow-lg)' }}
+    >
+      <span>{accountContext.isSignedIn ? "You're viewing the demo team." : "Demo — nothing you change here is saved."}</span>
+      <button className="btn btn-primary" style={{ padding: '4px 12px' }} onClick={endDemo}>
+        {accountContext.isSignedIn ? 'Exit demo' : 'Create a free account'}
+      </button>
+    </div>
+  ) : null;
 
   const {
     currentView,
@@ -200,7 +190,7 @@ export default function AppShell() {
       </div>
     );
   }
-  if (!teamsData && storeStatus !== 'no-identity') {
+  if (!teamsData && storeStatus !== 'signed-out') {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
         <div className="text-center">
@@ -403,34 +393,58 @@ export default function AppShell() {
           {staticPage === 'privacy' && (
             <div className="prose prose-invert max-w-none">
               <h1 className="text-3xl font-bold mb-2">Privacy Policy</h1>
-              <p className="text-slate-400 text-sm mb-8">Effective date: August 27, 2025</p>
+              <p className="text-slate-400 text-sm mb-8">Effective date: October 21, 2026</p>
 
               <p className="text-slate-300 leading-relaxed mb-6">
-                PlayBall does not collect, store, or share any personal data. We do not use analytics, tracking, advertising identifiers, or third-party SDKs that gather user information.
+                PlayBall asks you to create an account for one reason: so your teams and practice plans are saved,
+                and are there on every device you use. That is the only thing your information is used for.
+                We do not sell it, share it, advertise with it, or analyze it.
               </p>
 
-              <h2 className="text-xl font-semibold mt-8 mb-4">Information We Do Not Collect</h2>
+              <h2 className="text-xl font-semibold mt-8 mb-4">What we store</h2>
               <ul className="text-slate-300 space-y-2 list-disc list-inside">
-                <li>No names, emails, phone numbers, or contact info</li>
-                <li>No location data</li>
-                <li>No device or usage analytics</li>
-                <li>No cookies or tracking technologies</li>
-                <li>No third-party ad or analytics SDKs</li>
+                <li><strong className="text-white">Your email address</strong> — to sign you in. If you use Sign in with Google or Apple, we receive the email address (and name, if provided) that service shares. If you choose Apple&rsquo;s &ldquo;Hide My Email&rdquo;, we only see the relay address.</li>
+                <li><strong className="text-white">What you create</strong> — teams, rosters, sessions, games, diagrams and library items — so they are available wherever you sign in.</li>
+              </ul>
+              <p className="text-slate-300 leading-relaxed mt-4 mb-6">
+                PlayBall never has a password for you. Sign-in happens through Google, Apple, or a one-time code emailed to you.
+              </p>
+
+              <h2 className="text-xl font-semibold mt-8 mb-4">What we don&rsquo;t do</h2>
+              <ul className="text-slate-300 space-y-2 list-disc list-inside">
+                <li>No advertising, and no advertising identifiers</li>
+                <li>No analytics or tracking, and no third-party analytics SDKs</li>
+                <li>No selling or sharing your data with anyone</li>
+                <li>No emails other than the sign-in codes you ask for</li>
               </ul>
 
-              <h2 className="text-xl font-semibold mt-8 mb-4">On-Device Data</h2>
+              <h2 className="text-xl font-semibold mt-8 mb-4">Sharing with your coaches</h2>
               <p className="text-slate-300 leading-relaxed mb-6">
-                If PlayBall stores data (e.g., team rosters, game setups, preferences), it remains <strong className="text-white">on your device</strong> and is not transmitted to us.
+                If you share a team, anyone with that link can view its sessions (read-only) until you turn sharing off.
+                People viewing a shared link do not need an account, and we don&rsquo;t collect anything about them.
               </p>
 
-              <h2 className="text-xl font-semibold mt-8 mb-4">Optional Sync & Sharing</h2>
+              <h2 className="text-xl font-semibold mt-8 mb-4">The PlayBall iOS app</h2>
               <p className="text-slate-300 leading-relaxed mb-6">
-                If you choose to enable <strong className="text-white">device sync</strong> or <strong className="text-white">team sharing</strong>, the session data you choose to share is transmitted to our servers solely to make those features work. This data is stored anonymously — no personal information, accounts, or identifiers are collected. We do not use this data for any purpose other than delivering it back to you or your shared recipients.
+                The iOS app keeps your data on your device. If you share a team from the app with a share code,
+                that team&rsquo;s data is sent to our servers so the code works.
               </p>
 
-              <h2 className="text-xl font-semibold mt-8 mb-4">Changes to This Policy</h2>
+              <h2 className="text-xl font-semibold mt-8 mb-4">Where it lives</h2>
+              <p className="text-slate-300 leading-relaxed mb-6">
+                Your account and data are stored with our hosting providers, Supabase (database and sign-in) and
+                Vercel (website and images), who process it only to run PlayBall.
+              </p>
+
+              <h2 className="text-xl font-semibold mt-8 mb-4">Deleting your data</h2>
+              <p className="text-slate-300 leading-relaxed mb-6">
+                Delete your account any time from Settings → Your account. That permanently removes your account and
+                everything in it. You can also email us and we&rsquo;ll do it for you.
+              </p>
+
+              <h2 className="text-xl font-semibold mt-8 mb-4">Changes to this policy</h2>
               <p className="text-slate-300 leading-relaxed">
-                If our practices change (for example, if we add optional features that require network services), we will update this policy and the effective date above.
+                If anything here changes, we&rsquo;ll update this page and the effective date above.
               </p>
 
               <div className="mt-10 pt-6 border-t border-slate-700">
@@ -463,13 +477,13 @@ export default function AppShell() {
                 <div className="p-4 bg-slate-800 rounded-xl border border-slate-700">
                   <h3 className="font-semibold text-white mb-1">Privacy</h3>
                   <p className="text-slate-400 text-sm">
-                    PlayBall does not collect personal data. Read our <a href="/privacy" className="text-blue-400 hover:text-blue-300">Privacy Policy</a>.
+                    PlayBall stores only your sign-in email and what you create, and never sells or shares it. Read our <a href="/privacy" className="text-blue-400 hover:text-blue-300">Privacy Policy</a>.
                   </p>
                 </div>
 
                 <div className="p-4 bg-slate-800 rounded-xl border border-slate-700">
                   <h3 className="font-semibold text-white mb-1">Data & Deletion</h3>
-                  <p className="text-slate-400 text-sm">PlayBall stores data on your device. If you've enabled sync or sharing, that data is stored anonymously on our servers solely to deliver those features. Delete the app to remove local data, or revoke sharing to remove shared data.</p>
+                  <p className="text-slate-400 text-sm">On the web, your teams are stored in your PlayBall account. Delete your account from Settings → Your account to permanently remove it and everything in it, or email us. The iOS app keeps data on your device; delete the app to remove it.</p>
                 </div>
               </div>
             </div>
@@ -531,49 +545,16 @@ export default function AppShell() {
     );
   }
 
-  // No identity → nothing to load. All data lives on the server, so the app
-  // needs one before anything else. (Replaced by account sign-in.)
-  if (storeStatus === 'no-identity') {
+  // Signed out → the front door: sign in (no passwords) or try the demo.
+  if (storeStatus === 'signed-out') {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
-        <div className="card p-8 max-w-md w-full mx-4 text-center">
-          <h1 className="text-2xl font-semibold mb-2" style={{ letterSpacing: '-0.02em' }}>Welcome to PlayBall</h1>
-          <p className="mb-6" style={{ color: 'var(--ink-2)' }}>
-            Your teams and sessions are stored in the cloud so they're on every device you use.
-          </p>
-          <div className="flex flex-col gap-3">
-            <button
-              className="btn btn-primary"
-              onClick={async () => {
-                try { await enableSyncForFirstTime(); }
-                catch (e) { alert(`Couldn't set up sync: ${e.message}`); }
-              }}
-            >
-              Get started
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => { setLinkDeviceDefaultMode('join'); setShowLinkDeviceModal(true); }}
-            >
-              I already use PlayBall on another device
-            </button>
-          </div>
-        </div>
-        {showLinkDeviceModal && (
-          <LinkDeviceModal
-            onClose={() => { setShowLinkDeviceModal(false); setLinkDeviceDefaultMode(null); }}
-            hasIdentity={false}
-            defaultMode={linkDeviceDefaultMode}
-            onRequestCode={syncContext.requestPairingCode}
-            onConfirmCode={async (code) => {
-              const linked = await syncContext.confirmPairingCode(code);
-              if (linked) { setShowLinkDeviceModal(false); setLinkDeviceDefaultMode(null); }
-            }}
-            onInitialize={enableSyncForFirstTime}
-            onReset={() => { syncContext.resetSync(); setShowLinkDeviceModal(false); }}
-          />
-        )}
-      </div>
+      <Welcome
+        accountContext={accountContext}
+        onStartDemo={() => {
+          startDemo(buildDemoSnapshot());
+          teamsContext.navigateToTeams();
+        }}
+      />
     );
   }
 
@@ -593,56 +574,7 @@ export default function AppShell() {
             onSave={handleDiagramSave}
             onClose={navigateBackFromDiagramBuilder}
           />
-        </div>
-      </ViewErrorBoundary>
-    );
-  }
-
-  // First-run gate — brand-new coaches with zero teams who haven't dismissed
-  // the welcome screen land on /welcome instead of an empty Home. The /welcome
-  // route also renders this view when reached directly (e.g. from About's
-  // "Restart tutorial").
-  const teamCount = teamsData?.teams?.length || 0;
-  const shouldShowWelcome =
-    currentView === VIEWS.WELCOME
-    || (currentView === VIEWS.TEAMS && teamCount === 0 && !hasSeenWelcome);
-  if (shouldShowWelcome) {
-    return (
-      <ViewErrorBoundary onRecover={navigateToTeams}>
-        <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
-          <Welcome
-            teamsContext={teamsContext}
-            onDismiss={dismissWelcome}
-            onShowPair={() => {
-              setLinkDeviceDefaultMode('join');
-              setShowLinkDeviceModal(true);
-            }}
-          />
-          {showLinkDeviceModal && (
-            <LinkDeviceModal
-              onClose={() => {
-                setShowLinkDeviceModal(false);
-                setLinkDeviceDefaultMode(null);
-              }}
-              hasIdentity={syncContext.isSyncEnabled}
-              defaultMode={linkDeviceDefaultMode}
-              onRequestCode={syncContext.requestPairingCode}
-              onConfirmCode={async (code) => {
-                const linked = await syncContext.confirmPairingCode(code);
-                if (linked) {
-                  dismissWelcome();
-                  setShowLinkDeviceModal(false);
-                  setLinkDeviceDefaultMode(null);
-                }
-              }}
-              onInitialize={enableSyncForFirstTime}
-              onReset={() => {
-                syncContext.resetSync();
-                setShowLinkDeviceModal(false);
-                setLinkDeviceDefaultMode(null);
-              }}
-            />
-          )}
+          {demoBanner}
         </div>
       </ViewErrorBoundary>
     );
@@ -660,32 +592,9 @@ export default function AppShell() {
             syncContext={syncContext}
             sharingContext={sharingContext}
             accountContext={accountContext}
-            onShowLinkDevice={() => setShowLinkDeviceModal(true)}
+            onShowLinkDevice={goSignUp}
           />
-          {showLinkDeviceModal && (
-            <LinkDeviceModal
-              onClose={() => {
-                setShowLinkDeviceModal(false);
-                setLinkDeviceDefaultMode(null);
-              }}
-              hasIdentity={syncContext.isSyncEnabled}
-              defaultMode={linkDeviceDefaultMode}
-              onRequestCode={syncContext.requestPairingCode}
-              onConfirmCode={async (code) => {
-                const linked = await syncContext.confirmPairingCode(code);
-                if (linked) {
-                  setShowLinkDeviceModal(false);
-                  setLinkDeviceDefaultMode(null);
-                }
-              }}
-              onInitialize={enableSyncForFirstTime}
-              onReset={() => {
-                syncContext.resetSync();
-                setShowLinkDeviceModal(false);
-                setLinkDeviceDefaultMode(null);
-              }}
-            />
-          )}
+          {demoBanner}
         </div>
       </ViewErrorBoundary>
     );
@@ -709,7 +618,7 @@ export default function AppShell() {
             teamsContext={teamsContext}
             syncContext={syncContext}
             sharingContext={sharingContext}
-            onShowLinkDevice={() => setShowLinkDeviceModal(true)}
+            onShowLinkDevice={goSignUp}
             iosReferral={iosReferral}
             onDismissIosReferral={() => setIosReferral(false)}
           />
@@ -733,8 +642,8 @@ export default function AppShell() {
             sharingContext={sharingContext}
             isSignedIn={Boolean(accountContext?.isSignedIn)}
             hasAccount={Boolean(accountContext?.isSignedIn)}
-            onShowSignIn={() => setShowAccountModal(true)}
-            onShowLinkDevice={() => setShowLinkDeviceModal(true)}
+            onShowSignIn={goSignUp}
+            onShowLinkDevice={goSignUp}
           />
         )}
         {currentView === VIEWS.SETTINGS && (
@@ -744,62 +653,22 @@ export default function AppShell() {
             accountContext={accountContext}
             libraryHook={libraryHook}
             diagramLibrary={diagramLibrary}
-            onShowLinkDevice={() => setShowLinkDeviceModal(true)}
-            onShowAccount={() => setShowAccountModal(true)}
+            onShowLinkDevice={goSignUp}
+            onShowAccount={goSignUp}
           />
         )}
         </div>
 
-      {/* Link Device Modal */}
-      {showLinkDeviceModal && (
-        <LinkDeviceModal
-          onClose={() => {
-            setShowLinkDeviceModal(false);
-            setLinkDeviceDefaultMode(null);
-          }}
-          hasIdentity={syncContext.isSyncEnabled}
-          defaultMode={linkDeviceDefaultMode}
-          onRequestCode={syncContext.requestPairingCode}
-          onConfirmCode={async (code) => {
-            const linked = await syncContext.confirmPairingCode(code);
-            if (linked) {
-              setShowLinkDeviceModal(false);
-              setLinkDeviceDefaultMode(null);
-            }
-          }}
-          onInitialize={enableSyncForFirstTime}
-          onReset={() => {
-            syncContext.resetSync();
-            setShowLinkDeviceModal(false);
-            setLinkDeviceDefaultMode(null);
-          }}
-        />
-      )}
-
-      {/* Account Modal — stub sign-in. Turns on cloud sync if it isn't already. */}
-      {showAccountModal && (
-        <AccountModal
-          onClose={() => setShowAccountModal(false)}
-          hasSync={syncContext.isSyncEnabled}
-          onSignIn={async (email) => {
-            // If sync isn't on yet, turn it on first — tier 3 implies tier 2.
-            if (!syncContext.isSyncEnabled) {
-              await enableSyncForFirstTime();
-            }
-            await accountContext.signIn(email);
-          }}
-        />
-      )}
-
+      {demoBanner}
 
       {showAboutModal && (
         <AboutModal
           onClose={() => setShowAboutModal(false)}
           onRestartTutorial={() => {
             setShowAboutModal(false);
-            try { localStorage.removeItem(HAS_SEEN_WELCOME_KEY); } catch { /* ignore */ }
-            setHasSeenWelcome(false);
-            teamsContext.navigateToWelcome?.();
+            // Replay the demo team; "Exit demo" brings the coach's own data back.
+            startDemo(buildDemoSnapshot());
+            teamsContext.navigateToTeams();
           }}
         />
       )}

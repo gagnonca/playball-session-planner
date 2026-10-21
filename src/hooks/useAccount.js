@@ -1,43 +1,81 @@
-import { useState, useCallback, useEffect } from 'react';
-import { ACCOUNT_KEY } from '../constants/storage';
+import { useState, useEffect, useCallback } from 'react';
+import { supabase, authConfigured } from '../data/supabaseClient';
+import { request } from '../data/api';
 
 /**
- * useAccount — stubbed account tier.
- *
- * Real auth (Supabase magic link / OAuth) isn't wired yet; this hook fakes
- * a sign-in by storing { email, signedInAt } in localStorage so the rest of
- * the UI can treat the account tier as real state. Swap this for a real
- * Supabase Auth listener when ready — the surface area (account, signIn,
- * signOut) should stay the same.
+ * PlayBall accounts — Supabase Auth with no passwords: Sign in with Google,
+ * Sign in with Apple, or a one-time code / link emailed to the coach.
+ * The data store (data/store.js) listens for sign-in changes itself; this
+ * hook is the UI's handle on the account.
  */
 export default function useAccount() {
-  const [account, setAccount] = useState(null);
+  const [user, setUser] = useState(null);
+  const [ready, setReady] = useState(!authConfigured);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(ACCOUNT_KEY);
-      if (raw) setAccount(JSON.parse(raw));
-    } catch (e) {
-      console.warn('Failed to parse account:', e);
-    }
+    if (!supabase) return undefined;
+    let alive = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!alive) return;
+      setUser(data?.session?.user || null);
+      setReady(true);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
+    });
+    return () => { alive = false; sub?.subscription?.unsubscribe(); };
   }, []);
 
-  const signIn = useCallback(async (email) => {
-    const next = { email: String(email || '').trim(), signedInAt: new Date().toISOString() };
-    localStorage.setItem(ACCOUNT_KEY, JSON.stringify(next));
-    setAccount(next);
-    return next;
+  const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined;
+
+  const signInWithProvider = useCallback(async (provider) => {
+    if (!supabase) throw new Error('Sign-in is not configured');
+    const { error } = await supabase.auth.signInWithOAuth({ provider, options: { redirectTo } });
+    if (error) throw error;
+  }, [redirectTo]);
+
+  // Emails a 6-digit code (and a sign-in link) — creates the account on first use.
+  const sendEmailCode = useCallback(async (email) => {
+    if (!supabase) throw new Error('Sign-in is not configured');
+    const { error } = await supabase.auth.signInWithOtp({
+      email: String(email || '').trim(),
+      options: { shouldCreateUser: true, emailRedirectTo: redirectTo },
+    });
+    if (error) throw error;
+  }, [redirectTo]);
+
+  const verifyEmailCode = useCallback(async (email, code) => {
+    if (!supabase) throw new Error('Sign-in is not configured');
+    const { error } = await supabase.auth.verifyOtp({
+      email: String(email || '').trim(),
+      token: String(code || '').trim(),
+      type: 'email',
+    });
+    if (error) throw error;
   }, []);
 
   const signOut = useCallback(async () => {
-    localStorage.removeItem(ACCOUNT_KEY);
-    setAccount(null);
+    if (supabase) await supabase.auth.signOut();
+  }, []);
+
+  // Permanently deletes the account and every team, session, game, library
+  // item and diagram it owns.
+  const deleteAccount = useCallback(async () => {
+    await request('DELETE', '/api/v2/account', { confirm: 'DELETE' });
+    if (supabase) await supabase.auth.signOut();
   }, []);
 
   return {
-    account,
-    isSignedIn: Boolean(account?.email),
-    signIn,
+    authConfigured,
+    ready,
+    user,
+    account: user ? { email: user.email || '', provider: user.app_metadata?.provider || 'email' } : null,
+    isSignedIn: Boolean(user),
+    signInWithGoogle: () => signInWithProvider('google'),
+    signInWithApple: () => signInWithProvider('apple'),
+    sendEmailCode,
+    verifyEmailCode,
     signOut,
+    deleteAccount,
   };
 }

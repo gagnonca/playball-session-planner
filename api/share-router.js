@@ -1,5 +1,5 @@
 import { supabase } from './_lib/supabase.js';
-import { verifyDevice } from './_lib/auth.js';
+import { authenticate } from './_lib/auth.js';
 
 // Routed via vercel.json rewrite: /api/share/:slug* → /api/share-router?slug=:slug*
 //
@@ -89,7 +89,7 @@ async function getTeam(res, token) {
 // The link is a read-only capability, so holding it must not be enough to
 // kill it — only the owning coach can revoke.
 async function revoke(req, res, token) {
-  const auth = await verifyDevice(req);
+  const auth = await authenticate(req);
   if (!auth.ok) return res.status(auth.status).json(auth.body);
   const team = await loadTeamByToken(token);
   if (!team) return send(res, 404, 'not_found', 'Share not found');

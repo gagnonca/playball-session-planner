@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from 'react';
-import { request, identityKey, readIdentity } from './api';
+import { request, identityKey, isSignedIn, readLegacyIdentity, setAuthSession, currentUser } from './api';
+import { supabase } from './supabaseClient';
+import { COACH_IDENTITY_KEY } from '../constants/storage';
 import { readCachedSnapshot, writeCachedSnapshot } from './cache';
 import { toast } from '../utils/helpers';
 
@@ -22,7 +24,8 @@ import { toast } from '../utils/helpers';
 // =============================================================================
 
 const EMPTY = {
-  status: 'idle',          // idle | no-identity | loading | ready | error
+  status: 'idle',          // idle | signed-out | loading | ready | error
+  demo: false,             // sample data, nothing is sent to the server
   source: null,            // cache | server
   error: null,
   lastLoadedAt: null,
@@ -245,14 +248,29 @@ function stateFromSnapshot(snap) {
   return next;
 }
 
+// First sign-in: give this account its coach. If this browser was linked to
+// a coach before accounts existed, that coach (and its data) is adopted.
+async function claimAccount() {
+  const legacy = readLegacyIdentity();
+  await request('POST', '/api/v2/account/claim',
+    legacy ? { legacyCoachId: legacy.coachId, legacyDeviceId: legacy.deviceId } : {});
+  if (legacy) {
+    try {
+      localStorage.setItem('ppp_coach_identity_backup_v1', JSON.stringify(legacy));
+      localStorage.removeItem(COACH_IDENTITY_KEY);
+    } catch { /* ignore */ }
+  }
+}
+
 let loadPromise = null;
 let cacheTimer = null;
 
 export function load() {
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
-    if (!readIdentity()) {
-      setState({ ...EMPTY, status: 'no-identity', drafts: state.drafts });
+    if (state.demo) return;
+    if (!isSignedIn()) {
+      setState({ ...EMPTY, status: 'signed-out', drafts: state.drafts });
       return;
     }
     const userKey = identityKey();
@@ -265,7 +283,14 @@ export function load() {
       }
     }
     try {
-      const snap = await request('GET', '/api/v2/snapshot');
+      let snap;
+      try {
+        snap = await request('GET', '/api/v2/snapshot');
+      } catch (e) {
+        if (e.status !== 409 || e.body?.error !== 'no_coach') throw e;
+        await claimAccount();
+        snap = await request('GET', '/api/v2/snapshot');
+      }
       setState({ ...stateFromSnapshot(snap), status: 'ready', source: 'server', error: null, lastLoadedAt: Date.now() });
       writeCachedSnapshot(userKey, snap);
     } catch (e) {
@@ -313,9 +338,20 @@ function announceChange() {
 let started = false;
 let lastFocusLoad = 0;
 
-export function startStore() {
+export async function startStore() {
   if (started) return;
   started = true;
+
+  if (supabase) {
+    const { data } = await supabase.auth.getSession();
+    setAuthSession(data?.session);
+    supabase.auth.onAuthStateChange((event, session) => {
+      const prev = currentUser()?.id || null;
+      setAuthSession(session);
+      const next = session?.user?.id || null;
+      if (prev !== next) resetStore(); // signed in, out, or switched account
+    });
+  }
   restoreDrafts();
 
   if (typeof BroadcastChannel !== 'undefined') {
@@ -349,10 +385,24 @@ export function startStore() {
 
 // Identity changed (sync turned on, device paired/unpaired): start over.
 export function resetStore() {
+  clearTimeout(reloadTimer);
   overrides.clear();
   queues.clear();
   setState({ ...EMPTY, drafts: {} });
   persistDrafts();
+  return load();
+}
+
+// Demo: sample data to click around in before signing up. Edits apply in
+// this tab only and vanish on reload; nothing touches the server.
+export function startDemo(snapshot) {
+  overrides.clear();
+  queues.clear();
+  setState({ ...EMPTY, ...stateFromSnapshot(snapshot), status: 'ready', source: 'demo', demo: true, drafts: {} });
+}
+
+export function endDemo() {
+  setState({ ...EMPTY, drafts: {} });
   return load();
 }
 
@@ -390,6 +440,7 @@ function describe(e) {
 // fields this call changed; on a 409 those are re-applied over the live row.
 function upsert(kind, entity, ctx = {}, patch = entity) {
   const key = `${kind}:${entity.id}`;
+  if (state.demo) { setState(withPut(state, kind, { ...entity, version: entity.version ?? 1 }, ctx)); return; }
   setState(withPut(state, kind, entity, ctx));
   overrides.set(key, { kind, ctx, op: 'put', entity: getLocal(state, kind, entity.id, ctx) });
   const q = queueFor(key);
@@ -460,6 +511,7 @@ async function remove(kind, id, ctx = {}) {
   const key = `${kind}:${id}`;
   const prev = getLocal(state, kind, id, ctx);
   setState(withRemove(state, kind, id, ctx));
+  if (state.demo) return;
   overrides.set(key, { kind, ctx, op: 'delete', id, entity: { id } });
   await settle(key);
   bumpPending(1);
@@ -525,6 +577,7 @@ export const library = {
     const field = kind === 'exercise' ? 'exercises' : 'sessions';
     if (state.hidden[field].includes(id)) return;
     setState({ hidden: { ...state.hidden, [field]: [...state.hidden[field], id] } });
+    if (state.demo) return;
     try {
       await request('POST', '/api/v2/library/hidden', { kind, id });
       announceChange();
@@ -537,6 +590,7 @@ export const library = {
     const field = kind === 'exercise' ? 'exercises' : 'sessions';
     const ids = state.hidden[field];
     setState({ hidden: { ...state.hidden, [field]: [] } });
+    if (state.demo) return;
     const results = await Promise.allSettled(ids.map(id =>
       request('DELETE', `/api/v2/library/hidden/${enc(kind)}/${enc(id)}`)
     ));
@@ -561,6 +615,7 @@ export const diagrams = {
 const DRAFTS_KEY = 'ppp_drafts_v3';
 
 function persistDrafts() {
+  if (state.demo) return;
   try {
     const keys = Object.keys(state.drafts);
     if (keys.length === 0) sessionStorage.removeItem(DRAFTS_KEY);
@@ -640,16 +695,23 @@ export async function saveDraft(sessionId, { overwrite = false } = {}) {
   const d = state.drafts[sessionId];
   if (!d) return { ok: true };
   if (!isDraftDirty(sessionId)) { discardDraft(sessionId); return { ok: true }; }
+  if (state.demo) {
+    setState(withPut(state, 'session', d.value, { teamId: d.teamId }));
+    discardDraft(sessionId);
+    return { ok: true };
+  }
 
   await settle(`session:${sessionId}`);
   const live = findSession(state, d.teamId, sessionId);
   if (!live) return { gone: true };
   const baseVersion = overwrite || d.base.version == null ? live.version : d.base.version;
 
+  const latest = state.drafts[sessionId];
+  if (!latest) return { ok: true };
   bumpPending(1);
   try {
     const res = await request('PUT', KINDS.session.path(sessionId), {
-      ...sessionBody(state.drafts[sessionId].value, d.teamId),
+      ...sessionBody(latest.value, d.teamId),
       baseVersion: baseVersion ?? null,
     });
     setState(withPut(state, 'session', res.session, { teamId: d.teamId }));

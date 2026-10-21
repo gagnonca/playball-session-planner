@@ -1,13 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import AppearancePicker from './AppearancePicker';
 import AIAssistantSection from './AIAssistantSection';
-import SyncDiagnostics, { isDiagnosticsVisible } from './SyncDiagnostics';
 import { findLegacyOnlyData, uploadLegacyData } from '../data/legacyImport';
 import { downloadJson, toast } from '../utils/helpers';
 
-// Settings — Appearance, Cloud sync, Storage, Account, Privacy.
-// Reads existing hooks. No new API surface; sync/account actions defer
-// to the LinkDeviceModal flow already wired into AppShell.
+// Settings — Appearance, Account (sign out / delete), sharing, AI, Privacy.
 
 const TEAM_TONES = ['#c8553d', '#3d7a4a', '#3d5a8a', '#9a5a3a', '#6a4a8a', '#3a6a7a'];
 function teamTone(team) {
@@ -16,37 +13,6 @@ function teamTone(team) {
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
   return TEAM_TONES[h % TEAM_TONES.length];
-}
-
-function useStorageEstimate() {
-  const [estimate, setEstimate] = useState({ used: 0, quota: 0, ready: false });
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (navigator.storage?.estimate) {
-        try {
-          const r = await navigator.storage.estimate();
-          if (cancelled) return;
-          setEstimate({ used: r.usage || 0, quota: r.quota || 0, ready: true });
-        } catch {
-          if (!cancelled) setEstimate(e => ({ ...e, ready: true }));
-        }
-      } else {
-        setEstimate(e => ({ ...e, ready: true }));
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-  return estimate;
-}
-
-function formatBytes(n) {
-  if (!n || n < 1024) return `${n} B`;
-  const units = ['KB', 'MB', 'GB'];
-  let v = n / 1024;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-  return `${v.toFixed(v >= 10 ? 0 : 1)} ${units[i]}`;
 }
 
 function SyncStateLine({ status, online }) {
@@ -151,7 +117,7 @@ function LegacyDataPanel() {
   );
 }
 
-export default function Settings({ teamsContext, syncContext, accountContext, libraryHook, diagramLibrary, onShowLinkDevice, onShowAccount }) {
+export default function Settings({ teamsContext, syncContext, accountContext, onShowAccount }) {
   const teams = teamsContext?.teamsData?.teams || [];
   const syncOn = Boolean(syncContext?.isSyncEnabled);
   const isOnline = syncContext?.isOnline ?? true;
@@ -159,21 +125,27 @@ export default function Settings({ teamsContext, syncContext, accountContext, li
   const hasAccount = Boolean(accountContext?.isSignedIn);
   const accountEmail = accountContext?.account?.email || '';
 
-  // Downgrade helpers — confirm before destructive transitions
-  const unlinkThisDevice = () => {
-    if (window.confirm('Unlink this device from cloud sync? Other linked devices keep their data, and your local copy on this device stays here.')) {
-      syncContext?.resetSync?.();
-    }
-  };
-  const signOutOfAccount = () => {
-    if (window.confirm('Sign out? Cloud sync stays on; you can sign back in any time.')) {
-      accountContext?.signOut?.();
-    }
-  };
+  const isDemo = Boolean(syncContext?.isDemo);
+  const [deleting, setDeleting] = useState(false);
 
-  const storage = useStorageEstimate();
-  const usedPct = storage.quota > 0 ? Math.min(100, Math.round((storage.used / storage.quota) * 100)) : 0;
-  const lowStorage = usedPct >= 70;
+  const signOutOfAccount = () => {
+    if (window.confirm('Sign out of PlayBall on this device?')) accountContext?.signOut?.();
+  };
+  const deleteAccount = async () => {
+    const typed = window.prompt(
+      'This permanently deletes your account and every team, session, game, library item and diagram in it. ' +
+      'Share links stop working. This cannot be undone.\n\nType DELETE to confirm.'
+    );
+    if (typed !== 'DELETE') return;
+    setDeleting(true);
+    try {
+      await accountContext.deleteAccount();
+      toast('Account deleted');
+    } catch (e) {
+      toast(`Couldn't delete account — ${e.message}`);
+      setDeleting(false);
+    }
+  };
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
@@ -183,7 +155,7 @@ export default function Settings({ teamsContext, syncContext, accountContext, li
           How PlayBall fits you.
         </h1>
         <p className="mt-2 text-[14.5px] max-w-[540px]" style={{ color: 'var(--ink-2)' }}>
-          Theme, sync, sharing — all optional. The app works without an account; turn things on as you need them.
+          Your account, sharing, and how PlayBall looks.
         </p>
 
         <div className="hairline my-8" />
@@ -193,107 +165,37 @@ export default function Settings({ teamsContext, syncContext, accountContext, li
 
         <div className="hairline my-8" />
 
-        {/* Sync + Account progression — three tiers the user can move through */}
         <section>
           <div className="eyebrow mb-2">YOUR ACCOUNT</div>
-          <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>
-            {hasAccount ? 'Signed in' : syncOn ? 'Synced across devices' : 'On this device only'}
-          </h2>
-          <p className="text-[13px] mb-4 max-w-[540px]" style={{ color: 'var(--ink-2)' }}>
-            PlayBall meets you where you are. Start as a guest; turn on cloud sync when you want a second device; add a free account when you want discovery and recovery.
-          </p>
-
-          <div className="flex flex-col gap-2">
-            {/* Tier 1 — On this device */}
-            <TierRow
-              tier="offline"
-              active={!syncOn && !hasAccount}
-              completed={syncOn || hasAccount}
-              title="On this device"
-              body={
-                !syncOn && !hasAccount
-                  ? 'No account, no tracking — your work lives in this browser.'
-                  : 'Available any time. Unlink this device to go back to local-only.'
-              }
-              cta={
-                (syncOn || hasAccount) ? (
-                  hasAccount ? null : (
-                    <button
-                      onClick={unlinkThisDevice}
-                      className="btn btn-ghost"
-                      style={{ color: 'var(--danger)' }}
-                    >
-                      Switch back
-                    </button>
-                  )
-                ) : null
-              }
-            />
-
-            {/* Tier 2 — Cloud sync */}
-            <TierRow
-              tier="sync"
-              active={syncOn && !hasAccount}
-              completed={hasAccount}
-              title="Cloud sync"
-              body={
-                syncOn
-                  ? <SyncStateLine status={syncStatus} online={isOnline} />
-                  : 'Pair another device with a one-time code and they stay in lockstep.'
-              }
-              cta={
-                hasAccount ? (
-                  <span
-                    className="font-mono uppercase"
-                    style={{ fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.08em' }}
-                  >
-                    On with account
-                  </span>
-                ) : syncOn ? (
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => onShowLinkDevice && onShowLinkDevice()} className="btn btn-secondary">
-                      Manage devices
-                    </button>
-                  </div>
-                ) : (
-                  <button onClick={() => onShowLinkDevice && onShowLinkDevice()} className="btn btn-primary">
-                    Turn on sync
-                  </button>
-                )
-              }
-            />
-
-            {/* Tier 3 — Free account */}
-            <TierRow
-              tier="account"
-              active={hasAccount}
-              completed={false}
-              title="Free account"
-              body={
-                hasAccount
-                  ? <span style={{ color: 'var(--ink-2)' }}>Signed in as <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{accountEmail}</span></span>
-                  : 'Discover other coaches’ sessions and recover your library if you lose every device. Anonymous coach id stays the only identifier we hold.'
-              }
-              cta={
-                hasAccount ? (
-                  <button
-                    onClick={signOutOfAccount}
-                    className="btn btn-ghost"
-                    style={{ color: 'var(--danger)' }}
-                  >
-                    Sign out
-                  </button>
-                ) : (
-                  <button onClick={() => onShowAccount && onShowAccount()} className="btn btn-primary">
-                    Create account
-                  </button>
-                )
-              }
-            />
-          </div>
+          {hasAccount && !isDemo ? (
+            <>
+              <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>Signed in</h2>
+              <p className="text-[13px] mb-4" style={{ color: 'var(--ink-2)' }}>
+                <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{accountEmail}</span>
+                {accountContext?.account?.provider && accountContext.account.provider !== 'email'
+                  ? ` · via ${accountContext.account.provider[0].toUpperCase()}${accountContext.account.provider.slice(1)}`
+                  : ''}
+                {' · '}<SyncStateLine status={syncStatus} online={isOnline} />
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={signOutOfAccount} className="btn btn-secondary">Sign out</button>
+                <button onClick={deleteAccount} disabled={deleting} className="btn btn-ghost" style={{ color: 'var(--danger)' }}>
+                  {deleting ? 'Deleting…' : 'Delete account and all data'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>You're in the demo</h2>
+              <p className="text-[13px] mb-4" style={{ color: 'var(--ink-2)' }}>
+                Create a free account to keep your teams and use them on every device.
+              </p>
+              <button onClick={() => onShowAccount && onShowAccount()} className="btn btn-primary">Create account</button>
+            </>
+          )}
         </section>
 
-        {(syncOn || hasAccount) && <div className="hairline my-8" />}
+        {syncOn && <div className="hairline my-8" />}
 
         {syncOn && <LegacyDataPanel />}
 
@@ -371,70 +273,18 @@ export default function Settings({ teamsContext, syncContext, accountContext, li
 
         <div className="hairline my-8" />
 
-        {/* On this device */}
-        <section>
-          <div className="eyebrow mb-2">ON THIS DEVICE</div>
-          <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>Storage</h2>
-          <p className="text-[13px] mb-3" style={{ color: 'var(--ink-2)' }}>
-            {storage.ready
-              ? lowStorage
-                ? 'Running low. Turn on cloud sync to keep building without losing anything.'
-                : 'Plenty of room. Diagrams and notes live in your browser until you turn on sync.'
-              : 'Checking how much space PlayBall is using…'}
-          </p>
-          <div className="card p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[12.5px]" style={{ color: 'var(--ink-2)' }}>
-                {storage.ready && storage.quota > 0
-                  ? `${formatBytes(storage.used)} of ${formatBytes(storage.quota)} used`
-                  : 'Storage usage unavailable'}
-              </span>
-              <span className="font-mono uppercase" style={{ fontSize: 11, color: 'var(--ink-3)', letterSpacing: '0.08em' }}>
-                {storage.quota > 0 ? `${usedPct}%` : '—'}
-              </span>
-            </div>
-            <div
-              className="rounded-full overflow-hidden"
-              style={{ height: 6, background: 'var(--bg-sunken)', border: '1px solid var(--line)' }}
-            >
-              <div
-                style={{
-                  width: `${Math.max(2, usedPct)}%`,
-                  height: '100%',
-                  background: lowStorage ? 'var(--warn)' : 'var(--accent)',
-                  transition: 'width 240ms ease',
-                }}
-              />
-            </div>
-          </div>
-        </section>
-
-        <div className="hairline my-8" />
-
         {/* AI Assistant */}
         <AIAssistantSection />
-
-        {syncOn && isDiagnosticsVisible() && (
-          <>
-            <div className="hairline my-8" />
-            <SyncDiagnostics
-              teamsContext={teamsContext}
-              libraryHook={libraryHook}
-              diagramLibrary={diagramLibrary}
-              syncContext={syncContext}
-            />
-          </>
-        )}
 
         <div className="hairline my-8" />
 
         {/* Privacy */}
         <section>
           <div className="eyebrow mb-2">WHAT WE COLLECT</div>
-          <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>Nothing, unless you opt in.</h2>
+          <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>Only what it takes to run your account.</h2>
           <p className="text-[13px] mb-3 max-w-[540px]" style={{ color: 'var(--ink-2)' }}>
-            By default, nothing leaves your browser. When you turn on cloud sync or share a team, the relevant data is sent to our servers
-            so the feature can work &mdash; that&rsquo;s it. No analytics, no tracking, no email collection.
+            Your email (to sign you in) and the teams, sessions and diagrams you create (so they&rsquo;re on all your devices).
+            We never sell, share or analyze it, and there&rsquo;s no advertising or tracking. Delete your account above and it&rsquo;s gone.
           </p>
           <p className="text-[12px]" style={{ color: 'var(--ink-3)' }}>
             Read the full <a href="/privacy" style={{ color: 'var(--accent)' }}>privacy policy</a>.

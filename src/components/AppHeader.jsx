@@ -50,7 +50,7 @@ export default function AppHeader({ teamsContext, syncContext, accountContext, o
 
   let pillCopy, pillTone;
   if (!syncEnabled) {
-    pillCopy = 'On this device';
+    pillCopy = 'Demo';
     pillTone = 'var(--ink-3)';
   } else if (!isOnline) {
     pillCopy = 'Offline';
@@ -62,15 +62,15 @@ export default function AppHeader({ teamsContext, syncContext, accountContext, o
     pillCopy = 'Sync error';
     pillTone = 'var(--danger)';
   } else {
-    pillCopy = 'Synced';
+    pillCopy = 'Saved';
     pillTone = 'var(--good)';
   }
 
-  const tier = hasAccount ? 'account' : (syncEnabled ? 'sync' : 'offline');
-  const chipLetter = tier === 'account' ? accountInitial : (tier === 'sync' ? 'C' : 'G');
+  const tier = hasAccount && syncEnabled ? 'account' : 'demo';
+  const chipLetter = tier === 'account' ? accountInitial : 'D';
   const chipTitle = tier === 'account'
-    ? `Account · ${accountContext?.account?.email || 'Signed in'}`
-    : (tier === 'sync' ? 'Coach · Synced device' : 'Guest · No account · no tracking');
+    ? `Signed in · ${accountContext?.account?.email || ''}`
+    : 'Demo · nothing is saved';
 
   return (
     <header

@@ -1,10 +1,31 @@
 import { COACH_IDENTITY_KEY } from '../constants/storage';
+import { supabase } from './supabaseClient';
 
-// The only place the web app decides *who* it is talking to the server as.
-// Today that's the device-linked coach identity; swapping to account auth
-// means changing authHeaders() and identityKey() and nothing else.
+// The only place the web app decides *who* it is talking to the server as:
+// the signed-in account's access token. (The pre-accounts device identity
+// is read only so the first sign-in can claim that coach's data.)
 
-export function readIdentity() {
+let currentSession = null;
+
+export function setAuthSession(session) {
+  currentSession = session || null;
+}
+
+export function isSignedIn() {
+  return Boolean(currentSession?.access_token);
+}
+
+// Stable per-user key for the local read cache and drafts.
+export function identityKey() {
+  return currentSession?.user?.id || null;
+}
+
+export function currentUser() {
+  return currentSession?.user || null;
+}
+
+// Pre-accounts device link, if this browser had one.
+export function readLegacyIdentity() {
   try {
     const raw = localStorage.getItem(COACH_IDENTITY_KEY);
     if (!raw) return null;
@@ -15,18 +36,14 @@ export function readIdentity() {
   }
 }
 
-// Stable per-user key for the local read cache.
-export function identityKey() {
-  return readIdentity()?.coachId || null;
-}
-
-function authHeaders() {
-  const identity = readIdentity();
-  if (!identity) return null;
-  return {
-    'x-coach-id': identity.coachId,
-    'x-device-id': identity.deviceId,
-  };
+async function authHeaders() {
+  // Ask supabase-js for the session so an expired token is refreshed first.
+  if (supabase) {
+    const { data } = await supabase.auth.getSession();
+    if (data?.session) currentSession = data.session;
+  }
+  if (!currentSession?.access_token) return null;
+  return { Authorization: `Bearer ${currentSession.access_token}` };
 }
 
 export class ApiError extends Error {
@@ -40,8 +57,8 @@ export class ApiError extends Error {
 // fetch → parsed JSON. Throws ApiError for non-2xx (incl. 409 conflict, whose
 // body carries `current`) and for network failures (status 0).
 export async function request(method, path, body) {
-  const auth = authHeaders();
-  if (!auth) throw new ApiError(401, { error: 'no_identity' });
+  const auth = await authHeaders();
+  if (!auth) throw new ApiError(401, { error: 'not_signed_in' });
   let res;
   try {
     res = await fetch(path, {

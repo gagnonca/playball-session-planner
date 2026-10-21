@@ -350,7 +350,7 @@ export default function ScheduleSessionModal({ teamsContext, libraryHook, teamId
                   <path d="M20 6L9 17l-5-5" />
                 </svg>
               </span>
-              Sessions auto-save to your library as you build them.
+              Saved sessions show up in your library automatically.
             </p>
             <button onClick={onClose} className="btn btn-ghost">Cancel</button>
           </div>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { toast } from '../../utils/helpers';
-import { COACH_IDENTITY_KEY } from '../../constants/storage';
+import { isSignedIn } from '../../data/api';
 
 /**
  * Modal for sharing a team with assistant coaches.
@@ -18,15 +18,8 @@ export default function ShareModal({
   const isShared = team?.sharing?.isShared && team?.sharing?.shareToken;
   const shareToken = team?.sharing?.shareToken;
 
-  // Sharing requires sync to be active so team data is persisted in the database
-  const syncActive = (() => {
-    try {
-      const raw = localStorage.getItem(COACH_IDENTITY_KEY);
-      if (!raw) return false;
-      const identity = JSON.parse(raw);
-      return Boolean(identity?.coachId && identity?.deviceId);
-    } catch { return false; }
-  })();
+  // Sharing needs the team saved in an account (not the demo).
+  const syncActive = isSignedIn();
 
   const handleGenerateLink = async () => {
     try {

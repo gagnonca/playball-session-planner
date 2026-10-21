@@ -1,20 +1,6 @@
 import React, { useState } from 'react';
 import { uid, toast } from '../../utils/helpers';
-import { COACH_IDENTITY_KEY } from '../../constants/storage';
-
-function authHeaders() {
-  try {
-    const raw = localStorage.getItem(COACH_IDENTITY_KEY);
-    if (!raw) return null;
-    const id = JSON.parse(raw);
-    if (!id?.coachId || !id?.deviceId) return null;
-    return {
-      'Content-Type': 'application/json',
-      'x-coach-id': id.coachId,
-      'x-device-id': id.deviceId,
-    };
-  } catch { return null; }
-}
+import { request } from '../../data/api';
 
 // ISO timestamp → "YYYY-MM-DD" for the <input type="date"> control. We keep
 // the time of day from the original game (or set to noon UTC for new ones)
@@ -64,8 +50,6 @@ export default function GameEditorModal({ teamId, teamPlayers = [], game, onClos
 
   const handleSave = async () => {
     if (!name.trim()) { toast('Name is required'); return; }
-    const headers = authHeaders();
-    if (!headers) { toast('Pair this device before editing games.'); return; }
 
     setBusy(true);
     try {
@@ -99,10 +83,9 @@ export default function GameEditorModal({ teamId, teamPlayers = [], game, onClos
         substitutionStyle: existingPayload.substitutionStyle ?? 'short',
       };
 
-      const res = await fetch(`/api/v2/games/${encodeURIComponent(id)}`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({
+      let data;
+      try {
+        data = await request('PUT', `/api/v2/games/${encodeURIComponent(id)}`, {
           teamId,
           name: payload.name,
           date: payload.date,
@@ -110,25 +93,20 @@ export default function GameEditorModal({ teamId, teamPlayers = [], game, onClos
           payload,
           // Compare-and-set: the iOS app may have pushed this game since it loaded.
           baseVersion: isEdit ? (game.version ?? 1) : null,
-        }),
-      });
-      const data = await res.json();
-      if (!data.success) {
-        if (data.error === 'conflict') {
+        });
+      } catch (e) {
+        if (e.body?.error === 'conflict') {
           toast('This game was changed elsewhere (maybe the iOS app). Reloaded — make your edit again.');
-          onSaved?.(data.current);
+          onSaved?.(e.body.current);
           onClose();
           return;
         }
-        toast(data.message || 'Could not save game.');
+        toast(e.status === 0 ? 'Network error saving game.' : (e.message || 'Could not save game.'));
         return;
       }
       toast(isEdit ? 'Game updated' : 'Game created');
       onSaved?.(data.game);
       onClose();
-    } catch (e) {
-      console.error(e);
-      toast('Network error saving game.');
     } finally {
       setBusy(false);
     }
@@ -137,25 +115,14 @@ export default function GameEditorModal({ teamId, teamPlayers = [], game, onClos
   const handleDelete = async () => {
     if (!game?.id) return;
     if (!window.confirm(`Delete "${game.name}"?`)) return;
-    const headers = authHeaders();
-    if (!headers) return;
     setBusy(true);
     try {
-      const res = await fetch(`/api/v2/games/${encodeURIComponent(game.id)}`, {
-        method: 'DELETE',
-        headers,
-      });
-      const data = await res.json();
-      if (!data.success) {
-        toast(data.message || 'Could not delete game.');
-        return;
-      }
+      await request('DELETE', `/api/v2/games/${encodeURIComponent(game.id)}`);
       toast('Game deleted');
       onDeleted?.(game.id);
       onClose();
     } catch (e) {
-      console.error(e);
-      toast('Network error deleting game.');
+      toast(e.status === 0 ? 'Network error deleting game.' : (e.message || 'Could not delete game.'));
     } finally {
       setBusy(false);
     }

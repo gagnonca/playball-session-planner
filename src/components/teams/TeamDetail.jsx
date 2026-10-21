@@ -7,7 +7,8 @@ import TeamGames from './TeamGames';
 import TeamSpine from './TeamSpine';
 import CreateTeamModal from './CreateTeamModal';
 import { toast, sessionToLibraryPayload, libraryPayloadToSession, uid, downloadJson } from '../../utils/helpers';
-import { COACH_IDENTITY_KEY } from '../../constants/storage';
+import { request } from '../../data/api';
+import { load as reloadData } from '../../data/store';
 
 const TEAM_TONES = ['#c8553d', '#3d7a4a', '#3d5a8a', '#9a5a3a', '#6a4a8a', '#3a6a7a'];
 function teamTone(team) {
@@ -384,30 +385,14 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
                         onClick={async () => {
                           setLinkBusy(true);
                           try {
-                            const raw = localStorage.getItem(COACH_IDENTITY_KEY);
-                            const id = raw ? JSON.parse(raw) : null;
-                            if (!id?.coachId || !id?.deviceId) {
-                              toast('Pair this device before linking an iOS team.');
+                            let data;
+                            try {
+                              data = await request('POST', `/api/v2/teams/${encodeURIComponent(selectedTeamId)}/link-ios`, { shareCode: linkCode });
+                            } catch (err) {
+                              toast(err.status === 0 ? 'Network error linking iOS team.' : (err.message || 'Could not link iOS team.'));
                               return;
                             }
-                            const res = await fetch(
-                              `/api/v2/teams/${encodeURIComponent(selectedTeamId)}/link-ios`,
-                              {
-                                method: 'POST',
-                                headers: {
-                                  'Content-Type': 'application/json',
-                                  'x-coach-id': id.coachId,
-                                  'x-device-id': id.deviceId,
-                                },
-                                body: JSON.stringify({ shareCode: linkCode }),
-                              }
-                            );
-                            const data = await res.json();
-                            if (!data.success) {
-                              toast(data.message || 'Could not link iOS team.');
-                              return;
-                            }
-                            updateTeam(selectedTeamId, { iosShareCode: linkCode });
+                            reloadData(); // roster + games moved server-side
                             setLinkCode('');
                             setGamesRefreshKey(k => k + 1);
                             toast(
@@ -415,9 +400,6 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
                                 ? `Linked — ${data.gamesTransferred} game${data.gamesTransferred === 1 ? '' : 's'} imported.`
                                 : 'Linked — games will appear after the next iOS push.'
                             );
-                          } catch (err) {
-                            toast('Network error linking iOS team.');
-                            console.error(err);
                           } finally {
                             setLinkBusy(false);
                           }

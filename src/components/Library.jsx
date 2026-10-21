@@ -693,7 +693,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
             Your playbook
           </h1>
           <p className="mt-2 text-[14px]" style={{ color: 'var(--ink-2)' }}>
-            {isInsertMode ? 'Select an item to insert into your session.' : 'Sessions auto-save here as you build them. Pin what you reuse, share what’s worth sharing.'}
+            {isInsertMode ? 'Select an item to insert into your session.' : 'Every session you save shows up here. Pin what you reuse, share what’s worth sharing.'}
           </p>
         </div>
         {!isInsertMode && (
@@ -719,9 +719,8 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
               </svg>
             </span>
             <span>
-              <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>Everything auto-saves</strong>
-              {' '}&mdash; no Save button anywhere.{' '}
-              {syncOn ? 'On all your devices.' : 'On this device until you turn on sync.'}
+              <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>Saved to your account</strong>
+              {' '}&mdash; changes here save as you make them, on all your devices.
             </span>
           </div>
         </div>
