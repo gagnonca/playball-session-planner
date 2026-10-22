@@ -1,5 +1,6 @@
 import { supabase } from './_lib/supabase.js';
 import { authenticate } from './_lib/auth.js';
+import { redis } from './_lib/redis.js';
 
 // Routed via vercel.json rewrite: /api/share/:slug* → /api/share-router?slug=:slug*
 //
@@ -8,6 +9,8 @@ import { authenticate } from './_lib/auth.js';
 //   DELETE /api/share/:token                          → revoke (owner only)
 //   GET    /api/share/:token/sessions                 → lightweight session list
 //   GET    /api/share/:token/sessions/:sessionId      → full session (X-PlayBall-Version)
+//   GET    /api/share/games/:viewToken                → read-only game schedule
+//                                                        (iOS team share, Redis)
 
 export default async function handler(req, res) {
   const raw = req.query.slug;
@@ -20,6 +23,10 @@ export default async function handler(req, res) {
   if (!token) return send(res, 400, 'missing_token');
 
   try {
+    if (token === 'games') {
+      if (req.method !== 'GET') return send(res, 405, 'method_not_allowed');
+      return getGameSchedule(res, sub);
+    }
     if (sub === 'sessions' && sessionId) return getSession(req, res, token, sessionId);
     if (sub === 'sessions' && !sessionId) return listSessions(res, token);
     if (!sub) {
@@ -249,4 +256,52 @@ function decodeEntities(s) {
 
 function send(res, status, error, message) {
   return res.status(status).json({ success: false, error, message });
+}
+
+// The sub schedule a coach's iOS app syncs, for helpers on the web. Looked up
+// by the team's read-only view token (team-view:<token> → share code), never
+// by the share code itself, which also lets you push changes.
+async function getGameSchedule(res, viewToken) {
+  if (!viewToken || !/^[A-Za-z0-9_-]{10,40}$/.test(viewToken)) return send(res, 404, 'not_found', 'This schedule link is not valid.');
+  const code = await redis.get(`team-view:${viewToken}`);
+  const raw = code ? await redis.get(`team-share:${code}`) : null;
+  const data = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
+  if (!data || data.viewToken !== viewToken) {
+    return send(res, 404, 'not_found', 'This schedule link is no longer valid. Ask the coach for a new one.');
+  }
+  const team = data.team || {};
+  const plans = data.plans || {};
+  const players = (team._players || []).map(p => ({ id: p.id, name: p.name, tintHex: p.tintHex }));
+  const games = (team._games || []).map(g => {
+    const plan = plans[g.id];
+    return {
+      id: g.id,
+      name: g.name,
+      date: g.date,
+      isHome: g.isHome !== false,
+      playersOnField: g.playersOnField,
+      periodLengthMinutes: g.periodLengthMinutes,
+      numberOfPeriods: g.numberOfPeriods,
+      captainID: g.captainID || null,
+      goalieH1ID: g.goalieH1ID || null,
+      goalieH2ID: g.goalieH2ID || null,
+      availablePlayerIds: (g.availablePlayers || []).map(p => p.id),
+      // A plan the phone sent for this exact version of the game; a stored
+      // plan on the game (from kickoff on) is always current.
+      plan: g.plan || (plan && plan.gameUpdatedAt === (g.updatedAt || null) ? { shifts: plan.shifts } : null),
+      planOutdated: Boolean(!g.plan && plan && plan.gameUpdatedAt !== (g.updatedAt || null)),
+      live: g.live || null,
+      playedThrough: g.playedThrough ?? null,
+    };
+  });
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json({
+    success: true,
+    teamName: team._name || 'Team',
+    mascotEmoji: team._mascotEmoji || null,
+    mascotImageUrl: data.mascotImageUrl || null,
+    players,
+    games,
+    syncedAt: data.pushedAt || null,
+  });
 }

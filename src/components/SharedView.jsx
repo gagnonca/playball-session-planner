@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 // By the time React mounts, the response is likely already in flight or cached.
 const _eager = (() => {
   const path = window.location.pathname;
-  if (!path.startsWith('/shared/')) return null;
+  if (!path.startsWith('/shared/') || path.startsWith('/shared/games/')) return null;
   const parts = path.replace('/shared/', '').split('/');
   const token = parts[0];
   if (!token) return null;

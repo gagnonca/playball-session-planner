@@ -1,12 +1,15 @@
 import AppShell from './components/AppShell';
 import DiagramPlayground from './components/DiagramPlayground';
 import SharedView from './components/SharedView';
+import GameScheduleView from './components/GameScheduleView';
 
+const isGameScheduleRoute = window.location.pathname.startsWith('/shared/games/');
 const isSharedRoute = window.location.pathname.startsWith('/shared/');
 const isDiagramPlaygroundRoute = window.location.pathname === '/diagram-playground';
 
 function App() {
   if (isDiagramPlaygroundRoute) return <DiagramPlayground />;
+  if (isGameScheduleRoute) return <GameScheduleView />;
   if (isSharedRoute) return <SharedView />;
   return <AppShell />;
 }
