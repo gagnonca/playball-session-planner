@@ -489,7 +489,9 @@ export default function AppShell() {
               <h2 className="text-xl font-semibold mt-8 mb-4">The PlayBall iOS app</h2>
               <p className="text-slate-300 leading-relaxed mb-6">
                 The iOS app keeps your data on your device. If you share a team from the app with a share code,
-                that team&rsquo;s data is sent to our servers so the code works.
+                that team&rsquo;s data is sent to our servers so the code works. Sharing a team also gives you a
+                view-only sub schedule link: anyone you send it to can see that team&rsquo;s player names, games and
+                substitutions, without an account, until you stop sharing.
               </p>
 
               <h2 className="text-xl font-semibold mt-8 mb-4">Services that run PlayBall</h2>
