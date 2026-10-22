@@ -603,6 +603,18 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
   const isTeamShared = Boolean(team?.sharing?.isShared && team?.sharing?.shareToken);
   const publishedCopy = useStore(st => findPublished(st, 'session', selectedSessionId));
   const shareScope = publishedCopy ? 'public' : isTeamShared ? 'coaches' : 'private';
+  // Co-coaches can open the team link at a single session: /shared/<token>/<sessionId>.
+  const sessionLink = isTeamShared
+    ? `${window.location.origin}/shared/${team.sharing.shareToken}/${selectedSessionId}`
+    : null;
+  const copySessionLink = async () => {
+    try {
+      await navigator.clipboard.writeText(sessionLink);
+      toast('Session link copied');
+    } catch {
+      toast("Couldn't copy — select the link and copy it");
+    }
+  };
 
   // Public = a copy of the SAVED session in the Community (unsaved edits are
   // saved first). Moving back down to Co-coaches/Private unpublishes it.
@@ -746,6 +758,9 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
               onMakePublic={() => publishSaved(false)}
               onUpdatePublic={() => publishSaved(true)}
               publicHidden={Boolean(publishedCopy?.hidden)}
+              sessionLink={sessionLink}
+              onCopySessionLink={copySessionLink}
+              dirty={dirty}
               onTurnOnSync={() => { setSharePopoverOpen(false); onShowLinkDevice?.(); }}
             />
           </div>

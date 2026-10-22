@@ -84,6 +84,9 @@ export default function SharePopover({
   onMakePublic,        // publish this session to the Community
   onUpdatePublic,      // re-publish the current saved version
   publicHidden = false, // hidden by moderation after reports
+  sessionLink = null,  // read-only link straight to this session (team shared)
+  onCopySessionLink,
+  dirty = false,
 }) {
   const popoverRef = useRef(null);
   const isMobile = useIsMobile();
@@ -201,6 +204,32 @@ export default function SharePopover({
           </div>
           <div className="text-[11.5px] mt-1.5" style={{ color: 'var(--ink-3)' }}>
             Includes the {exerciseCount} exercise{exerciseCount === 1 ? '' : 's'} and drawn diagrams in it. Uploaded images are never published, and your name isn't shown.
+          </div>
+        </div>
+      )}
+      {sessionLink && (
+        <div className="rounded-[10px] mt-2.5 p-2.5" style={{ background: 'var(--bg-sunken)', border: '1px solid var(--line)' }}>
+          <div className="text-[12px] font-semibold" style={{ color: 'var(--ink)' }}>Link to this session</div>
+          <div className="flex items-center gap-2 mt-1.5">
+            <input
+              readOnly
+              value={sessionLink}
+              onFocus={(e) => e.target.select()}
+              aria-label="Link to this session"
+              className="flex-1 min-w-0 font-mono"
+              style={{
+                fontSize: 11, padding: '5px 7px', borderRadius: 7,
+                background: 'var(--bg-elev)', border: '1px solid var(--line)', color: 'var(--ink-2)',
+              }}
+            />
+            <button className="btn btn-primary flex-shrink-0" style={{ padding: '5px 10px', fontSize: 12 }} onClick={onCopySessionLink}>
+              Copy link
+            </button>
+          </div>
+          <div className="text-[11.5px] mt-1.5" style={{ color: dirty ? 'var(--warn)' : 'var(--ink-3)' }}>
+            {dirty
+              ? 'Coaches see the last saved version — save to include your changes.'
+              : 'Opens this session read-only. No account needed.'}
           </div>
         </div>
       )}

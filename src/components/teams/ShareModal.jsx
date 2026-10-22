@@ -228,7 +228,7 @@ export default function ShareModal({
 
         <div className="mt-6 pt-4 border-t border-slate-700">
           <p className="text-slate-500 text-xs text-center">
-            Assistants can only view sessions. Changes you make sync automatically.
+            Assistants can only view sessions. They see each session as you last saved it.
           </p>
         </div>
       </div>
