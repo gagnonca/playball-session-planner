@@ -196,6 +196,13 @@ export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity
               ? "No password to remember. Use the sign-in you'll use on your phone too — your teams belong to that account."
               : 'No password to remember.'}
           </p>
+          {!returning && (
+            <p className="text-[12.5px] leading-snug -mt-2 mb-5 rounded-[10px] px-3 py-2" style={{ background: 'var(--accent-soft)', color: 'var(--ink-2)' }}>
+              <strong style={{ color: 'var(--ink)' }}>Used PlayBall before?</strong> Your teams are safe.
+              Sign in here, and once on the computer or phone you planned on — your teams move into
+              your account and show up everywhere.
+            </p>
+          )}
 
           {!configured && (
             <p className="text-[13px] mb-4" style={{ color: 'var(--danger)' }}>Sign-in isn't configured on this deployment.</p>
