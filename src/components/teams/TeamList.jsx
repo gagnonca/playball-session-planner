@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import TeamCard from './TeamCard';
 import CreateTeamModal from './CreateTeamModal';
 import TeamSpine from './TeamSpine';
+import useIsMobile from '../../hooks/useIsMobile';
 import { toast } from '../../utils/helpers';
 import { IOS_PROMO_DISMISSED_KEY } from '../../constants/storage';
 import playballIcon from '../../assets/playball-icon.png';
@@ -30,17 +31,21 @@ export default function TeamList({ teamsContext, sharingContext, iosReferral, on
   const [iosPromoDismissed, setIosPromoDismissed] = useState(() => !!localStorage.getItem(IOS_PROMO_DISMISSED_KEY));
 
   const teams = teamsData?.teams || [];
+  const isMobile = useIsMobile();
   const followedShares = sharingContext?.followedShares || [];
 
   // If the user lands on Training Home with at least one team, jump them
   // straight into that team's Workshop view — picking a team IS the nav.
+  // On a phone this page IS the team picker (no room for a side rail), so
+  // only jump when there's a single team to pick.
   React.useEffect(() => {
+    if (isMobile && teams.length !== 1) return;
     if (teams.length > 0 && !selectedTeamId) {
       // Prefer a current team over a previous-season one.
       navigateToTeamDetail((teams.find(t => !t.archived) || teams[0]).id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teams.length, selectedTeamId]);
+  }, [teams.length, selectedTeamId, isMobile]);
 
   const handleDismissIosPromo = () => {
     setIosPromoDismissed(true);
@@ -75,6 +80,30 @@ export default function TeamList({ teamsContext, sharingContext, iosReferral, on
     }
   };
 
+  if (isMobile && teams.length > 0) {
+    return (
+      <div className="flex-1 flex flex-col min-h-0" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+        <TeamSpine
+          fullWidth
+          teams={teams}
+          activeId={null}
+          onSelect={navigateToTeamDetail}
+          onCreateTeam={handleCreateTeam}
+        />
+        {showCreateModal && (
+          <CreateTeamModal
+            teamsContext={teamsContext}
+            editingTeam={editingTeam}
+            onClose={() => {
+              setShowCreateModal(false);
+              setEditingTeam(null);
+            }}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 flex min-h-0" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
       <TeamSpine
@@ -83,7 +112,7 @@ export default function TeamList({ teamsContext, sharingContext, iosReferral, on
         onSelect={navigateToTeamDetail}
         onCreateTeam={handleCreateTeam}
       />
-      <main className="flex-1 min-w-0 overflow-auto px-10 pt-12 pb-16 max-w-6xl mx-auto w-full">
+      <main className="flex-1 min-w-0 overflow-auto px-4 md:px-10 pt-8 md:pt-12 pb-16 max-w-6xl mx-auto w-full">
         {/* Greeting */}
         <div className="mb-10">
           <div className="text-[11px] font-mono uppercase mb-2" style={{ color: 'var(--ink-3)', letterSpacing: '0.1em' }}>{dayLabel()}</div>

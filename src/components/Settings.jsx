@@ -155,7 +155,7 @@ export default function Settings({ teamsContext, syncContext, accountContext, on
     <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
       <main className="max-w-3xl mx-auto px-6 pt-10 pb-16">
         <div className="eyebrow mb-2">SETTINGS</div>
-        <h1 className="text-[40px] font-semibold leading-[1.04]" style={{ letterSpacing: '-0.02em' }}>
+        <h1 className="text-[30px] md:text-[40px] font-semibold leading-[1.04]" style={{ letterSpacing: '-0.02em' }}>
           How PlayBall fits you.
         </h1>
         <p className="mt-2 text-[14.5px] max-w-[540px]" style={{ color: 'var(--ink-2)' }}>

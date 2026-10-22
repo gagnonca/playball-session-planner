@@ -336,3 +336,59 @@ export default function SessionRail({
   );
 }
 
+
+// Phone version of the rail: one scrollable row of tabs under the top bar —
+// Summary, each section, and "+". Reordering stays on the larger screen.
+export function SessionTabs({ sections, selectedSectionId, onSelectSummary, onSelectSection, onAddSection }) {
+  const activeRef = React.useRef(null);
+  React.useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [selectedSectionId]);
+
+  const tab = (key, active, onClick, children) => (
+    <button
+      key={key}
+      ref={active ? activeRef : undefined}
+      onClick={onClick}
+      className="flex-shrink-0 inline-flex items-center gap-1.5"
+      style={{
+        padding: '10px 4px 9px',
+        marginBottom: -1,
+        background: 'transparent',
+        border: 'none',
+        borderBottom: `2px solid ${active ? 'var(--accent)' : 'transparent'}`,
+        color: active ? 'var(--ink)' : 'var(--ink-2)',
+        fontSize: 13,
+        fontWeight: active ? 600 : 500,
+        fontFamily: 'inherit',
+        maxWidth: 180,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {children}
+    </button>
+  );
+
+  return (
+    <nav className="flex items-center gap-4 px-4 overflow-x-auto no-scrollbar" style={{ borderTop: '1px solid var(--line)' }}>
+      {tab('summary', selectedSectionId == null, onSelectSummary, 'Summary')}
+      {sections.map((s, idx) => {
+        const tone = getKindTone(s.type);
+        return tab(s.id, selectedSectionId === s.id, () => onSelectSection(s.id), (
+          <>
+            <span
+              className="inline-flex items-center justify-center rounded-[6px] font-mono flex-shrink-0"
+              style={{ width: 20, height: 20, background: tone.bg, color: tone.fg, fontSize: 10.5, fontWeight: 600 }}
+            >
+              {idx + 1}
+            </span>
+            <span className="truncate">{s.name || 'Untitled'}</span>
+          </>
+        ));
+      })}
+      {tab('add', false, onAddSection, (
+        <span style={{ color: 'var(--accent)' }}>+ Section</span>
+      ))}
+    </nav>
+  );
+}

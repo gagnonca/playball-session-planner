@@ -1,10 +1,47 @@
 import React from 'react';
 import playballIcon from '../assets/playball-icon.png';
 import { VIEWS } from '../constants/navigation';
+import useIsMobile from '../hooks/useIsMobile';
 
 // Top horizontal app header. Replaces the 224px left rail. Shows brand,
 // primary tabs (Training/Schedule/Playbook/Settings), sync status, About,
-// and an account avatar.
+// and an account avatar. On a phone the tabs move to a bottom tab bar.
+
+const TAB_ICONS = {
+  Training: <><rect x="3" y="5" width="18" height="14" rx="1.5" /><path d="M12 5v14" /><circle cx="12" cy="12" r="2.5" /></>,
+  Schedule: <><rect x="3.5" y="5" width="17" height="15" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" /></>,
+  Playbook: <><path d="M5 4h11a3 3 0 013 3v13H8a3 3 0 01-3-3V4z" /><path d="M5 17a3 3 0 013-3h11" /></>,
+  Settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z" /></>,
+};
+
+function BottomTab({ label, active, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 3,
+        padding: '8px 0 6px',
+        background: 'transparent',
+        border: 'none',
+        color: active ? 'var(--accent)' : 'var(--ink-2)',
+        fontSize: 10.5,
+        fontWeight: active ? 600 : 500,
+        fontFamily: 'inherit',
+        cursor: 'pointer',
+      }}
+    >
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        {TAB_ICONS[label]}
+      </svg>
+      {label}
+    </button>
+  );
+}
 
 function TabLink({ label, active, onClick }) {
   return (
@@ -45,6 +82,7 @@ export default function AppHeader({ teamsContext, syncContext, accountContext, o
   const syncEnabled = Boolean(syncContext?.isSyncEnabled);
   const syncStatus = syncContext?.syncStatus || 'idle';
   const isOnline = syncContext?.isOnline ?? true;
+  const isMobile = useIsMobile();
   const hasAccount = Boolean(accountContext?.isSignedIn);
   const accountInitial = (accountContext?.account?.email || '?').trim().charAt(0).toUpperCase() || 'A';
 
@@ -72,7 +110,15 @@ export default function AppHeader({ teamsContext, syncContext, accountContext, o
     ? `Signed in · ${accountContext?.account?.email || ''}`
     : 'Demo · nothing is saved';
 
+  const tabs = [
+    { label: 'Training', active: currentView === VIEWS.TEAMS || currentView === VIEWS.TEAM_DETAIL, onClick: navigateToTeams },
+    { label: 'Schedule', active: currentView === VIEWS.SCHEDULE, onClick: navigateToSchedule },
+    { label: 'Playbook', active: currentView === VIEWS.LIBRARY || currentView === VIEWS.DIAGRAM_LIBRARY, onClick: () => navigateToLibrary('sessions') },
+    { label: 'Settings', active: currentView === VIEWS.SETTINGS, onClick: navigateToSettings },
+  ];
+
   return (
+    <>
     <header
       style={{
         height: 56,
@@ -80,7 +126,7 @@ export default function AppHeader({ teamsContext, syncContext, accountContext, o
         display: 'flex',
         alignItems: 'center',
         gap: 14,
-        padding: '0 22px',
+        padding: isMobile ? '0 16px' : '0 22px',
         borderBottom: '1px solid var(--line)',
         background: 'var(--bg-elev)',
         position: 'sticky',
@@ -106,30 +152,14 @@ export default function AppHeader({ teamsContext, syncContext, accountContext, o
 
       <div style={{ flex: 1 }} />
 
-      <nav style={{ display: 'flex' }}>
-        <TabLink
-          label="Training"
-          active={currentView === VIEWS.TEAMS || currentView === VIEWS.TEAM_DETAIL}
-          onClick={navigateToTeams}
-        />
-        <TabLink
-          label="Schedule"
-          active={currentView === VIEWS.SCHEDULE}
-          onClick={navigateToSchedule}
-        />
-        <TabLink
-          label="Playbook"
-          active={currentView === VIEWS.LIBRARY || currentView === VIEWS.DIAGRAM_LIBRARY}
-          onClick={() => navigateToLibrary('sessions')}
-        />
-        <TabLink
-          label="Settings"
-          active={currentView === VIEWS.SETTINGS}
-          onClick={navigateToSettings}
-        />
-      </nav>
-
-      <div style={{ flex: 1 }} />
+      {!isMobile && (
+        <>
+          <nav style={{ display: 'flex' }}>
+            {tabs.map(t => <TabLink key={t.label} {...t} />)}
+          </nav>
+          <div style={{ flex: 1 }} />
+        </>
+      )}
 
       <div
         title={pillCopy}
@@ -147,7 +177,7 @@ export default function AppHeader({ teamsContext, syncContext, accountContext, o
         <span style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>{pillCopy}</span>
       </div>
 
-      {onShowAbout && (
+      {onShowAbout && !isMobile && (
         <button
           onClick={onShowAbout}
           title="About PlayBall"
@@ -182,5 +212,24 @@ export default function AppHeader({ teamsContext, syncContext, accountContext, o
         {chipLetter}
       </button>
     </header>
+    {isMobile && (
+      <nav
+        style={{
+          position: 'fixed',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 30,
+          display: 'flex',
+          background: 'rgb(var(--bg-elev-rgb) / 0.96)',
+          backdropFilter: 'blur(8px)',
+          borderTop: '1px solid var(--line)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+        }}
+      >
+        {tabs.map(t => <BottomTab key={t.label} {...t} />)}
+      </nav>
+    )}
+    </>
   );
 }

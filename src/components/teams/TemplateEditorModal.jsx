@@ -58,7 +58,7 @@ export default function TemplateEditorModal({ template, libraryExercises, onSave
   return (
     <>
       <div className="modal-backdrop" onClick={onClose} />
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="modal-scroll fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="card animate-fade-in w-full max-w-[720px]" style={{ boxShadow: 'var(--shadow-lg)', display: 'flex', flexDirection: 'column', maxHeight: '88vh' }}>
           <div className="p-6 pb-4">
             <div className="eyebrow mb-2">{template?.id ? 'EDIT TEMPLATE' : 'NEW TEMPLATE'}</div>

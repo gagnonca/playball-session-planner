@@ -185,10 +185,10 @@ export default function AppShell() {
   const goSignUp = () => { if (isDemo) endDemo(); };
   const demoBanner = isDemo ? (
     <div
-      className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 rounded-full pl-4 pr-1.5 py-1.5 text-[13px]"
+      className="fixed bottom-[calc(68px+env(safe-area-inset-bottom))] md:bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 rounded-full pl-4 pr-1.5 py-1.5 text-[13px] whitespace-nowrap"
       style={{ background: 'var(--ink)', color: 'var(--bg)', boxShadow: 'var(--shadow-lg)' }}
     >
-      <span>{accountContext.isSignedIn ? "You're viewing the demo team." : "Demo — nothing you change here is saved."}</span>
+      <span>{accountContext.isSignedIn ? "You're viewing the demo team." : <>Demo<span className="hidden sm:inline"> — nothing you change here is saved</span>.</>}</span>
       <button className="btn btn-primary" style={{ padding: '4px 12px' }} onClick={endDemo}>
         {accountContext.isSignedIn ? 'Exit demo' : 'Create a free account'}
       </button>
@@ -699,7 +699,8 @@ export default function AppShell() {
           accountContext={accountContext}
           onShowAbout={() => setShowAboutModal(true)}
         />
-        <div className="flex-1 min-w-0 flex flex-col">
+        {/* On a phone, room under the content for the bottom tab bar. */}
+        <div className="flex-1 min-w-0 flex flex-col pb-[calc(60px+env(safe-area-inset-bottom))] md:pb-0">
         {currentView === VIEWS.TEAMS && (
           <TeamList
             teamsContext={teamsContext}

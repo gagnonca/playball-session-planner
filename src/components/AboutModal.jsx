@@ -6,7 +6,7 @@ export default function AboutModal({ onClose, onRestartTutorial }) {
   return (
     <>
       <div className="modal-backdrop" onClick={onClose} />
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="modal-scroll fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="card p-6 w-full max-w-lg animate-fade-in" style={{ boxShadow: 'var(--shadow-lg)', maxHeight: '90vh', overflow: 'auto' }}>
           <div className="flex justify-between items-start mb-6">
             <div className="flex items-center gap-3">

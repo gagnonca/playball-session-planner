@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import useIsMobile from '../../hooks/useIsMobile';
 
 // 320px share-scope popover anchored to the SessionBuilder topbar.
 // Three states, gated by what the user has actually turned on:
@@ -85,6 +86,7 @@ export default function SharePopover({
   publicHidden = false, // hidden by moderation after reports
 }) {
   const popoverRef = useRef(null);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     if (!open) return;
@@ -104,6 +106,11 @@ export default function SharePopover({
 
   if (!open) return null;
 
+  // On a phone the anchor is near the right edge; span the screen instead.
+  const place = isMobile
+    ? { position: 'fixed', top: 96, left: 12, right: 12 }
+    : { top: 'calc(100% + 6px)', right: 0, width: 320 };
+
   return (
     <div
       ref={popoverRef}
@@ -111,9 +118,7 @@ export default function SharePopover({
       aria-label="Share scope"
       className="absolute z-30 animate-fade-in"
       style={{
-        top: 'calc(100% + 6px)',
-        right: 0,
-        width: 320,
+        ...place,
         padding: 12,
         background: 'var(--bg-elev)',
         border: '1px solid var(--line)',

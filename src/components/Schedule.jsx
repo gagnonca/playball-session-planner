@@ -109,11 +109,11 @@ export default function Schedule({ teamsContext }) {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
-      <main className="max-w-6xl mx-auto px-10 pt-12 pb-16">
+      <main className="max-w-6xl mx-auto px-4 md:px-10 pt-6 md:pt-12 pb-16">
         <div className="flex items-end justify-between flex-wrap gap-4 mb-6">
           <div>
             <div className="eyebrow mb-2">SCHEDULE · {monthLabel(cursor).toUpperCase()}</div>
-            <h1 className="text-[40px] font-semibold leading-[1.04]" style={{ letterSpacing: '-0.02em' }}>The weeks ahead.</h1>
+            <h1 className="text-[30px] md:text-[40px] font-semibold leading-[1.04]" style={{ letterSpacing: '-0.02em' }}>The weeks ahead.</h1>
             <p className="mt-2 text-[14.5px] max-w-[540px]" style={{ color: 'var(--ink-2)' }}>
               Practices and games for every team you coach &mdash; sessions you've scheduled and games synced from the PlayBall iOS app.
             </p>

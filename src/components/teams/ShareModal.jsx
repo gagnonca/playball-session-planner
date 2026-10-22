@@ -97,7 +97,7 @@ export default function ShareModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="modal-scroll fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-slate-800 rounded-xl shadow-xl max-w-md w-full p-6 border border-slate-700">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-bold text-white">

@@ -109,8 +109,9 @@ export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
-      <main className="max-w-[980px] mx-auto px-6 pt-16 pb-16 grid gap-10 md:grid-cols-[1.15fr_1fr] items-start">
-        <section>
+      {/* Phone order: headline, sign-in, then the benefits. Desktop: two columns. */}
+      <main className="max-w-[980px] mx-auto px-5 md:px-6 pt-10 md:pt-16 pb-16 grid gap-8 md:gap-x-10 md:gap-y-0 md:grid-cols-[1.15fr_1fr] items-start">
+        <section className="md:col-start-1 md:row-start-1">
           <div
             className="inline-flex items-center gap-2.5 rounded-full pl-1.5 pr-3.5 py-1"
             style={{ background: 'var(--bg-elev)', border: '1px solid var(--line)' }}
@@ -124,7 +125,7 @@ export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity
 
           {returning ? (
             <>
-              <h1 className="mt-7 text-[46px] leading-[1.05] font-semibold" style={{ letterSpacing: '-0.025em' }}>
+              <h1 className="mt-7 text-[36px] md:text-[46px] leading-[1.05] font-semibold" style={{ letterSpacing: '-0.025em' }}>
                 Welcome back,{' '}
                 <span style={{ fontStyle: 'italic', color: 'var(--accent)', fontWeight: 600 }}>coach</span>.
               </h1>
@@ -157,7 +158,7 @@ export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity
             </>
           ) : (
             <>
-              <h1 className="mt-7 text-[46px] leading-[1.05] font-semibold" style={{ letterSpacing: '-0.025em' }}>
+              <h1 className="mt-7 text-[36px] md:text-[46px] leading-[1.05] font-semibold" style={{ letterSpacing: '-0.025em' }}>
                 Plan a practice your players will{' '}
                 <span style={{ fontStyle: 'italic', color: 'var(--accent)', fontWeight: 600 }}>love</span>.
               </h1>
@@ -167,10 +168,13 @@ export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity
             </>
           )}
 
+        </section>
+
+        <section className="order-last md:order-none md:col-start-1 md:row-start-2">
           {returning && !returning.signedInBefore && (
-            <div className="mt-8 text-[12px] font-semibold uppercase tracking-wide" style={{ color: 'var(--ink-3)' }}>Why accounts</div>
+            <div className="md:mt-8 text-[12px] font-semibold uppercase tracking-wide" style={{ color: 'var(--ink-3)' }}>Why accounts</div>
           )}
-          <div className={returning && !returning.signedInBefore ? 'mt-3 flex flex-col gap-4' : 'mt-8 flex flex-col gap-4'}>
+          <div className={returning && !returning.signedInBefore ? 'mt-3 flex flex-col gap-4' : 'md:mt-8 flex flex-col gap-4'}>
             {[
               { icon: Icons.devices, title: 'Your plans on every device', body: 'Plan on the laptop tonight, pull it up on your phone at practice. Everything is saved to your account as you go.' },
               { icon: Icons.field, title: 'Never lose a session', body: "Nothing lives only in one browser, so clearing a cache or switching computers can't wipe out a season." },
@@ -187,7 +191,7 @@ export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity
           </div>
         </section>
 
-        <section className="rounded-[16px] p-6" style={{ background: 'var(--bg-elev)', border: '1px solid var(--line)', boxShadow: 'var(--shadow-sm)' }}>
+        <section className="md:col-start-2 md:row-start-1 md:row-span-2 rounded-[16px] p-5 md:p-6" style={{ background: 'var(--bg-elev)', border: '1px solid var(--line)', boxShadow: 'var(--shadow-sm)' }}>
           <h2 className="text-[20px] font-semibold mb-1" style={{ letterSpacing: '-0.02em' }}>
             {returning && !returning.signedInBefore ? 'Sign in to keep your teams' : returning ? 'Sign in' : 'Sign in or create an account'}
           </h2>

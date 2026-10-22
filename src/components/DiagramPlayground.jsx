@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Stage, Layer, Group, Rect, Circle, Line, Arrow, Text, Path, Shape, Image as KImage, Transformer } from 'react-konva';
 import useKonvaImage from '../hooks/useKonvaImage';
 import { setLeaveGuard } from '../hooks/useTeams';
+import useIsMobile from '../hooks/useIsMobile';
 import { migrateLegacyToShapes } from '../utils/diagramMigration';
 import ballSvg from '../assets/ball.svg';
 import coneOrangeSvg from '../assets/cone_orange.svg';
@@ -689,10 +690,12 @@ function LineHandles({ points, canvasScale, onMovePoint, onRemovePoint }) {
 
 // --- Top bar ----------------------------------------------------------------
 
-function TopBar({ title, onTitleChange, pitchSize, onPitchSize, pitchView, onPitchView, orientation, onOrientation, onBack, onSave, onExport, onUndo, onRedo, canUndo, canRedo }) {
+function TopBar({ title, onTitleChange, pitchSize, onPitchSize, pitchView, onPitchView, orientation, onOrientation, onBack, onSave, onExport, onUndo, onRedo, canUndo, canRedo, mobile }) {
+  // Phone: back / title / undo / redo / Save on the first row, pitch
+  // controls wrap to a second row, no PNG export.
   return (
     <header
-      className="flex items-center gap-4 px-5 py-3"
+      className={mobile ? 'flex flex-wrap items-center gap-x-1.5 gap-y-2 px-2 py-2' : 'flex items-center gap-4 px-5 py-3'}
       style={{ background: 'var(--bg-elev)', borderBottom: '1px solid var(--line)' }}
     >
       <button
@@ -703,16 +706,16 @@ function TopBar({ title, onTitleChange, pitchSize, onPitchSize, pitchView, onPit
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 19l-7-7 7-7" />
         </svg>
-        Back
+        {!mobile && 'Back'}
       </button>
-      <span style={{ color: 'var(--line-2)' }}>|</span>
+      {!mobile && <span style={{ color: 'var(--line-2)' }}>|</span>}
       <input
         value={title}
         onChange={(e) => onTitleChange(e.target.value)}
         className="bg-transparent outline-none flex-1 min-w-0"
         style={{
           color: 'var(--ink)',
-          fontSize: 22,
+          fontSize: mobile ? 17 : 22,
           fontWeight: 600,
           letterSpacing: '-0.02em',
           border: 'none',
@@ -720,7 +723,7 @@ function TopBar({ title, onTitleChange, pitchSize, onPitchSize, pitchView, onPit
         }}
         placeholder="Untitled play"
       />
-      <div className="inline-flex items-center gap-3">
+      <div className={mobile ? 'order-last w-full flex items-center gap-3 px-1' : 'inline-flex items-center gap-3'}>
         <label className="inline-flex items-center gap-1.5">
           <span className="font-mono uppercase" style={{ fontSize: 10.5, color: 'var(--ink-3)', letterSpacing: '0.08em' }}>SIZE</span>
           <select
@@ -797,17 +800,17 @@ function TopBar({ title, onTitleChange, pitchSize, onPitchSize, pitchView, onPit
           </svg>
         </button>
       </div>
-      <button onClick={onExport} className="btn btn-ghost">
+      {!mobile && <button onClick={onExport} className="btn btn-ghost">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
         </svg>
         Export
-      </button>
+      </button>}
       <button onClick={onSave} className="btn btn-primary">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M5 13l4 4L19 7" />
         </svg>
-        Save to session
+        {mobile ? 'Save' : 'Save to session'}
       </button>
     </header>
   );
@@ -815,11 +818,13 @@ function TopBar({ title, onTitleChange, pitchSize, onPitchSize, pitchView, onPit
 
 // --- Tool rail --------------------------------------------------------------
 
-function ToolRail({ tool, onTool }) {
+function ToolRail({ tool, onTool, horizontal }) {
   return (
     <div
-      className="flex flex-col items-center gap-1 py-3"
-      style={{ width: 72, background: 'var(--bg-elev)', borderRight: '1px solid var(--line)' }}
+      className={horizontal ? 'flex items-center gap-1 px-2 py-1.5 overflow-x-auto no-scrollbar' : 'flex flex-col items-center gap-1 py-3'}
+      style={horizontal
+        ? { background: 'var(--bg-elev)', borderBottom: '1px solid var(--line)' }
+        : { width: 72, background: 'var(--bg-elev)', borderRight: '1px solid var(--line)' }}
     >
       {TOOLS.map(t => {
         const active = tool === t.id;
@@ -832,8 +837,9 @@ function ToolRail({ tool, onTool }) {
             title={`${t.label} (${t.key})`}
             className="rounded-[10px] transition-colors"
             style={{
-              width: 48,
-              height: 48,
+              width: horizontal ? 44 : 48,
+              height: horizontal ? 44 : 48,
+              flexShrink: 0,
               border: '1px solid',
               borderColor: active ? 'var(--accent)' : 'transparent',
               background: active ? 'var(--accent-soft)' : 'transparent',
@@ -959,8 +965,10 @@ function Inspector({
           )}
         </div>
         <div className="hairline my-5" />
-        <div className="eyebrow mb-2" style={{ fontSize: 10.5 }}>SHORTCUTS</div>
-        <ShortcutList />
+        <div className="diagram-shortcuts">
+          <div className="eyebrow mb-2" style={{ fontSize: 10.5 }}>SHORTCUTS</div>
+          <ShortcutList />
+        </div>
       </aside>
     );
   }
@@ -1000,8 +1008,13 @@ function Inspector({
 
         <div className="hairline my-5" />
 
-        <div className="eyebrow mb-2" style={{ fontSize: 10.5 }}>SHORTCUTS</div>
-        <ShortcutList />
+        <div className="diagram-shortcuts">
+
+          <div className="eyebrow mb-2" style={{ fontSize: 10.5 }}>SHORTCUTS</div>
+
+          <ShortcutList />
+
+        </div>
       </aside>
     );
   }
@@ -1231,8 +1244,13 @@ function Inspector({
 
       <div className="hairline my-4" />
 
-      <div className="eyebrow mb-2" style={{ fontSize: 10.5 }}>SHORTCUTS</div>
-      <ShortcutList />
+      <div className="diagram-shortcuts">
+
+        <div className="eyebrow mb-2" style={{ fontSize: 10.5 }}>SHORTCUTS</div>
+
+        <ShortcutList />
+
+      </div>
     </aside>
   );
 }
@@ -1442,6 +1460,7 @@ export default function DiagramPlayground({
   onClose,
 } = {}) {
   const startsLegacy = isLegacyDiagram(initialDiagram);
+  const isMobile = useIsMobile();
   const [title, setTitle] = useState(
     initialDiagram?.name || defaultName || '1v1 in the channel'
   );
@@ -2007,8 +2026,14 @@ export default function DiagramPlayground({
     // inspector grows the page, and the vertically centered canvas slides down
     // whenever the selection shows more controls. The inspector scrolls
     // internally instead.
-    <div className="flex flex-col h-screen overflow-hidden" style={{ height: '100dvh', background: 'var(--bg-sunken)', color: 'var(--ink)' }}>
+    // On a phone the page scrolls instead: tools on top, the field at full
+    // width, the inspector below it.
+    <div
+      className={isMobile ? 'diagram-mobile flex flex-col min-h-screen' : 'flex flex-col h-screen overflow-hidden'}
+      style={{ ...(isMobile ? {} : { height: '100dvh' }), background: 'var(--bg-sunken)', color: 'var(--ink)' }}
+    >
       <TopBar
+        mobile={isMobile}
         title={title}
         onTitleChange={setTitle}
         pitchSize={pitchSize}
@@ -2038,8 +2063,9 @@ export default function DiagramPlayground({
         canRedo={canRedo}
       />
 
-      <div className="flex flex-1 min-h-0">
+      <div className={isMobile ? 'flex flex-col' : 'flex flex-1 min-h-0'}>
         <ToolRail
+          horizontal={isMobile}
           tool={tool}
           onTool={(next) => {
             setTool(next);
@@ -2052,12 +2078,16 @@ export default function DiagramPlayground({
           }}
         />
 
-        <div className="flex-1 min-w-0 flex items-center justify-center overflow-auto p-8">
+        <div className={isMobile ? 'flex justify-center p-3' : 'flex-1 min-w-0 flex items-center justify-center overflow-auto p-8'}>
           <div
             ref={containerRef}
             style={{
               width: '100%',
-              maxWidth: `min(${isVertical ? PITCH_MAX_WIDTH / fieldAspect : PITCH_MAX_WIDTH}px, calc((100vh - 190px) * ${displayAspect}))`,
+              maxWidth: isMobile
+                ? `min(100%, calc((100dvh - 200px) * ${displayAspect}))`
+                : `min(${isVertical ? PITCH_MAX_WIDTH / fieldAspect : PITCH_MAX_WIDTH}px, calc((100vh - 190px) * ${displayAspect}))`,
+              // Drags on the field draw/move shapes; don't let them scroll the page.
+              touchAction: 'none',
               aspectRatio: displayAspect,
               background: PITCH_SURROUND_COLOR,
               borderRadius: 14,
@@ -2285,7 +2315,7 @@ export default function DiagramPlayground({
       {leaveTo && (
         <>
           <div className="modal-backdrop" onClick={() => setLeaveTo(null)} />
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="modal-scroll fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="card p-6 w-full max-w-md animate-fade-in" style={{ boxShadow: 'var(--shadow-lg)' }}>
               <h2 className="text-[18px] font-semibold mb-2" style={{ letterSpacing: '-0.015em' }}>Leave without saving?</h2>
               <p className="text-[13.5px] mb-5" style={{ color: 'var(--ink-2)' }}>You'll lose the changes you made to this diagram.</p>

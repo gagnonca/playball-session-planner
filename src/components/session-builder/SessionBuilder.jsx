@@ -6,7 +6,8 @@ import AddSectionModal from '../AddSectionModal';
 import LibraryModal from '../LibraryModal';
 import SessionPlanPDF from '../SessionPlanPDF';
 import ShareModal from '../teams/ShareModal';
-import SessionRail from './SessionRail';
+import SessionRail, { SessionTabs } from './SessionRail';
+import useIsMobile from '../../hooks/useIsMobile';
 import SharePopover from './SharePopover';
 import { planTotal, parseMinutes, countReferenced } from '../../utils/sessionDuration';
 import useAI from '../../hooks/useAI';
@@ -47,7 +48,7 @@ function ChoiceDialog({ title, body, actions, onCancel }) {
   return (
     <>
       <div className="modal-backdrop" onClick={onCancel} />
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="modal-scroll fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="card p-6 w-full max-w-md animate-fade-in" style={{ boxShadow: 'var(--shadow-lg)' }}>
           <h2 className="text-[18px] font-semibold mb-2" style={{ letterSpacing: '-0.015em' }}>{title}</h2>
           <p className="text-[13.5px] mb-5" style={{ color: 'var(--ink-2)' }}>{body}</p>
@@ -173,6 +174,7 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
 
   // AI Hook
   const aiHook = useAI();
+  const isMobile = useIsMobile();
 
   // Every builder edit goes into this tab's draft; nothing is written to the
   // server until Save. The updater runs against the latest draft value.
@@ -666,31 +668,41 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
           borderBottom: '1px solid var(--line)',
         }}
       >
-        <div className="max-w-[1400px] mx-auto px-4 py-2.5 flex items-center gap-3">
+        <div className={`max-w-[1400px] mx-auto flex items-center ${isMobile ? 'px-2 py-2 gap-1.5' : 'px-4 py-2.5 gap-3'}`}>
           <button
             onClick={handleBackToTeam}
             className="btn btn-ghost flex-shrink-0"
-            style={{ padding: '4px 8px', fontSize: 13 }}
+            style={{ padding: isMobile ? '4px 4px' : '4px 8px', fontSize: 13 }}
+            aria-label={`Back to ${team.name}`}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 19l-7-7 7-7" />
             </svg>
-            <span>{team.name}</span>
+            {!isMobile && <span>{team.name}</span>}
           </button>
-          <span style={{ color: 'var(--ink-3)' }}>/</span>
-          <span
-            className="font-semibold truncate"
-            style={{ fontSize: 16, letterSpacing: '-0.015em', color: 'var(--ink)' }}
-            title={session.summary?.title || 'Untitled session'}
-          >
-            {session.summary?.title || 'Untitled session'}
-          </span>
-          <SaveStateChip dirty={dirty} saving={saving} />
+          {!isMobile && <span style={{ color: 'var(--ink-3)' }}>/</span>}
+          <div className={isMobile ? 'flex-1 min-w-0' : 'min-w-0'}>
+            <div
+              className="font-semibold truncate"
+              style={{ fontSize: isMobile ? 15 : 16, letterSpacing: '-0.015em', color: 'var(--ink)' }}
+              title={session.summary?.title || 'Untitled session'}
+            >
+              {session.summary?.title || 'Untitled session'}
+            </div>
+            {isMobile && (
+              <div className="text-[11px] truncate" style={{ color: dirty ? 'var(--warn)' : 'var(--ink-3)' }}>
+                {saving ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved'}
+                {' · '}
+                <span style={{ color: 'var(--ink-3)' }}>{planMinutes}{targetMinutes ? `/${targetMinutes}` : ''} min</span>
+              </div>
+            )}
+          </div>
+          {!isMobile && <SaveStateChip dirty={dirty} saving={saving} />}
 
-          <div className="flex-1" />
+          {!isMobile && <div className="flex-1" />}
 
 
-          <DurationChip current={planMinutes} target={targetMinutes} />
+          {!isMobile && <DurationChip current={planMinutes} target={targetMinutes} />}
 
           {/* Share menu — opens the cascading scope popover */}
           <div className="relative">
@@ -698,6 +710,7 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
               ref={shareBtnRef}
               onClick={() => setSharePopoverOpen(o => !o)}
               className="btn btn-ghost"
+              style={isMobile ? { padding: '6px' } : undefined}
               title="Share scope"
               aria-haspopup="dialog"
               aria-expanded={sharePopoverOpen}
@@ -714,7 +727,7 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
                   <path d="M8 11V7a4 4 0 018 0v4" strokeWidth={1.6} strokeLinecap="round" />
                 </svg>
               )}
-              {shareScope === 'public' ? 'Public' : shareScope === 'coaches' ? 'Co-coaches' : 'Private'}
+              {!isMobile && (shareScope === 'public' ? 'Public' : shareScope === 'coaches' ? 'Co-coaches' : 'Private')}
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--ink-3)' }}>
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M19 9l-7 7-7-7" />
               </svg>
@@ -740,14 +753,16 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
           <button
             onClick={handleDownloadPDF}
             className="btn btn-ghost"
+            style={isMobile ? { padding: '6px' } : undefined}
             title="Download PDF"
+            aria-label="Download PDF"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
             </svg>
-            Export PDF
+            {!isMobile && 'Export PDF'}
           </button>
-          <button
+          {!isMobile && <button
             onClick={() => {
               if (!aiHook.isConfigured()) {
                 // Coach panel isn't wired yet; nudge to AI setup until Phase 4 lands.
@@ -762,7 +777,7 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
           >
             <span aria-hidden style={{ marginRight: 4 }}>✨</span>
             Ask Coach
-          </button>
+          </button>}
           {/* Save is always the last control on the right. */}
           <button
             onClick={() => handleSave()}
@@ -773,11 +788,20 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
+        {isMobile && (
+          <SessionTabs
+            sections={session.sections}
+            selectedSectionId={selectedSectionId}
+            onSelectSummary={handleSelectSummary}
+            onSelectSection={handleSelectSection}
+            onAddSection={handleAddSection}
+          />
+        )}
       </header>
 
       {/* Two-column body */}
       <div className="flex-1 flex max-w-[1400px] mx-auto w-full">
-        <SessionRail
+        {!isMobile && <SessionRail
           summary={session.summary}
           sections={session.sections}
           selectedSectionId={selectedSectionId}
@@ -786,9 +810,9 @@ function SessionBuilderInner({ teamsContext, diagramLibrary, libraryHook, syncCo
           onReorderSections={handleReorderSections}
           onAddSection={handleAddSection}
           onDeleteSection={handleRemoveSection}
-        />
+        />}
 
-        <main className="flex-1 min-w-0 px-8 py-8 overflow-x-hidden">
+        <main className="flex-1 min-w-0 px-4 py-5 md:px-8 md:py-8 overflow-x-hidden">
           {activeSection ? (
             <>
               <Section

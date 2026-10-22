@@ -23,7 +23,7 @@ function sessionStatusCounts(team) {
   return { ready, drafting };
 }
 
-function TeamRow({ team, active, onSelect }) {
+function TeamRow({ team, active, onSelect, card }) {
   const tone = teamTone(team);
   const playerCount = team.players?.length || team.roster?.length || 0;
   const focus = (team.focus || team.ageGroup || '').toString().toLowerCase();
@@ -36,16 +36,16 @@ function TeamRow({ team, active, onSelect }) {
         width: '100%',
         textAlign: 'left',
         borderRadius: 10,
-        padding: '10px 12px',
-        background: active ? 'var(--bg-elev)' : 'transparent',
-        border: active ? '1px solid var(--line-2)' : '1px solid transparent',
-        boxShadow: active ? 'var(--shadow-sm)' : 'none',
+        padding: card ? '12px 14px' : '10px 12px',
+        background: active || card ? 'var(--bg-elev)' : 'transparent',
+        border: active ? '1px solid var(--line-2)' : card ? '1px solid var(--line)' : '1px solid transparent',
+        boxShadow: active || card ? 'var(--shadow-sm)' : 'none',
         cursor: 'pointer',
         fontFamily: 'inherit',
         position: 'relative',
       }}
-      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'rgb(var(--ink-rgb) / 0.03)'; }}
-      onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+      onMouseEnter={(e) => { if (!active && !card) e.currentTarget.style.background = 'rgb(var(--ink-rgb) / 0.03)'; }}
+      onMouseLeave={(e) => { if (!active && !card) e.currentTarget.style.background = 'transparent'; }}
     >
       {active && (
         <div
@@ -104,7 +104,8 @@ function TeamRow({ team, active, onSelect }) {
 // spine: pick a team here, the right pane updates.
 // Teams marked as a previous season (team.archived) sit in their own
 // collapsible section below the current ones.
-export default function TeamSpine({ teams, activeId, onSelect, onCreateTeam }) {
+// `fullWidth`: on a phone the rail is the whole Training page (team picker).
+export default function TeamSpine({ teams, activeId, onSelect, onCreateTeam, fullWidth }) {
   const currentTeams = teams.filter(t => !t.archived);
   const previousTeams = teams.filter(t => t.archived);
   const [showPrevious, setShowPrevious] = useState(false);
@@ -113,14 +114,15 @@ export default function TeamSpine({ teams, activeId, onSelect, onCreateTeam }) {
   return (
     <aside
       style={{
-        width: 268,
+        width: fullWidth ? '100%' : 268,
+        flex: fullWidth ? 1 : undefined,
         flexShrink: 0,
-        background: 'var(--bg-sunken)',
-        borderRight: '1px solid var(--line)',
-        padding: 14,
+        background: fullWidth ? 'var(--bg)' : 'var(--bg-sunken)',
+        borderRight: fullWidth ? 'none' : '1px solid var(--line)',
+        padding: fullWidth ? 16 : 14,
         display: 'flex',
         flexDirection: 'column',
-        gap: 6,
+        gap: fullWidth ? 8 : 6,
         overflowY: 'auto',
         alignSelf: 'stretch',
       }}
@@ -175,7 +177,7 @@ export default function TeamSpine({ teams, activeId, onSelect, onCreateTeam }) {
         </div>
       ) : (
         currentTeams.map(t => (
-          <TeamRow key={t.id} team={t} active={t.id === activeId} onSelect={onSelect} />
+          <TeamRow key={t.id} team={t} active={t.id === activeId} onSelect={onSelect} card={fullWidth} />
         ))
       )}
 
@@ -212,7 +214,7 @@ export default function TeamSpine({ teams, activeId, onSelect, onCreateTeam }) {
           </button>
           {previousOpen && previousTeams.map(t => (
             <div key={t.id} style={{ opacity: t.id === activeId ? 1 : 0.75 }}>
-              <TeamRow team={t} active={t.id === activeId} onSelect={onSelect} />
+              <TeamRow team={t} active={t.id === activeId} onSelect={onSelect} card={fullWidth} />
             </div>
           ))}
         </>

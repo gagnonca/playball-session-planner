@@ -190,7 +190,7 @@
     top: 50%; left: 50%;
     transform: translate(-50%, -50%);
     width: 100%;
-    max-width: 56rem;
+    max-width: min(56rem, calc(100vw - 24px));
     max-height: 90vh;
     overflow: auto;
     background: var(--bg-elev);
@@ -357,3 +357,22 @@
   .rich-text-editor > div:first-child { display: none; }
   .rich-text-editor { resize: none; border: none; background: white; }
 }
+
+/* Horizontally scrollable rows (tab strips on a phone) without a visible bar. */
+.no-scrollbar { scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* Diagram editor on a phone: the inspector sits under the field, full width. */
+.diagram-mobile aside {
+  width: 100% !important;
+  border-left: none !important;
+  border-top: 1px solid var(--line);
+  padding: 16px !important;
+}
+.diagram-mobile .diagram-shortcuts { display: none; }
+
+/* Centered dialogs that can be taller than the screen (phones, short
+   laptops): the backdrop scrolls, and the dialog is centered only while it
+   fits — otherwise it starts at the top instead of being cut off. */
+.modal-scroll { overflow-y: auto; align-items: flex-start !important; }
+.modal-scroll > :not(.absolute):not(.fixed) { margin-top: auto; margin-bottom: auto; }

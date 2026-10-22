@@ -39,7 +39,7 @@ export default function CreateTeamModal({ teamsContext, editingTeam, onClose }) 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div className="modal-scroll fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-slate-800 border border-slate-700 rounded-lg max-w-md w-full p-6">
         <h2 className="text-2xl font-bold mb-4">
           {editingTeam ? 'Edit Team' : 'Create New Team'}

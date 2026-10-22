@@ -5,6 +5,7 @@ import ShareModal from './ShareModal';
 import SessionLibraryModal from './SessionLibraryModal';
 import TeamGames from './TeamGames';
 import TeamSpine from './TeamSpine';
+import useIsMobile from '../../hooks/useIsMobile';
 import CreateTeamModal from './CreateTeamModal';
 import { toast, sessionToLibraryPayload, libraryPayloadToSession, downloadJson } from '../../utils/helpers';
 import { request } from '../../data/api';
@@ -30,6 +31,7 @@ function nextSessionLabel(team) {
 }
 
 export default function TeamDetail({ teamsContext, sharingContext, libraryHook }) {
+  const isMobile = useIsMobile();
   const {
     selectedTeamId,
     teamsData,
@@ -217,18 +219,28 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
 
   return (
     <div className="flex-1 flex min-h-0" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
-      <TeamSpine
-        teams={allTeams}
-        activeId={selectedTeamId}
-        onSelect={navigateToTeamDetail}
-        onCreateTeam={() => setShowCreateTeamModal(true)}
-      />
+      {!isMobile && (
+        <TeamSpine
+          teams={allTeams}
+          activeId={selectedTeamId}
+          onSelect={navigateToTeamDetail}
+          onCreateTeam={() => setShowCreateTeamModal(true)}
+        />
+      )}
       <div className="flex-1 min-w-0 overflow-auto">
       <header
         className="sticky top-0 z-10"
         style={{ background: 'rgb(var(--bg-rgb) / 0.85)', backdropFilter: 'blur(8px)', borderBottom: '1px solid var(--line)' }}
       >
-        <div className="max-w-6xl mx-auto px-10 py-3 flex items-center justify-end gap-4">
+        <div className="max-w-6xl mx-auto px-4 md:px-10 py-3 flex items-center justify-end gap-4">
+          {isMobile && (
+            <button onClick={navigateToTeams} className="btn btn-ghost mr-auto" style={{ padding: '4px 8px 4px 2px' }}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 19l-7-7 7-7" />
+              </svg>
+              Teams
+            </button>
+          )}
           <div className="flex items-center gap-2">
             {sharingContext && (
               <button
@@ -248,7 +260,7 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-10 pt-10 pb-16">
+      <main className="max-w-6xl mx-auto px-4 md:px-10 pt-6 md:pt-10 pb-16">
         <div className="flex items-start gap-5 mb-2">
           <div
             className="flex-shrink-0 w-16 h-16 rounded-2xl flex items-center justify-center font-semibold text-[15px]"
@@ -257,7 +269,7 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
             {team.ageGroup || (team.name ? team.name.slice(0, 2).toUpperCase() : '·')}
           </div>
           <div className="flex-1 min-w-0">
-            <h1 className="text-[36px] font-semibold leading-[1.04]" style={{ letterSpacing: '-0.02em' }}>{team.name}</h1>
+            <h1 className="text-[28px] md:text-[36px] font-semibold leading-[1.04]" style={{ letterSpacing: '-0.02em' }}>{team.name}</h1>
             <p className="mt-2 text-[14px]" style={{ color: 'var(--ink-2)' }}>
               {playerCount > 0 ? `${playerCount} players · ` : ''}
               {sessions.length} session{sessions.length === 1 ? '' : 's'}

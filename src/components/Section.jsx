@@ -271,9 +271,9 @@ export default function Section({
     <article className="my-2">
       {/* Section header — eyebrow, big name input, type + time controls */}
       <header className="mb-6">
-        <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-2">
           <div
-            className="font-mono uppercase inline-flex items-center gap-2"
+            className="font-mono uppercase inline-flex items-center gap-2 whitespace-nowrap"
             style={{ fontSize: 11, color: sectionTone.fg, letterSpacing: '0.12em' }}
           >
             <span
@@ -283,7 +283,7 @@ export default function Section({
             {section.type || 'SECTION'}
             {section.time && <span style={{ color: 'var(--ink-3)' }}>· {section.time}</span>}
           </div>
-          <div className="flex items-center gap-1 no-print">
+          <div className="flex items-center gap-1 no-print ml-auto whitespace-nowrap">
             {onOpenLibrary && (
               <button onClick={onOpenLibrary} className="btn btn-ghost" style={{ fontSize: 12.5 }} title="Replace with an exercise from your library">
                 From library

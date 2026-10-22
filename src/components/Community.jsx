@@ -153,7 +153,7 @@ function DetailModal({ item, onClose, onAdded, onSignIn, mine, onRemoved }) {
   return (
     <>
       <div className="modal-backdrop" onClick={onClose} />
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="modal-scroll fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="card w-full max-w-2xl max-h-[88vh] flex flex-col animate-fade-in" style={{ boxShadow: 'var(--shadow-lg)' }}>
           <div className="p-5 flex items-start justify-between gap-3" style={{ borderBottom: '1px solid var(--line)' }}>
             <div className="min-w-0">

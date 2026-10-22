@@ -670,7 +670,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
           className="sticky top-0 z-10"
           style={{ background: 'rgb(var(--bg-rgb) / 0.85)', backdropFilter: 'blur(8px)', borderBottom: '1px solid var(--line)' }}
         >
-          <div className="max-w-6xl mx-auto px-10 py-3 flex items-center justify-between gap-4">
+          <div className="max-w-6xl mx-auto px-4 md:px-10 py-3 flex items-center justify-between gap-4">
             <button onClick={handleBack} className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: 13 }}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 19l-7-7 7-7" />
@@ -688,10 +688,10 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
         </header>
       )}
 
-      <div className="max-w-6xl mx-auto px-10 pt-12 pb-4 flex items-start justify-between gap-6">
+      <div className="max-w-6xl mx-auto px-4 md:px-10 pt-6 md:pt-12 pb-4 flex items-start justify-between gap-6">
         <div>
           <div className="text-[11px] font-mono uppercase mb-2" style={{ color: 'var(--ink-3)', letterSpacing: '0.1em' }}>PLAYBOOK</div>
-          <h1 className="text-[36px] font-bold leading-[1.04]" style={{ letterSpacing: '-0.025em' }}>
+          <h1 className="text-[28px] md:text-[36px] font-bold leading-[1.04]" style={{ letterSpacing: '-0.025em' }}>
             Your playbook
           </h1>
           <p className="mt-2 text-[14px]" style={{ color: 'var(--ink-2)' }}>
@@ -699,7 +699,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
           </p>
         </div>
         {!isInsertMode && (
-          <div className="flex items-center gap-1 flex-shrink-0">
+          <div className="hidden md:flex items-center gap-1 flex-shrink-0">
             <button onClick={exportLibrary} className="btn btn-ghost" title="Export library JSON">Export</button>
             <label className="btn btn-ghost cursor-pointer" title="Import library JSON">
               Import
@@ -710,7 +710,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
       </div>
 
       {!isInsertMode && (
-        <div className="max-w-6xl mx-auto px-10 pb-5">
+        <div className="max-w-6xl mx-auto px-4 md:px-10 pb-5">
           <div
             className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-[10px]"
             style={{ background: 'var(--bg-elev)', border: '1px solid var(--line)', fontSize: 12.5, color: 'var(--ink-2)' }}
@@ -728,11 +728,11 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
         </div>
       )}
 
-      <div className="max-w-6xl mx-auto px-10 pb-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="max-w-6xl mx-auto px-4 md:px-10 pb-3 flex flex-wrap items-center justify-between gap-3">
         <div
           role="tablist"
           aria-label="Playbook tabs"
-          className="inline-flex items-center gap-1"
+          className="inline-flex items-center gap-1 max-w-full overflow-x-auto no-scrollbar"
         >
           {TABS.map((tab) => {
             const active = tab.toLowerCase() === activeTabLabel.toLowerCase();
@@ -782,7 +782,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
         )}
       </div>
 
-      <div className="max-w-6xl mx-auto px-10 py-6">
+      <div className="max-w-6xl mx-auto px-4 md:px-10 py-6">
 
         {/* ===== EXERCISES TAB ===== */}
         {activeTabLabel === 'Exercises' && (
@@ -1378,7 +1378,7 @@ export default function Library({ teamsContext, libraryHook, diagramLibrary, syn
       {useSessionItem && (
         <>
           <div className="modal-backdrop" onClick={() => setUseSessionItem(null)} />
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="modal-scroll fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="card p-6 w-full max-w-sm animate-fade-in" style={{ boxShadow: 'var(--shadow-lg)' }}>
               <h2 className="text-[18px] font-semibold mb-1" style={{ letterSpacing: '-0.015em' }}>Use &ldquo;{useSessionItem.name}&rdquo;</h2>
               <p className="text-[13px] mb-4" style={{ color: 'var(--ink-2)' }}>Which team should this session be added to?</p>
