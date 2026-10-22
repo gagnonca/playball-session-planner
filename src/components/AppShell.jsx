@@ -447,7 +447,7 @@ export default function AppShell() {
           {staticPage === 'privacy' && (
             <div className="prose prose-invert max-w-none">
               <h1 className="text-3xl font-bold mb-2">Privacy Policy</h1>
-              <p className="text-slate-400 text-sm mb-8">Effective date: October 21, 2026</p>
+              <p className="text-slate-400 text-sm mb-8">Effective date: October 22, 2026</p>
 
               <p className="text-slate-300 leading-relaxed mb-6">
                 PlayBall asks you to create an account for one reason: so your teams and practice plans are saved,
@@ -492,10 +492,26 @@ export default function AppShell() {
                 that team&rsquo;s data is sent to our servers so the code works.
               </p>
 
-              <h2 className="text-xl font-semibold mt-8 mb-4">Where it lives</h2>
+              <h2 className="text-xl font-semibold mt-8 mb-4">Services that run PlayBall</h2>
+              <p className="text-slate-300 leading-relaxed mb-4">
+                PlayBall uses a few service providers. Each one gets only what it needs to do its job, and none of them
+                receives your data from us for advertising or any other purpose of their own.
+              </p>
+              <ul className="text-slate-300 space-y-2 list-disc list-inside mb-4">
+                <li><strong className="text-white">Supabase</strong> — stores your account (email address) and everything you create, and runs sign-in.</li>
+                <li><strong className="text-white">Vercel</strong> — hosts the website and diagram images. Like any web host, it sees standard request information such as your IP address.</li>
+                <li><strong className="text-white">Resend</strong> — delivers the sign-in code email, so it receives your email address and that message. Only if you sign in by email.</li>
+                <li><strong className="text-white">Google or Apple</strong> — only if you choose to sign in with them. They handle that sign-in under their own privacy policies and will know you use PlayBall; we receive only your email address (and name, if provided). The Google sign-in button is loaded from Google when the sign-in page opens.</li>
+              </ul>
               <p className="text-slate-300 leading-relaxed mb-6">
-                Your account and data are stored with our hosting providers, Supabase (database and sign-in) and
-                Vercel (website and images), who process it only to run PlayBall.
+                If you email support@getplayball.app, your message is forwarded to our support inbox, which is hosted by Google.
+              </p>
+
+              <h2 className="text-xl font-semibold mt-8 mb-4">Optional AI assistant</h2>
+              <p className="text-slate-300 leading-relaxed mb-6">
+                If you add your own OpenAI API key in Settings, the session details you ask the assistant about are sent
+                from your browser directly to OpenAI under your own OpenAI account and its terms. Your key stays in your
+                browser and is never sent to PlayBall. Nothing is sent to OpenAI unless you add a key and use the assistant.
               </p>
 
               <h2 className="text-xl font-semibold mt-8 mb-4">Deleting your data</h2>
