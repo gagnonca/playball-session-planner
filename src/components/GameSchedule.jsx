@@ -215,7 +215,9 @@ export function GameDetail({ game, onBack }) {
               </div>
             ))}
           </div>
-          <p className="text-[12px] mt-2" style={{ color: 'var(--ink-3)' }}>Includes time in goal.</p>
+          {shifts.some(s => s.goalieID) && (
+            <p className="text-[12px] mt-2" style={{ color: 'var(--ink-3)' }}>Includes time in goal.</p>
+          )}
         </>
       )}
     </>
