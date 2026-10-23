@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { request } from '../../data/api';
+import GameEditorModal from './GameEditorModal';
 
 function formatGameDate(iso) {
   if (!iso) return null;
