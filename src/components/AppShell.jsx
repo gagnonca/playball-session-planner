@@ -31,10 +31,10 @@ import ImportLanding from './ImportLanding';
 class ViewErrorBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, message: '' };
   }
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error) {
+    return { hasError: true, message: String(error?.message || error || '') };
   }
   componentDidCatch(error, info) {
     console.error('View crashed:', error, info);
@@ -49,9 +49,15 @@ class ViewErrorBoundary extends Component {
             </svg>
             <h2 className="text-xl font-semibold mb-2" style={{ letterSpacing: '-0.02em' }}>Something went wrong</h2>
             <p className="mb-6" style={{ color: 'var(--ink-2)' }}>This page ran into an error. Your data is safe.</p>
+            {this.state.message && (
+              // Shown so a coach can pass it on when reporting the problem.
+              <p className="mb-6 text-[12px] font-mono break-words" style={{ color: 'var(--ink-3)' }}>
+                {this.state.message}
+              </p>
+            )}
             <button
               onClick={() => {
-                this.setState({ hasError: false });
+                this.setState({ hasError: false, message: '' });
                 this.props.onRecover();
               }}
               className="btn btn-primary"
