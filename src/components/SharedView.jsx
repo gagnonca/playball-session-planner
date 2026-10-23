@@ -1,18 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { GameList, GameDetail } from './GameSchedule';
+import { THEMES } from '../utils/theme';
+
+const GAMES_REFRESH_MS = 30000;
+
+// /shared/<token>, /shared/<token>/<sessionId>, /shared/<token>/games[/<gameId>]
+function parseSharedPath(path = window.location.pathname) {
+  const [token = '', second = null, third = null] = path.replace('/shared/', '').split('/');
+  if (second === 'games') return { token, view: 'games', sessionId: null, gameId: third || null };
+  return { token, view: 'sessions', sessionId: second || null, gameId: null };
+}
 
 // Eagerly fire the fetch at module load — runs while JS is still parsing.
 // By the time React mounts, the response is likely already in flight or cached.
 const _eager = (() => {
   const path = window.location.pathname;
-  if (!path.startsWith('/shared/') || path.startsWith('/shared/games/')) return null;
-  const parts = path.replace('/shared/', '').split('/');
-  const token = parts[0];
+  if (!path.startsWith('/shared/')) return null;
+  const { token, sessionId } = parseSharedPath(path);
   if (!token) return null;
-  const sessionId = parts[1] || null;
   return {
     token,
     sessionId,
     sessionsPromise: fetch(`/api/share/${token}/sessions`).then(r => r.json()).catch(() => null),
+    gamesPromise: fetch(`/api/share/${token}/games`).then(r => r.json()).catch(() => null),
     detailPromise: sessionId
       ? fetch(`/api/share/${token}/sessions/${sessionId}`).then(r => r.json()).catch(() => null)
       : null,
@@ -23,11 +33,19 @@ export default function SharedView() {
   const [teamData, setTeamData] = useState(null);
   const [session, setSession] = useState(null);
   const [error, setError] = useState(null);
+  // Games synced from the coach's iOS app, with when they were fetched.
+  const [games, setGames] = useState(null);
+  const [gamesAt, setGamesAt] = useState(0);
+  const [route, setRoute] = useState(() => {
+    const r = parseSharedPath();
+    return { view: r.view, gameId: r.gameId };
+  });
   const tokenRef = useRef(_eager?.token || window.location.pathname.replace('/shared/', '').split('/')[0]);
 
   // Consume the eager fetch on mount
   useEffect(() => {
     const token = tokenRef.current;
+
     if (!token) { setError('Missing share code'); return; }
 
     (async () => {
@@ -41,6 +59,11 @@ export default function SharedView() {
         }
         if (!data?.success) throw new Error(data?.message || 'Share link is not valid');
         setTeamData(data);
+
+        const gamesData = _eager?.gamesPromise && _eager.token === token
+          ? await _eager.gamesPromise
+          : await fetch(`/api/share/${token}/games`).then(r => r.json()).catch(() => null);
+        if (gamesData?.success) { setGames(gamesData.games); setGamesAt(Date.now()); }
 
         // Deep link to session
         const sid = _eager?.sessionId;
@@ -65,7 +88,10 @@ export default function SharedView() {
     const handlePopState = () => {
       const path = window.location.pathname;
       if (path.startsWith('/shared/')) {
-        const sid = path.replace('/shared/', '').split('/')[1];
+        const r = parseSharedPath(path);
+        setRoute({ view: r.view, gameId: r.gameId });
+        if (r.view === 'games') { setSession(null); return; }
+        const sid = r.sessionId;
         if (sid) {
           loadSession(sid);
         } else {
@@ -82,6 +108,7 @@ export default function SharedView() {
     const handleVisibility = () => {
       if (document.visibilityState === 'visible' && tokenRef.current) {
         refreshSessions();
+        refreshGames();
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -89,6 +116,31 @@ export default function SharedView() {
   }, []);
 
   const token = tokenRef.current;
+
+  // Keep the sub schedule current while it's open: the coach's phone syncs
+  // as the game goes.
+  useEffect(() => {
+    if (route.view !== 'games') return undefined;
+    const id = setInterval(() => { if (document.visibilityState === 'visible') refreshGames(); }, GAMES_REFRESH_MS);
+    return () => clearInterval(id);
+  }, [route.view]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const refreshGames = async () => {
+    try {
+      const res = await fetch(`/api/share/${token}/games`, { cache: 'no-store' });
+      const data = await res.json();
+      if (data?.success) { setGames(data.games); setGamesAt(Date.now()); }
+    } catch {
+      // Keep what's on screen if a refresh fails (weak signal at the field).
+    }
+  };
+
+  const goTo = (view, gameId = null) => {
+    const path = view === 'games' ? `/shared/${token}/games${gameId ? `/${gameId}` : ''}` : `/shared/${token}`;
+    window.history.pushState({}, '', path);
+    setRoute({ view, gameId, picked: true });
+    window.scrollTo(0, 0);
+  };
 
   const refreshSessions = async () => {
     try {
@@ -346,7 +398,8 @@ export default function SharedView() {
     );
   }
 
-  // Session list
+  // Session list (or games). A team with games but no sessions opens on games.
+  const view = !route.picked && route.view === 'sessions' && !teamData.sessions?.length && games?.length ? 'games' : route.view;
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100">
       <div className="bg-slate-800 border-b border-slate-700 p-6">
@@ -382,7 +435,33 @@ export default function SharedView() {
       </div>
 
       <div className="max-w-6xl mx-auto p-6">
-        <h2 className="text-xl font-bold mb-4">Sessions ({teamData.sessions?.length || 0})</h2>
+        {games?.length > 0 && (
+          <div className="inline-flex rounded-lg bg-slate-800 border border-slate-700 p-1 mb-5" role="tablist">
+            {[['sessions', `Sessions (${teamData.sessions?.length || 0})`], ['games', `Games & subs (${games.length})`]].map(([tab, label]) => (
+              <button
+                key={tab}
+                role="tab"
+                aria-selected={tab === view}
+                onClick={() => goTo(tab)}
+                className={`px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === view ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+        {view === 'games' && games ? (
+          <div className="max-w-2xl" style={THEMES.dark.vars}>
+            {(() => {
+              const game = route.gameId && games.find(g => g.id === route.gameId);
+              return game
+                ? <GameDetail game={game} onBack={() => goTo('games')} />
+                : <GameList games={games} now={gamesAt} onOpen={(id) => goTo('games', id)} />;
+            })()}
+          </div>
+        ) : (
+        <>
+        {!games?.length && <h2 className="text-xl font-bold mb-4">Sessions ({teamData.sessions?.length || 0})</h2>}
         {teamData.sessions?.length === 0 ? (
           <div className="card p-8 text-center text-slate-400">
             No sessions in this team yet.
@@ -411,6 +490,8 @@ export default function SharedView() {
               </button>
             ))}
           </div>
+        )}
+        </>
         )}
       </div>
     </div>

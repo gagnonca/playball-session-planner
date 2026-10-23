@@ -60,7 +60,6 @@ async function handleDelete(req, res, code) {
       if (data.mascotImageUrl) {
         await del(data.mascotImageUrl).catch(() => {}); // best-effort blob cleanup
       }
-      if (data.viewToken) await redis.del(`team-view:${data.viewToken}`);
     }
     await redis.del(`team-share:${code}`);
     return res.status(200).json({ success: true, message: 'Share revoked' });
