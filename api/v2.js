@@ -6,7 +6,7 @@ import { mirrorTeamsBlob, mirrorLibraryBlob } from './_lib/dualWrite.js';
 import { versionedWrite, softDelete, readBaseVersion } from './_lib/versioned.js';
 import { sanitizePublic, safeTags } from './_lib/publicContent.js';
 import { teamFromRow, sessionFromRow, gameFromRow, libraryItemFromRow, diagramFromRow, templateFromRow } from './_lib/shapes.js';
-import { teamAccess, gameOwnerFor, memberTeams } from './_lib/teamAccess.js';
+import { teamAccess, gameOwnerFor, memberTeams, coachName } from './_lib/teamAccess.js';
 import { randomBytes } from 'node:crypto';
 
 // Routed via vercel.json rewrite: /api/v2/:slug* → /api/v2?slug=:slug*
@@ -50,6 +50,17 @@ import { randomBytes } from 'node:crypto';
 //   DELETE /teams/:id/members/:userId        owner removes a member, or a member leaves
 //   POST   /teams/:id/invites                owner: body { role } → { url }
 //   DELETE /teams/:id/invites/:token         owner: revoke an unused invite
+//   PUT    /account                          body: { name } — the name other coaches see
+//   POST   /setup                            body: { localTeams: [{ id, shareCode? }] } →
+//                                            the account's teams with what each holds,
+//                                            and how each device team matches them
+//   POST   /teams/:id/merge                  owner: body { into, name } — fold one of
+//                                            your teams into another (games, sessions,
+//                                            roster); the source stays as a pointer
+//   POST   /teams/:id/transfer               owner: body { userId } — make a member owner
+//   POST   /teams/:id/requests               body: { shareCode } — ask to join a team
+//                                            you held the old share code for
+//   POST   /teams/:id/requests/:userId       owner: body { decision: cocoach|assistant|decline }
 //   GET    /invites/:token                   preview an invite (no sign-in)
 //   POST   /invites/:token/accept            join the team (signed in)
 //   GET    /sessions                         list (optionally ?teamId=)
@@ -109,6 +120,7 @@ export default async function handler(req, res) {
     if (!auth.ok) return res.status(auth.status).json(auth.body);
 
     if (root === 'snapshot') return routeSnapshot(req, res, auth);
+    if (root === 'setup') return routeSetup(req, res, auth);
     if (root === 'coaches') return routeCoach(a, req, res, auth);
     if (root === 'teams') return routeTeams(a, b, c, req, res, auth);
     if (root === 'sessions') return routeSessions(a, req, res, auth);
@@ -160,13 +172,26 @@ async function routeAccount(action, req, res) {
   if (!user || user.invalid) return sendError(res, 401, 'not_signed_in', 'Sign in to PlayBall');
 
   const { data: mine, error } = await supabase
-    .from('coaches').select('coach_id').eq('user_id', user.id).maybeSingle();
+    .from('coaches').select('coach_id, display_name').eq('user_id', user.id).maybeSingle();
   if (error) return sendError(res, 500, 'server_error');
+
+  if (!action && req.method === 'PUT') {
+    const name = String((req.body || {}).name ?? '').trim().slice(0, 80);
+    if (!mine) return sendError(res, 409, 'no_coach', 'Account has no PlayBall data yet');
+    const { error: nameErr } = await supabase.from('coaches')
+      .update({ display_name: name || null, updated_at: new Date().toISOString() })
+      .eq('coach_id', mine.coach_id);
+    if (nameErr) return sendError(res, 500, 'server_error');
+    return res.status(200).json({ success: true, name: name || null });
+  }
 
   if (!action && req.method === 'GET') {
     return res.status(200).json({
       success: true,
       user: { id: user.id, email: user.email ?? null },
+      name: mine?.display_name ?? null,
+      // What Apple/Google told us, to prefill the name step.
+      suggestedName: user.user_metadata?.full_name || user.user_metadata?.name || null,
       coachId: mine?.coach_id ?? null,
     });
   }
@@ -485,6 +510,7 @@ async function routeSnapshot(req, res, auth) {
     coach: { coachId: c, defaultTeamId: auth.coach.default_team_id || null, isAdmin: isAdmin(auth) },
     teams,
     sharedTeams,
+    mergedTeams: await mergedPointers(c),
     library: {
       exercises: exR.data.map(libraryItemFromRow),
       sessions: libSessR.data.map(libraryItemFromRow),
@@ -543,6 +569,9 @@ async function routeTeams(id, action, sub, req, res, auth) {
   if (action === 'ios') return putIosTeam(id, req, res, auth);
   if (action === 'claim-ios') return claimIosTeam(id, req, res, auth);
   if (action === 'members') return routeMembers(id, sub, req, res, auth);
+  if (action === 'merge') return mergeTeam(id, req, res, auth);
+  if (action === 'transfer') return transferTeam(id, req, res, auth);
+  if (action === 'requests') return routeRequests(id, sub, req, res, auth);
   if (action === 'invites') return routeTeamInvites(id, sub, req, res, auth);
 
   if (req.method === 'PUT') {
@@ -842,7 +871,11 @@ async function claimIosTeam(localTeamId, req, res, auth) {
   }
 
   if (!team.coach_id.startsWith('anon:')) {
-    return sendError(res, 409, 'already_claimed', 'This team already belongs to another account.');
+    const managedBy = await coachName(team.coach_id);
+    return res.status(409).json({
+      success: false, error: 'already_claimed', teamId: team.id, managedBy,
+      message: `This team is managed by ${managedBy || 'another coach'}'s PlayBall account.`,
+    });
   }
 
   // Games first, guarded on the anon owner so a concurrent claim can't split them.
@@ -862,13 +895,256 @@ async function claimIosTeam(localTeamId, req, res, auth) {
   return res.status(200).json({ success: true, claimed: true, teamId: team.id });
 }
 
+// Teams of this coach that were merged into another: { id, mergedInto }.
+// Devices holding the old id remap to the new one instead of deleting.
+async function mergedPointers(coachId) {
+  const { data, error } = await supabase
+    .from('teams').select('id, merged_into')
+    .eq('coach_id', coachId).not('merged_into', 'is', null);
+  if (error) throw error;
+  return (data || []).map(r => ({ id: r.id, mergedInto: r.merged_into }));
+}
+
+function normalizeName(name) {
+  return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// POST /setup — body { localTeams: [{ id, shareCode?, name? }] }
+// Everything a device needs to show the "Your teams" setup screen: what the
+// account holds (and what kind of data each team has), and for each team on
+// the device, how it relates to the account.
+//
+//   onAccount       already one of the caller's teams (teamId)
+//   member          a team the caller is on as co-coach/assistant (teamId, role)
+//   claimable       shared by code, not on any account yet — adding it brings
+//                   its server history along
+//   managedByOther  shared by code and already on someone else's account
+//                   (teamId, managedBy, requested)
+//   new             only on the device
+//
+// `suggestMerge` names an account team with the same name and no app data,
+// typically the web team holding this team's practice sessions.
+async function routeSetup(req, res, auth) {
+  if (req.method !== 'POST') return sendError(res, 405, 'method_not_allowed');
+  const local = Array.isArray(req.body?.localTeams) ? req.body.localTeams : [];
+  const c = auth.coachId;
+
+  const [teamsR, gamesR, sessionsR, coachR] = await Promise.all([
+    supabase.from('teams').select('id, name, ios, ios_share_code, players, merged_into, deleted_at').eq('coach_id', c),
+    supabase.from('games').select('team_id').eq('coach_id', c).is('deleted_at', null),
+    supabase.from('sessions').select('team_id').eq('coach_id', c).is('deleted_at', null),
+    supabase.from('coaches').select('display_name').eq('coach_id', c).maybeSingle(),
+  ]);
+  const failed = [teamsR, gamesR, sessionsR].find(r => r.error);
+  if (failed) { console.error('[setup]', failed.error); return sendError(res, 500, 'server_error'); }
+
+  const count = (rows) => rows.reduce((m, r) => m.set(r.team_id, (m.get(r.team_id) || 0) + 1), new Map());
+  const games = count(gamesR.data);
+  const sessions = count(sessionsR.data);
+  const live = teamsR.data.filter(t => !t.deleted_at);
+  const merged = new Map(teamsR.data.filter(t => t.merged_into).map(t => [t.id, t.merged_into]));
+  const resolve = (id) => { let cur = id; for (let i = 0; i < 10 && merged.has(cur); i++) cur = merged.get(cur); return cur; };
+  const liveById = new Map(live.map(t => [t.id, t]));
+
+  const teams = live.map(t => ({
+    id: t.id,
+    name: t.name,
+    fromApp: !!t.ios || !!t.ios_share_code,
+    players: Array.isArray(t.players) ? t.players.length : 0,
+    games: games.get(t.id) || 0,
+    sessions: sessions.get(t.id) || 0,
+  }));
+  const membership = await memberTeams(auth);
+  const memberById = new Map(membership.map(m => [m.team.id, m]));
+
+  const results = [];
+  for (const lt of local) {
+    const id = String(lt?.id || '');
+    const code = typeof lt?.shareCode === 'string' ? lt.shareCode : null;
+    const result = { id };
+    const mine = liveById.get(resolve(id));
+    if (mine) {
+      Object.assign(result, { status: 'onAccount', teamId: mine.id });
+    } else if (memberById.has(id)) {
+      Object.assign(result, { status: 'member', teamId: id, role: memberById.get(id).role });
+    } else if (code) {
+      const { data: byCode } = await supabase
+        .from('teams').select('id, coach_id').eq('ios_share_code', code).is('deleted_at', null).maybeSingle();
+      if (!byCode) Object.assign(result, { status: 'new' });
+      else if (byCode.coach_id === c) Object.assign(result, { status: 'onAccount', teamId: byCode.id });
+      else if (memberById.has(byCode.id)) Object.assign(result, { status: 'member', teamId: byCode.id, role: memberById.get(byCode.id).role });
+      else if (byCode.coach_id.startsWith('anon:')) Object.assign(result, { status: 'claimable' });
+      else {
+        const { data: reqRow } = auth.user?.id
+          ? await supabase.from('team_requests').select('status').eq('team_id', byCode.id).eq('user_id', auth.user.id).maybeSingle()
+          : { data: null };
+        Object.assign(result, {
+          status: 'managedByOther', teamId: byCode.id,
+          managedBy: await coachName(byCode.coach_id),
+          requested: reqRow?.status === 'pending',
+        });
+      }
+    } else {
+      Object.assign(result, { status: 'new' });
+    }
+    if (result.status === 'new' || result.status === 'claimable') {
+      const wanted = normalizeName(lt?.name);
+      const match = wanted && teams.find(t => !t.fromApp && normalizeName(t.name) === wanted);
+      if (match) result.suggestMerge = match.id;
+    }
+    results.push(result);
+  }
+
+  return res.status(200).json({
+    success: true,
+    name: coachR.data?.display_name ?? null,
+    suggestedName: auth.user?.user_metadata?.full_name || auth.user?.user_metadata?.name || null,
+    teams,
+    sharedTeams: membership.map(m => ({ id: m.team.id, name: m.team.name, role: m.role })),
+    localTeams: results,
+  });
+}
+
+// POST /teams/:id/merge — body { into, name? }
+// Folds one of the caller's teams into another: typically the team made in
+// the iPhone app (roster, games) into the web team holding its sessions.
+// Games, sessions, members and invites move; rosters are combined; the app's
+// settings and share code carry over if the target has none. The source
+// stays as a deleted pointer (`merged_into`) so devices remap to the target.
+async function mergeTeam(sourceId, req, res, auth) {
+  if (req.method !== 'POST') return sendError(res, 405, 'method_not_allowed');
+  const { into, name } = req.body || {};
+  if (!into || into === sourceId) return sendError(res, 400, 'invalid_target');
+  const [src, dst] = await Promise.all([teamAccess(sourceId, auth), teamAccess(into, auth)]);
+  if (src?.role !== 'owner' || dst?.role !== 'owner') return sendError(res, 403, 'owner_only', 'You can only merge teams you own.');
+
+  const now = new Date().toISOString();
+  const c = auth.coachId;
+  const source = src.team;
+  const target = dst.team;
+
+  for (const table of ['games', 'sessions']) {
+    const { error } = await supabase.from(table)
+      .update({ team_id: target.id, updated_at: now })
+      .eq('team_id', source.id).eq('coach_id', c);
+    if (error) { console.error(`[merge.${table}]`, error); return sendError(res, 500, 'server_error'); }
+  }
+
+  const players = [...(Array.isArray(target.players) ? target.players : [])];
+  const have = new Set(players.map(p => p.id));
+  for (const p of Array.isArray(source.players) ? source.players : []) if (!have.has(p.id)) players.push(p);
+
+  // The share code is unique across teams: take it off the source first.
+  const code = target.ios_share_code || source.ios_share_code || null;
+  if (source.ios_share_code) {
+    const { error } = await supabase.from('teams').update({ ios_share_code: null }).eq('id', source.id).eq('coach_id', c);
+    if (error) return sendError(res, 500, 'server_error');
+  }
+  const { data: updated, error: targetErr } = await supabase.from('teams').update({
+    name: (typeof name === 'string' && name.trim()) ? name.trim() : target.name,
+    players,
+    ios: target.ios ?? source.ios ?? null,
+    ios_share_code: code,
+    share_code_readonly: target.share_code_readonly || source.share_code_readonly,
+    updated_at: now,
+  }).eq('id', target.id).eq('coach_id', c).select().single();
+  if (targetErr) { console.error('[merge.target]', targetErr); return sendError(res, 500, 'server_error'); }
+
+  // Coaches on either team end up on the merged one (keeping the higher role).
+  const { data: srcMembers } = await supabase.from('team_members').select('*').eq('team_id', source.id);
+  for (const m of srcMembers || []) {
+    const { data: existing } = await supabase.from('team_members').select('role').eq('team_id', target.id).eq('user_id', m.user_id).maybeSingle();
+    const role = existing?.role === 'cocoach' || m.role === 'cocoach' ? 'cocoach' : 'assistant';
+    await supabase.from('team_members').upsert({ team_id: target.id, user_id: m.user_id, role, invited_by: m.invited_by });
+  }
+  await supabase.from('team_invites').update({ team_id: target.id }).eq('team_id', source.id).is('accepted_by', null);
+
+  const { error: srcErr } = await supabase.from('teams')
+    .update({ merged_into: target.id, deleted_at: now, updated_at: now })
+    .eq('id', source.id).eq('coach_id', c);
+  if (srcErr) return sendError(res, 500, 'server_error');
+  await touchCoach(c);
+  return res.status(200).json({ success: true, team: teamFromRow(updated), mergedFrom: source.id });
+}
+
+// POST /teams/:id/transfer — body { userId }
+// Hands the team to a member (e.g. the assistant who set it up first gives
+// it to the head coach). Their games/sessions move with it; the previous
+// owner stays on as co-coach.
+async function transferTeam(teamId, req, res, auth) {
+  if (req.method !== 'POST') return sendError(res, 405, 'method_not_allowed');
+  const access = await teamAccess(teamId, auth);
+  if (access?.role !== 'owner') return sendError(res, 403, 'owner_only');
+  if (!auth.user?.id) return sendError(res, 401, 'login_required');
+  const { userId } = req.body || {};
+  const { data: member } = await supabase.from('team_members').select('role').eq('team_id', teamId).eq('user_id', userId).maybeSingle();
+  if (!member) return sendError(res, 400, 'not_a_member', 'They need to join the team first.');
+  const { data: newCoach } = await supabase.from('coaches').select('coach_id').eq('user_id', userId).maybeSingle();
+  if (!newCoach) return sendError(res, 409, 'no_coach', 'They need to sign in to PlayBall once first.');
+
+  const now = new Date().toISOString();
+  const oldCoach = auth.coachId;
+  const { data: moved, error } = await supabase.from('teams')
+    .update({ coach_id: newCoach.coach_id, updated_at: now })
+    .eq('id', teamId).eq('coach_id', oldCoach).select('id');
+  if (error || !moved?.length) return sendError(res, 409, 'conflict');
+  for (const table of ['games', 'sessions']) {
+    await supabase.from(table).update({ coach_id: newCoach.coach_id, updated_at: now }).eq('team_id', teamId).eq('coach_id', oldCoach);
+  }
+  await supabase.from('team_members').delete().eq('team_id', teamId).eq('user_id', userId);
+  await supabase.from('team_members').upsert({ team_id: teamId, user_id: auth.user.id, role: 'cocoach', invited_by: userId });
+  await touchCoach(oldCoach);
+  await touchCoach(newCoach.coach_id);
+  return res.status(200).json({ success: true });
+}
+
+// POST /teams/:id/requests                 body { shareCode } — ask to join
+// POST /teams/:id/requests/:userId         owner: body { decision }
+// Asking requires the team's old share code: only someone who held the team
+// before it moved onto an account can ask, so the owner isn't spammed.
+async function routeRequests(teamId, userId, req, res, auth) {
+  if (req.method !== 'POST') return sendError(res, 405, 'method_not_allowed');
+  if (!auth.user?.id) return sendError(res, 401, 'login_required');
+
+  if (!userId) {
+    const { shareCode } = req.body || {};
+    const { data: team } = await supabase.from('teams').select('id, coach_id, ios_share_code').eq('id', teamId).is('deleted_at', null).maybeSingle();
+    if (!team || !shareCode || team.ios_share_code !== shareCode) return sendError(res, 404, 'not_found');
+    if (team.coach_id === auth.coachId) return sendError(res, 409, 'already_owner');
+    const { error } = await supabase.from('team_requests')
+      .upsert({ team_id: teamId, user_id: auth.user.id, status: 'pending', created_at: new Date().toISOString(), decided_at: null });
+    if (error) return sendError(res, 500, 'server_error');
+    return res.status(200).json({ success: true, requested: true, managedBy: await coachName(team.coach_id) });
+  }
+
+  const access = await teamAccess(teamId, auth);
+  if (access?.role !== 'owner') return sendError(res, 403, 'owner_only');
+  const decision = (req.body || {}).decision;
+  if (!['cocoach', 'assistant', 'decline'].includes(decision)) return sendError(res, 400, 'invalid_decision');
+  const now = new Date().toISOString();
+  const { data: updated, error } = await supabase.from('team_requests')
+    .update({ status: decision === 'decline' ? 'declined' : 'approved', decided_at: now })
+    .eq('team_id', teamId).eq('user_id', userId).eq('status', 'pending').select('user_id');
+  if (error) return sendError(res, 500, 'server_error');
+  if (!updated?.length) return sendError(res, 404, 'not_found');
+  if (decision !== 'decline') {
+    const { error: memberErr } = await supabase.from('team_members')
+      .upsert({ team_id: teamId, user_id: userId, role: decision, invited_by: auth.user.id });
+    if (memberErr) return sendError(res, 500, 'server_error');
+  }
+  return res.status(200).json({ success: true });
+}
+
 async function userSummary(userId) {
-  const { data } = await supabase.auth.admin.getUserById(userId);
+  const [{ data }, { data: coach }] = await Promise.all([
+    supabase.auth.admin.getUserById(userId),
+    supabase.from('coaches').select('display_name').eq('user_id', userId).maybeSingle(),
+  ]);
   const u = data?.user;
   return {
     userId,
     email: u?.email ?? null,
-    name: u?.user_metadata?.full_name || u?.user_metadata?.name || null,
+    name: coach?.display_name || u?.user_metadata?.full_name || u?.user_metadata?.name || null,
   };
 }
 
@@ -890,7 +1166,12 @@ async function routeMembers(teamId, userId, req, res, auth) {
     const ownerEntry = owner?.user_id ? { ...(await userSummary(owner.user_id)), role: 'owner' } : null;
 
     let invites = [];
+    let requests = [];
     if (access.role === 'owner') {
+      const { data: pending } = await supabase
+        .from('team_requests').select('user_id, created_at')
+        .eq('team_id', teamId).eq('status', 'pending');
+      requests = await Promise.all((pending || []).map(async r => ({ ...(await userSummary(r.user_id)), requestedAt: r.created_at })));
       const { data: inv } = await supabase
         .from('team_invites').select('token, role, created_at, expires_at')
         .eq('team_id', teamId).is('accepted_by', null).is('revoked_at', null)
@@ -902,6 +1183,7 @@ async function routeMembers(teamId, userId, req, res, auth) {
       role: access.role,
       members: ownerEntry ? [ownerEntry, ...members] : members,
       invites,
+      requests,
     });
   }
 

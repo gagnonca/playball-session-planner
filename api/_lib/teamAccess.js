@@ -55,3 +55,17 @@ export async function memberTeams(auth) {
   if (teamsErr) throw teamsErr;
   return teams.map(team => ({ team, role: roleById.get(team.id) }));
 }
+
+// The name to show for a coach ("Managed by …"): their PlayBall name, else
+// their sign-in name, else nothing (callers fall back to "another coach").
+// Never the email — this is shown to people holding an old share code.
+export async function coachName(coachId) {
+  const { data: coach } = await supabase
+    .from('coaches').select('display_name, user_id').eq('coach_id', coachId).maybeSingle();
+  if (!coach) return null;
+  if (coach.display_name) return coach.display_name;
+  if (!coach.user_id) return null;
+  const { data } = await supabase.auth.admin.getUserById(coach.user_id);
+  return data?.user?.user_metadata?.full_name || data?.user?.user_metadata?.name || null;
+}
+
