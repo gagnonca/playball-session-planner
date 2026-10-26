@@ -1,6 +1,7 @@
 import { redis } from '../_lib/redis.js';
 import { put, del } from '@vercel/blob';
 import { mirrorTeamSharePush } from '../_lib/dualWrite.js';
+import { supabase } from '../_lib/supabase.js';
 
 const VALID_CODE = /^[A-Z2-9]{6}$/;
 
@@ -37,6 +38,22 @@ export default async function handler(req, res) {
   }
 
   try {
+    // A team moved onto an account no longer takes pushes from its old code:
+    // the code granted anyone holding it full write access. Older app builds
+    // get a 409 they can explain ("this team is now managed by an account").
+    const { data: locked, error: lockErr } = await supabase
+      .from('teams').select('id')
+      .eq('ios_share_code', code).eq('share_code_readonly', true).is('deleted_at', null)
+      .maybeSingle();
+    if (lockErr) console.error('[team-share/push] lock lookup', lockErr);
+    if (locked) {
+      return res.status(409).json({
+        success: false,
+        error: 'account_owned',
+        message: 'This team is now managed by its owner\'s PlayBall account. Ask them for an invite.'
+      });
+    }
+
     // Clean up old blob if this code already has one (re-push / sync)
     const existing = await redis.get(`team-share:${code}`);
     if (existing) {

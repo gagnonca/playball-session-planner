@@ -12,6 +12,8 @@ export function teamFromRow(t) {
     archived: !!t.archived,
     iosShareCode: t.ios_share_code ?? null,
     players: Array.isArray(t.players) ? t.players : [],
+    ios: t.ios ?? null,
+    shareCodeReadonly: !!t.share_code_readonly,
     createdAt: t.created_at,
     updatedAt: t.updated_at,
     version: t.version ?? 1,

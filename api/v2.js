@@ -6,6 +6,8 @@ import { mirrorTeamsBlob, mirrorLibraryBlob } from './_lib/dualWrite.js';
 import { versionedWrite, softDelete, readBaseVersion } from './_lib/versioned.js';
 import { sanitizePublic, safeTags } from './_lib/publicContent.js';
 import { teamFromRow, sessionFromRow, gameFromRow, libraryItemFromRow, diagramFromRow, templateFromRow } from './_lib/shapes.js';
+import { teamAccess, gameOwnerFor, memberTeams } from './_lib/teamAccess.js';
+import { randomBytes } from 'node:crypto';
 
 // Routed via vercel.json rewrite: /api/v2/:slug* → /api/v2?slug=:slug*
 
@@ -39,11 +41,23 @@ import { teamFromRow, sessionFromRow, gameFromRow, libraryItemFromRow, diagramFr
 //   POST   /teams/:id/link-ios               body: { shareCode } — attach an
 //                                            iOS-shared (anon) team's games
 //                                            to the caller's web team.
+//   PUT    /teams/:id/ios                    upsert from the iOS app (owner)
+//                                            body: { name, players, ios, baseVersion }
+//   POST   /teams/:id/claim-ios              body: { shareCode } — move an iOS
+//                                            share-code team onto this account
+//                                            and stop the code accepting pushes
+//   GET    /teams/:id/members                owner + members, with roles
+//   DELETE /teams/:id/members/:userId        owner removes a member, or a member leaves
+//   POST   /teams/:id/invites                owner: body { role } → { url }
+//   DELETE /teams/:id/invites/:token         owner: revoke an unused invite
+//   GET    /invites/:token                   preview an invite (no sign-in)
+//   POST   /invites/:token/accept            join the team (signed in)
 //   GET    /sessions                         list (optionally ?teamId=)
 //   PUT    /sessions/:id                     upsert
 //   DELETE /sessions/:id
-//   GET    /games                            list (requires ?teamId=)
-//   PUT    /games/:id                        upsert
+//   GET    /games                            list (requires ?teamId=) — the team's
+//                                            games plus the caller's private copies
+//   PUT    /games/:id                        upsert   body: { teamId, …, private? }
 //   DELETE /games/:id
 //   GET    /library/exercises                list
 //   PUT    /library/exercises/:id            upsert
@@ -89,13 +103,14 @@ export default async function handler(req, res) {
 
     if (root === 'account') return routeAccount(a, req, res);
     if (root === 'public') return routePublic(a, b, req, res);
+    if (root === 'invites') return routeInvites(a, b, req, res);
 
     const auth = await authenticate(req);
     if (!auth.ok) return res.status(auth.status).json(auth.body);
 
     if (root === 'snapshot') return routeSnapshot(req, res, auth);
     if (root === 'coaches') return routeCoach(a, req, res, auth);
-    if (root === 'teams') return routeTeams(a, b, req, res, auth);
+    if (root === 'teams') return routeTeams(a, b, c, req, res, auth);
     if (root === 'sessions') return routeSessions(a, req, res, auth);
     if (root === 'games') return routeGames(a, req, res, auth);
     if (root === 'diagrams') return routeDiagrams(a, req, res, auth);
@@ -422,6 +437,37 @@ async function routeSnapshot(req, res, auth) {
     games: gamesByTeam.get(t.id) || [],
   }));
 
+  // Teams other coaches shared with this account. Kept apart from `teams` so
+  // nothing that edits "my teams" ever touches them. Games are the team's
+  // shared games plus this account's private copies (flagged `private`).
+  const sharedTeams = [];
+  const shared = await memberTeams(auth);
+  if (shared.length) {
+    const ids = shared.map(m => m.team.id);
+    const owners = [...new Set(shared.map(m => m.team.coach_id))];
+    const [sharedGamesR, sharedSessionsR] = await Promise.all([
+      supabase.from('games').select('*').in('team_id', ids).in('coach_id', owners).is('deleted_at', null),
+      supabase.from('sessions').select('*').in('team_id', ids).in('coach_id', owners).is('deleted_at', null),
+    ]);
+    if (sharedGamesR.error || sharedSessionsR.error) {
+      console.error('[snapshot.shared]', sharedGamesR.error || sharedSessionsR.error);
+      return sendError(res, 500, 'server_error');
+    }
+    const sharedGames = groupBy(sharedGamesR.data, 'team_id', gameFromRow);
+    const sharedSessions = groupBy(sharedSessionsR.data, 'team_id', sessionFromRow);
+    for (const { team, role } of shared) {
+      sharedTeams.push({
+        ...teamFromRow(team),
+        role,
+        sessions: sharedSessions.get(team.id) || [],
+        games: [
+          ...(sharedGames.get(team.id) || []),
+          ...(gamesByTeam.get(team.id) || []).map(g => ({ ...g, private: true })),
+        ],
+      });
+    }
+  }
+
   const hidden = { exercises: [], sessions: [] };
   for (const h of hiddenR.data) {
     if (h.entity_kind === 'exercise') hidden.exercises.push(h.entity_id);
@@ -438,6 +484,7 @@ async function routeSnapshot(req, res, auth) {
     success: true,
     coach: { coachId: c, defaultTeamId: auth.coach.default_team_id || null, isAdmin: isAdmin(auth) },
     teams,
+    sharedTeams,
     library: {
       exercises: exR.data.map(libraryItemFromRow),
       sessions: libSessR.data.map(libraryItemFromRow),
@@ -483,7 +530,7 @@ async function teamOwned(teamId, coachId) {
 
 // ---------- teams ----------
 
-async function routeTeams(id, action, req, res, auth) {
+async function routeTeams(id, action, sub, req, res, auth) {
   if (!id) {
     if (req.method !== 'GET') return sendError(res, 405, 'method_not_allowed');
     const { data, error } = await supabase
@@ -493,6 +540,10 @@ async function routeTeams(id, action, req, res, auth) {
   }
 
   if (action === 'link-ios') return linkIosShareToTeam(id, req, res, auth);
+  if (action === 'ios') return putIosTeam(id, req, res, auth);
+  if (action === 'claim-ios') return claimIosTeam(id, req, res, auth);
+  if (action === 'members') return routeMembers(id, sub, req, res, auth);
+  if (action === 'invites') return routeTeamInvites(id, sub, req, res, auth);
 
   if (req.method === 'PUT') {
     const { name, ageGroup, defaultDuration, sharing, archived } = req.body || {};
@@ -574,24 +625,29 @@ async function routeGames(id, req, res, auth) {
     if (req.method !== 'GET') return sendError(res, 405, 'method_not_allowed');
     const teamId = req.query.teamId;
     if (!teamId) return sendError(res, 400, 'missing_teamId');
-    // Confirm the team belongs to the caller before returning any games.
-    if (!(await teamOwned(teamId, auth.coachId))) return sendError(res, 403, 'team_not_owned');
+    const access = await teamAccess(teamId, auth);
+    if (!access) return sendError(res, 403, 'team_not_owned');
 
+    // The team's shared games, plus any private copies the caller keeps.
+    const owners = [...new Set([access.team.coach_id, auth.coachId])];
     const { data, error } = await supabase
       .from('games').select('*')
-      .eq('team_id', teamId).eq('coach_id', auth.coachId).is('deleted_at', null);
+      .eq('team_id', teamId).in('coach_id', owners).is('deleted_at', null);
     if (error) return sendError(res, 500, 'server_error');
     return res.status(200).json({ success: true, games: data });
   }
 
   if (req.method === 'PUT') {
-    const { teamId, name, date, isHome, payload } = req.body || {};
+    const { teamId, name, date, isHome, payload, private: isPrivate } = req.body || {};
     if (!teamId || !name) return sendError(res, 400, 'missing_fields');
-    if (!(await teamOwned(teamId, auth.coachId))) return sendError(res, 403, 'team_not_owned');
+    const access = await teamAccess(teamId, auth);
+    if (!access) return sendError(res, 403, 'team_not_owned');
+    const coachId = gameOwnerFor(access, auth, { isPrivate: !!isPrivate });
+    if (!coachId) return sendError(res, 403, 'read_only', 'Assistants can keep their own copies of games, but not change the team\'s.');
 
     const result = await versionedWrite('games', {
       id,
-      coachId: auth.coachId,
+      coachId,
       baseVersion: readBaseVersion(req.body),
       fields: {
         team_id: teamId,
@@ -606,8 +662,19 @@ async function routeGames(id, req, res, auth) {
   }
 
   if (req.method === 'DELETE') {
-    await softDelete('games', { id, coachId: auth.coachId });
-    await touchCoach(auth.coachId);
+    const { data: row, error } = await supabase
+      .from('games').select('id, team_id, coach_id, deleted_at').eq('id', id).maybeSingle();
+    if (error) return sendError(res, 500, 'server_error');
+    if (!row || row.deleted_at) return res.status(200).json({ success: true });
+
+    let allowed = row.coach_id === auth.coachId;
+    if (!allowed) {
+      const access = await teamAccess(row.team_id, auth);
+      allowed = !!access && gameOwnerFor(access, auth, { isPrivate: false }) === row.coach_id;
+    }
+    if (!allowed) return sendError(res, 403, 'read_only');
+    await softDelete('games', { id, coachId: row.coach_id });
+    await touchCoach(row.coach_id);
     return res.status(200).json({ success: true });
   }
 
@@ -711,6 +778,235 @@ async function linkIosShareToTeam(webTeamId, req, res, auth) {
     linkedTeamId: webTeamId,
     gamesTransferred: movedGames?.length || 0,
   });
+}
+
+// ---------- iOS teams on an account ----------
+
+const INVITE_ROLES = new Set(['cocoach', 'assistant']);
+const INVITE_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
+const INVITE_BASE_URL = 'https://getplayball.app/join';
+
+// The roster as the web stores it: enough for pickers and game payload ids.
+function cleanPlayers(players) {
+  return (Array.isArray(players) ? players : [])
+    .filter(p => p?.id && p?.name)
+    .map(p => ({ id: p.id, name: p.name, tintHex: p.tintHex ?? null }));
+}
+
+// PUT /teams/:id/ios — the iOS app's team: name, roster and its own settings.
+// Owner only; members read the team but never change it.
+async function putIosTeam(id, req, res, auth) {
+  if (req.method !== 'PUT') return sendError(res, 405, 'method_not_allowed');
+  const { name, players, ios } = req.body || {};
+  if (!name) return sendError(res, 400, 'missing_name');
+  const result = await versionedWrite('teams', {
+    id,
+    coachId: auth.coachId,
+    baseVersion: readBaseVersion(req.body),
+    fields: { name, players: cleanPlayers(players), ios: ios ?? null },
+  });
+  if (result.status === 200) await touchCoach(auth.coachId);
+  return sendWrite(res, result, teamFromRow, 'team');
+}
+
+// POST /teams/:id/claim-ios — body: { shareCode }
+// Move a team the iOS app shared by code onto the caller's account. Holding
+// the code is the proof, exactly as it is for pushing to it today. From
+// here on the code is read-only, so nobody else holding it can overwrite
+// the team; the owner shares through invites instead.
+//
+//   { claimed: false }               nothing on the server for this code yet
+//   { claimed: true, teamId }        the team (and its games) are now the
+//                                    caller's; teamId may differ from :id
+//                                    when the code was linked to a web team
+async function claimIosTeam(localTeamId, req, res, auth) {
+  if (req.method !== 'POST') return sendError(res, 405, 'method_not_allowed');
+  const { shareCode } = req.body || {};
+  if (!shareCode || typeof shareCode !== 'string') return sendError(res, 400, 'missing_shareCode');
+
+  const { data: team, error } = await supabase
+    .from('teams').select('id, coach_id')
+    .eq('ios_share_code', shareCode).is('deleted_at', null)
+    .maybeSingle();
+  if (error) return sendError(res, 500, 'server_error');
+  if (!team) return res.status(200).json({ success: true, claimed: false });
+
+  const now = new Date().toISOString();
+
+  if (team.coach_id === auth.coachId) {
+    const { error: lockErr } = await supabase.from('teams')
+      .update({ share_code_readonly: true, updated_at: now })
+      .eq('id', team.id).eq('coach_id', auth.coachId);
+    if (lockErr) return sendError(res, 500, 'server_error');
+    return res.status(200).json({ success: true, claimed: true, teamId: team.id });
+  }
+
+  if (!team.coach_id.startsWith('anon:')) {
+    return sendError(res, 409, 'already_claimed', 'This team already belongs to another account.');
+  }
+
+  // Games first, guarded on the anon owner so a concurrent claim can't split them.
+  const anon = team.coach_id;
+  const { error: gamesErr } = await supabase.from('games')
+    .update({ coach_id: auth.coachId, updated_at: now })
+    .eq('team_id', team.id).eq('coach_id', anon);
+  if (gamesErr) { console.error('[claim-ios.games]', gamesErr); return sendError(res, 500, 'server_error'); }
+  const { data: moved, error: teamErr } = await supabase.from('teams')
+    .update({ coach_id: auth.coachId, share_code_readonly: true, updated_at: now })
+    .eq('id', team.id).eq('coach_id', anon)
+    .select('id');
+  if (teamErr) { console.error('[claim-ios.team]', teamErr); return sendError(res, 500, 'server_error'); }
+  if (!moved?.length) return sendError(res, 409, 'already_claimed');
+  await supabase.from('coaches').delete().eq('coach_id', anon);
+  await touchCoach(auth.coachId);
+  return res.status(200).json({ success: true, claimed: true, teamId: team.id });
+}
+
+async function userSummary(userId) {
+  const { data } = await supabase.auth.admin.getUserById(userId);
+  const u = data?.user;
+  return {
+    userId,
+    email: u?.email ?? null,
+    name: u?.user_metadata?.full_name || u?.user_metadata?.name || null,
+  };
+}
+
+// GET    /teams/:id/members          everyone on the team, owner first
+// DELETE /teams/:id/members/:userId  owner removes someone, or a member leaves
+async function routeMembers(teamId, userId, req, res, auth) {
+  const access = await teamAccess(teamId, auth);
+  if (!access) return sendError(res, 403, 'team_not_owned');
+
+  if (req.method === 'GET' && !userId) {
+    const { data: rows, error } = await supabase
+      .from('team_members').select('user_id, role, created_at').eq('team_id', teamId);
+    if (error) return sendError(res, 500, 'server_error');
+    const { data: owner } = await supabase
+      .from('coaches').select('user_id').eq('coach_id', access.team.coach_id).maybeSingle();
+    const members = await Promise.all(rows.map(async r => ({
+      ...(await userSummary(r.user_id)), role: r.role, joinedAt: r.created_at,
+    })));
+    const ownerEntry = owner?.user_id ? { ...(await userSummary(owner.user_id)), role: 'owner' } : null;
+
+    let invites = [];
+    if (access.role === 'owner') {
+      const { data: inv } = await supabase
+        .from('team_invites').select('token, role, created_at, expires_at')
+        .eq('team_id', teamId).is('accepted_by', null).is('revoked_at', null)
+        .gt('expires_at', new Date().toISOString());
+      invites = (inv || []).map(i => ({ token: i.token, role: i.role, url: `${INVITE_BASE_URL}?t=${i.token}`, createdAt: i.created_at, expiresAt: i.expires_at }));
+    }
+    return res.status(200).json({
+      success: true,
+      role: access.role,
+      members: ownerEntry ? [ownerEntry, ...members] : members,
+      invites,
+    });
+  }
+
+  if (req.method === 'DELETE' && userId) {
+    const self = auth.user?.id === userId;
+    if (access.role !== 'owner' && !self) return sendError(res, 403, 'owner_only');
+    const { error } = await supabase.from('team_members').delete().eq('team_id', teamId).eq('user_id', userId);
+    if (error) return sendError(res, 500, 'server_error');
+    return res.status(200).json({ success: true });
+  }
+
+  return sendError(res, 405, 'method_not_allowed');
+}
+
+// POST   /teams/:id/invites          owner: body { role } → { url, token, expiresAt }
+// DELETE /teams/:id/invites/:token   owner: revoke an unused invite
+async function routeTeamInvites(teamId, token, req, res, auth) {
+  const access = await teamAccess(teamId, auth);
+  if (!access) return sendError(res, 403, 'team_not_owned');
+  if (access.role !== 'owner') return sendError(res, 403, 'owner_only', 'Only the team owner can invite coaches.');
+  if (!auth.user?.id) return sendError(res, 401, 'login_required', 'Sign in to invite coaches.');
+
+  if (req.method === 'POST' && !token) {
+    const role = (req.body || {}).role;
+    if (!INVITE_ROLES.has(role)) return sendError(res, 400, 'invalid_role');
+    const newToken = randomBytes(18).toString('base64url');
+    const expiresAt = new Date(Date.now() + INVITE_LIFETIME_MS).toISOString();
+    const { error } = await supabase.from('team_invites').insert({
+      token: newToken, team_id: teamId, role, created_by: auth.user.id, expires_at: expiresAt,
+    });
+    if (error) { console.error('[invites.create]', error); return sendError(res, 500, 'server_error'); }
+    return res.status(200).json({ success: true, token: newToken, role, expiresAt, url: `${INVITE_BASE_URL}?t=${newToken}` });
+  }
+
+  if (req.method === 'DELETE' && token) {
+    const { error } = await supabase.from('team_invites')
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('token', token).eq('team_id', teamId).is('accepted_by', null);
+    if (error) return sendError(res, 500, 'server_error');
+    return res.status(200).json({ success: true });
+  }
+
+  return sendError(res, 405, 'method_not_allowed');
+}
+
+async function liveInvite(token) {
+  const { data: invite, error } = await supabase
+    .from('team_invites').select('*').eq('token', token).maybeSingle();
+  if (error) throw error;
+  if (!invite || invite.revoked_at) return { error: 'not_found' };
+  if (invite.accepted_by) return { error: 'used', invite };
+  if (new Date(invite.expires_at) < new Date()) return { error: 'expired', invite };
+  const { data: team } = await supabase
+    .from('teams').select('id, name, coach_id, ios').eq('id', invite.team_id).is('deleted_at', null).maybeSingle();
+  if (!team) return { error: 'not_found' };
+  return { invite, team };
+}
+
+// GET  /invites/:token          preview — no sign-in, so the link can show
+//                               what you're joining before asking you to log in
+// POST /invites/:token/accept   join (signed in). Single use.
+async function routeInvites(token, action, req, res) {
+  if (!token) return sendError(res, 404, 'not_found');
+  const found = await liveInvite(token);
+
+  if (req.method === 'GET' && !action) {
+    if (found.error) return sendError(res, found.error === 'not_found' ? 404 : 410, found.error);
+    const { data: owner } = await supabase
+      .from('coaches').select('user_id').eq('coach_id', found.team.coach_id).maybeSingle();
+    const inviter = owner?.user_id ? await userSummary(owner.user_id) : null;
+    return res.status(200).json({
+      success: true,
+      teamName: found.team.name,
+      mascotEmoji: found.team.ios?.mascotEmoji ?? null,
+      role: found.invite.role,
+      invitedBy: inviter?.name || inviter?.email || null,
+      expiresAt: found.invite.expires_at,
+    });
+  }
+
+  if (req.method === 'POST' && action === 'accept') {
+    const auth = await authenticate(req);
+    if (!auth.ok) return res.status(auth.status).json(auth.body);
+    if (!auth.user?.id) return sendError(res, 401, 'login_required', 'Sign in to join a team.');
+    if (found.error === 'used' && found.invite?.accepted_by === auth.user.id) {
+      return res.status(200).json({ success: true, teamId: found.invite.team_id, role: found.invite.role });
+    }
+    if (found.error) return sendError(res, found.error === 'not_found' ? 404 : 410, found.error);
+    if (found.team.coach_id === auth.coachId) return sendError(res, 409, 'already_owner', 'This is your own team.');
+
+    const now = new Date().toISOString();
+    const { data: taken, error: takeErr } = await supabase.from('team_invites')
+      .update({ accepted_by: auth.user.id, accepted_at: now })
+      .eq('token', token).is('accepted_by', null).select('token');
+    if (takeErr) return sendError(res, 500, 'server_error');
+    if (!taken?.length) return sendError(res, 410, 'used');
+
+    const { error: memberErr } = await supabase.from('team_members').upsert({
+      team_id: found.team.id, user_id: auth.user.id, role: found.invite.role, invited_by: found.invite.created_by,
+    });
+    if (memberErr) { console.error('[invites.accept]', memberErr); return sendError(res, 500, 'server_error'); }
+    return res.status(200).json({ success: true, teamId: found.team.id, role: found.invite.role });
+  }
+
+  return sendError(res, 405, 'method_not_allowed');
 }
 
 // ---------- diagrams ----------

@@ -26,6 +26,7 @@ import playballIcon from '../assets/playball-icon.png';
 import AboutModal from './AboutModal';
 import AppHeader from './AppHeader';
 import ImportLanding from './ImportLanding';
+import JoinLanding from './JoinLanding';
 
 // Error boundary: catches rendering crashes and shows recovery UI
 class ViewErrorBoundary extends Component {
@@ -168,6 +169,9 @@ export default function AppShell() {
     }
     return null;
   });
+  const [joinToken, setJoinToken] = useState(() => (
+    initialUrl.path === '/join' ? initialUrl.params.get('t') : null
+  ));
   const [browsingCommunity, setBrowsingCommunity] = useState(() => initialUrl.path.startsWith('/community'));
   const [staticPage, setStaticPage] = useState(() => {
     if (initialUrl.path === '/privacy') return 'privacy';
@@ -232,6 +236,15 @@ export default function AppShell() {
   if (importCode) {
     return <ImportLanding code={importCode} onDismiss={() => {
       setImportCode(null);
+      window.history.replaceState({}, '', '/');
+    }} />;
+  }
+
+  // Coach invite links (/join?t=…) normally open the iOS app; this is the
+  // browser fallback.
+  if (joinToken) {
+    return <JoinLanding token={joinToken} onDismiss={() => {
+      setJoinToken(null);
       window.history.replaceState({}, '', '/');
     }} />;
   }
