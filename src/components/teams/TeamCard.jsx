@@ -25,7 +25,9 @@ export default function TeamCard({ team, onSelect, onEdit, onDelete }) {
   const sessionCount = team.sessions?.length || 0;
   const tone = teamTone(team);
   const next = nextSessionLabel(team);
-  const playerCount = team.roster?.length || 0;
+  const playerCount = team.roster?.length || team.players?.length || 0;
+  const gameCount = team.games?.length || 0;
+  const fromApp = Boolean(team.ios || team.iosShareCode);
 
   return (
     <div
@@ -42,9 +44,19 @@ export default function TeamCard({ team, onSelect, onEdit, onDelete }) {
         <div className="min-w-0 flex-1">
           <h3 className="text-[19px] font-semibold leading-tight" style={{ color: 'var(--ink)', letterSpacing: '-0.015em' }}>
             {team.name}
+            {fromApp && (
+              <span
+                className="ml-2 align-middle inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium"
+                style={{ background: 'var(--accent-soft)', color: 'var(--accent)', letterSpacing: 0 }}
+                title="Roster and games come from the PlayBall iPhone app"
+              >
+                iPhone app
+              </span>
+            )}
           </h3>
           <p className="text-[13px] mt-1" style={{ color: 'var(--ink-2)' }}>
             {playerCount > 0 ? `${playerCount} players · ` : ''}
+            {gameCount > 0 ? `${gameCount} game${gameCount === 1 ? '' : 's'} · ` : ''}
             {sessionCount} session{sessionCount === 1 ? '' : 's'}
             {next ? ` · next ${next}` : ''}
           </p>

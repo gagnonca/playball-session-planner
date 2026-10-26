@@ -121,7 +121,7 @@ function LegacyDataPanel() {
   );
 }
 
-export default function Settings({ teamsContext, syncContext, accountContext, onShowAccount }) {
+export default function Settings({ teamsContext, syncContext, accountContext, onShowAccount, onReviewTeams }) {
   const teams = teamsContext?.teamsData?.teams || [];
   const syncOn = Boolean(syncContext?.isSyncEnabled);
   const isOnline = syncContext?.isOnline ?? true;
@@ -182,6 +182,7 @@ export default function Settings({ teamsContext, syncContext, accountContext, on
                 {' · '}<SyncStateLine status={syncStatus} online={isOnline} />
               </p>
               <div className="flex flex-wrap gap-2">
+                <button onClick={() => onReviewTeams && onReviewTeams()} className="btn btn-secondary">Your name &amp; teams</button>
                 <button onClick={signOutOfAccount} className="btn btn-secondary">Sign out</button>
                 <button onClick={deleteAccount} disabled={deleting} className="btn btn-ghost" style={{ color: 'var(--danger)' }}>
                   {deleting ? 'Deleting…' : 'Delete account and all data'}

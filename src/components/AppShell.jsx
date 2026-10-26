@@ -27,6 +27,8 @@ import AboutModal from './AboutModal';
 import AppHeader from './AppHeader';
 import ImportLanding from './ImportLanding';
 import JoinLanding from './JoinLanding';
+import YourTeamsSetup from './YourTeamsSetup';
+import { fetchSetup, setupNeeded, setupSeen } from '../data/accountSetup';
 
 // Error boundary: catches rendering crashes and shows recovery UI
 class ViewErrorBoundary extends Component {
@@ -136,6 +138,20 @@ export default function AppShell() {
         toast(`${tally.failed} item${tally.failed === 1 ? '' : 's'} couldn't be moved — see Settings.`, 6000);
       }
     })();
+  }, [storeStatus, storeSource]);
+
+  // "Your teams" setup: once per account per browser, when there's a name to
+  // ask for or an app-made team to merge. Settings → Review teams reopens it.
+  const [setup, setSetup] = useState(null);
+  useEffect(() => {
+    if (storeStatus !== 'ready' || storeSource !== 'server') return;
+    const userId = currentUser()?.id;
+    if (!userId || setupSeen(userId)) return;
+    let alive = true;
+    fetchSetup()
+      .then(info => { if (alive && setupNeeded(info)) setSetup({ info }); })
+      .catch(() => { /* try again next load */ });
+    return () => { alive = false; };
   }, [storeStatus, storeSource]);
 
   const teamsContext = useTeams();
@@ -780,11 +796,20 @@ export default function AppShell() {
             diagramLibrary={diagramLibrary}
             onShowLinkDevice={goSignUp}
             onShowAccount={goSignUp}
+            onReviewTeams={() => setSetup({ info: null })}
           />
         )}
         </div>
 
       {demoBanner}
+
+      {setup && !isDemo && (
+        <YourTeamsSetup
+          userId={currentUser()?.id}
+          initialInfo={setup.info}
+          onClose={() => setSetup(null)}
+        />
+      )}
 
       {showAboutModal && (
         <AboutModal
