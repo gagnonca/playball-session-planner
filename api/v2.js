@@ -8,6 +8,7 @@ import { sanitizePublic, safeTags } from './_lib/publicContent.js';
 import { teamFromRow, sessionFromRow, gameFromRow, libraryItemFromRow, diagramFromRow, templateFromRow } from './_lib/shapes.js';
 import { teamAccess, gameOwnerFor, memberTeams, coachName } from './_lib/teamAccess.js';
 import { randomBytes } from 'node:crypto';
+import { sessionForApp } from './_lib/sessionForApp.js';
 
 // Routed via vercel.json rewrite: /api/v2/:slug* → /api/v2?slug=:slug*
 
@@ -65,6 +66,8 @@ import { randomBytes } from 'node:crypto';
 //   POST   /invites/:token/accept            join the team (signed in)
 //   GET    /sessions                         list (optionally ?teamId=)
 //   PUT    /sessions/:id                     upsert
+//   GET    /sessions/:id/app                 one session as the iOS viewer reads it
+//                                            (owner or a team member)
 //   DELETE /sessions/:id
 //   GET    /games                            list (requires ?teamId=) — the team's
 //                                            games plus the caller's private copies
@@ -123,7 +126,7 @@ export default async function handler(req, res) {
     if (root === 'setup') return routeSetup(req, res, auth);
     if (root === 'coaches') return routeCoach(a, req, res, auth);
     if (root === 'teams') return routeTeams(a, b, c, req, res, auth);
-    if (root === 'sessions') return routeSessions(a, req, res, auth);
+    if (root === 'sessions') return routeSessions(a, b, req, res, auth);
     if (root === 'games') return routeGames(a, req, res, auth);
     if (root === 'diagrams') return routeDiagrams(a, req, res, auth);
     if (root === 'library') return routeLibrary(a, b, c, req, res, auth);
@@ -605,7 +608,9 @@ async function routeTeams(id, action, sub, req, res, auth) {
 
 // ---------- sessions ----------
 
-async function routeSessions(id, req, res, auth) {
+async function routeSessions(id, action, req, res, auth) {
+  if (id && action === 'app') return getSessionForApp(id, req, res, auth);
+
   if (!id) {
     if (req.method !== 'GET') return sendError(res, 405, 'method_not_allowed');
     let q = supabase.from('sessions').select('*').eq('coach_id', auth.coachId).is('deleted_at', null);
@@ -806,6 +811,25 @@ async function linkIosShareToTeam(webTeamId, req, res, auth) {
     success: true,
     linkedTeamId: webTeamId,
     gamesTransferred: movedGames?.length || 0,
+  });
+}
+
+// GET /sessions/:id/app — the same session shape the read-only share link
+// serves the app, for a signed-in coach on the team (owner or member).
+async function getSessionForApp(id, req, res, auth) {
+  if (req.method !== 'GET') return sendError(res, 405, 'method_not_allowed');
+  const { data: row, error } = await supabase
+    .from('sessions').select('*').eq('id', id).is('deleted_at', null).maybeSingle();
+  if (error) return sendError(res, 500, 'server_error');
+  if (!row) return sendError(res, 404, 'session_not_found');
+  const access = await teamAccess(row.team_id, auth);
+  if (!access) return sendError(res, 403, 'team_not_owned');
+  const session = await sessionForApp(row, { inlineImages: true });
+  return res.status(200).json({
+    success: true,
+    teamName: access.team.name,
+    ageGroup: access.team.age_group || '',
+    session,
   });
 }
 
