@@ -102,11 +102,12 @@ export function GameList({ games, now, onOpen }) {
   );
 }
 
-export function GameDetail({ game, onBack }) {
+// The subs and minutes for one game. Used on the shared page and in the
+// coach's own game editor (as a live preview of the settings being edited).
+export function SubPlan({ game }) {
   const byId = Object.fromEntries(game.availablePlayers.map(p => [p.id, p]));
   const shifts = effectivePlan(game).shifts;
   const live = game.live?.period > 0 ? game.live : null;
-  const format = `${game.playersOnField}v${game.playersOnField} · ${game.numberOfPeriods} × ${game.periodLengthMinutes} min`;
 
   // Minutes per player, keeper time included (same as the app).
   const totals = {};
@@ -122,17 +123,6 @@ export function GameDetail({ game, onBack }) {
 
   return (
     <>
-      <button onClick={onBack} className="btn btn-ghost mb-3" style={{ padding: '4px 6px', fontSize: 13 }}>
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 19l-7-7 7-7" />
-        </svg>
-        All games
-      </button>
-      <h1 className="text-[26px] font-bold" style={{ letterSpacing: '-0.02em' }}>{game.name || 'Game'}</h1>
-      <p className="text-[14px] mt-1" style={{ color: 'var(--ink-2)' }}>
-        {gameDate(game.date)} · {game.isHome ? 'Home' : 'Away'} · {format}
-      </p>
-
       {live && (
         <div className="rounded-xl p-3 mt-4 text-[14px]" style={{ background: 'var(--accent-soft)', border: '1px solid var(--accent)' }}>
           <strong>In play</strong> — shift {Math.min(live.activeShift + 1, shifts.length)} of {shifts.length} is on the field.
@@ -220,6 +210,26 @@ export function GameDetail({ game, onBack }) {
           )}
         </>
       )}
+    </>
+  );
+}
+
+export function GameDetail({ game, onBack }) {
+  const format = `${game.playersOnField}v${game.playersOnField} · ${game.numberOfPeriods} × ${game.periodLengthMinutes} min`;
+  return (
+    <>
+      <button onClick={onBack} className="btn btn-ghost mb-3" style={{ padding: '4px 6px', fontSize: 13 }}>
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 19l-7-7 7-7" />
+        </svg>
+        All games
+      </button>
+      <h1 className="text-[26px] font-bold" style={{ letterSpacing: '-0.02em' }}>{game.name || 'Game'}</h1>
+      <p className="text-[14px] mt-1" style={{ color: 'var(--ink-2)' }}>
+        {gameDate(game.date)} · {game.isHome ? 'Home' : 'Away'} · {format}
+      </p>
+
+      <SubPlan game={game} />
     </>
   );
 }

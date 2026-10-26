@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { uid, toast } from '../../utils/helpers';
 import { request } from '../../data/api';
+import { SubPlan } from '../GameSchedule';
 
 // ISO timestamp → "YYYY-MM-DD" for the <input type="date"> control. We keep
 // the time of day from the original game (or set to noon UTC for new ones)
@@ -40,6 +41,32 @@ export default function GameEditorModal({ teamId, teamPlayers = [], game, onClos
   const [selectedPlayerIds, setSelectedPlayerIds] = useState(new Set(initialAvail));
   const [busy, setBusy] = useState(false);
 
+  // The players as Save would store them: iOS-shaped objects, in the order
+  // the game had them (new picks after), since the planner breaks ties by it.
+  const teamPlayerById = new Map(teamPlayers.map(p => [p.id, p]));
+  const existingAvailById = new Map(
+    (game?.payload?.availablePlayers || []).filter(p => p?.id).map(p => [p.id, p])
+  );
+  const pickedPlayers = Array.from(selectedPlayerIds).map(pid =>
+    teamPlayerById.get(pid) ?? existingAvailById.get(pid) ?? { id: pid, name: 'Unknown', tintHex: null }
+  );
+  // Live preview of the subs these settings give — the same plan the iOS app
+  // builds (utils/gamePlan.js). Settings only the app edits (keepers, swap
+  // size…) come along from the game as synced.
+  const previewGame = {
+    ...(game?.payload || {}),
+    name,
+    availablePlayers: pickedPlayers,
+    playersOnField: Number(playersOnField) || 0,
+    periodLengthMinutes: Number(periodLengthMinutes) || 0,
+    numberOfPeriods: Number(numberOfPeriods) || 0,
+    captainID: captainID || null,
+    substitutionStyle: game?.payload?.substitutionStyle ?? 'short',
+    goaliesPlayOutfield: Boolean(game?.payload?.goaliesPlayOutfield),
+  };
+  const planReady = previewGame.availablePlayers.length > 0 && previewGame.playersOnField > 0
+    && previewGame.periodLengthMinutes > 0 && previewGame.numberOfPeriods > 0;
+
   const togglePlayer = (id) => {
     setSelectedPlayerIds(prev => {
       const next = new Set(prev);
@@ -59,13 +86,7 @@ export default function GameEditorModal({ teamId, teamPlayers = [], game, onClos
       // so iOS-side decoders see what they expect. Prefer teamPlayers as
       // source of truth; fall back to whatever was on the existing game row
       // for ids no longer in the roster (so we don't silently drop them).
-      const teamPlayerById = new Map(teamPlayers.map(p => [p.id, p]));
-      const existingAvailById = new Map(
-        (existingPayload.availablePlayers || []).filter(p => p?.id).map(p => [p.id, p])
-      );
-      const availablePlayers = Array.from(selectedPlayerIds).map(pid => {
-        return teamPlayerById.get(pid) ?? existingAvailById.get(pid) ?? { id: pid, name: 'Unknown', tintHex: null };
-      });
+      const availablePlayers = pickedPlayers;
       const payload = {
         ...existingPayload,
         id,
@@ -297,6 +318,17 @@ export default function GameEditorModal({ teamId, teamPlayers = [], game, onClos
                     </div>
                   </div>
                 </>
+              )}
+
+              {planReady && (
+                <div className="pt-2">
+                  {game?.payload?.plan && (
+                    <p className="text-[12px] mb-1" style={{ color: 'var(--ink-3)' }}>
+                      This game has started on the iOS app, so this is the plan it&rsquo;s using.
+                    </p>
+                  )}
+                  <SubPlan game={previewGame} />
+                </div>
               )}
             </div>
           </div>
