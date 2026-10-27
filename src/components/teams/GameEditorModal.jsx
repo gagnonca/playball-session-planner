@@ -322,11 +322,6 @@ export default function GameEditorModal({ teamId, teamPlayers = [], game, onClos
 
               {planReady && (
                 <div className="pt-2">
-                  {game?.payload?.plan && (
-                    <p className="text-[12px] mb-1" style={{ color: 'var(--ink-3)' }}>
-                      This game has started on the iOS app, so this is the plan it&rsquo;s using.
-                    </p>
-                  )}
                   <SubPlan game={previewGame} />
                 </div>
               )}

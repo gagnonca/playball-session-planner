@@ -2,8 +2,8 @@ import { effectivePlan } from '../utils/gamePlan';
 
 // Read-only sub schedule for games the coach syncs from the PlayBall iOS app,
 // shown inside the co-coach share link (SharedView). The plan is the one the
-// coach's phone shows: stored once the game has started, otherwise built from
-// the game's settings the same way the app builds it (utils/gamePlan.js).
+// coach's phone shows, built from the game's settings the same way the app
+// builds it (utils/gamePlan.js).
 
 function clock(seconds) {
   const s = Math.max(0, Math.round(seconds));
@@ -77,9 +77,6 @@ export function GameList({ games, now, onOpen }) {
           {gameDate(g.date)} · {g.isHome ? 'Home' : 'Away'}
         </div>
       </div>
-      {g.live?.period > 0 && (
-        <span className="text-[11px] font-mono uppercase px-2 py-0.5 rounded" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>Live</span>
-      )}
       <svg className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--ink-3)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
       </svg>
@@ -107,7 +104,6 @@ export function GameList({ games, now, onOpen }) {
 export function SubPlan({ game }) {
   const byId = Object.fromEntries(game.availablePlayers.map(p => [p.id, p]));
   const shifts = effectivePlan(game).shifts;
-  const live = game.live?.period > 0 ? game.live : null;
 
   // Minutes per player, keeper time included (same as the app).
   const totals = {};
@@ -123,12 +119,6 @@ export function SubPlan({ game }) {
 
   return (
     <>
-      {live && (
-        <div className="rounded-xl p-3 mt-4 text-[14px]" style={{ background: 'var(--accent-soft)', border: '1px solid var(--accent)' }}>
-          <strong>In play</strong> — shift {Math.min(live.activeShift + 1, shifts.length)} of {shifts.length} is on the field.
-        </div>
-      )}
-
       {!shifts.length ? (
         <div className="rounded-xl p-4 mt-6 text-[14px]" style={{ background: 'var(--bg-elev)', border: '1px solid var(--line)', color: 'var(--ink-2)' }}>
           No sub plan yet — the coach hasn&rsquo;t picked who&rsquo;s available for this game.
@@ -149,22 +139,18 @@ export function SubPlan({ game }) {
               const on = prev ? [...after].filter(id => !before.has(id)) : [];
               const off = prev ? [...before].filter(id => !after.has(id)) : [];
               const keeperChange = prev && prev.goalieID !== s.goalieID && s.goalieID;
-              const isLive = live && live.activeShift === i;
-              const isDone = live && i < live.activeShift;
               return (
                 <div
                   key={s.id || i}
                   className="rounded-xl p-3.5"
                   style={{
                     background: 'var(--bg-elev)',
-                    border: `1.5px solid ${isLive ? 'var(--accent)' : 'var(--line)'}`,
-                    opacity: isDone ? 0.55 : 1,
+                    border: '1.5px solid var(--line)',
                   }}
                 >
                   <div className="flex items-baseline justify-between gap-2 flex-wrap">
                     <span className="font-semibold text-[14px]">
                       {i === 0 ? 'Kickoff' : at.boundary ? (game.numberOfPeriods === 4 ? `${at.label} starts` : 'Halftime') : `Sub ${subNumber[i]}`}
-                      {isLive && <span className="ml-2 text-[11px] font-mono uppercase" style={{ color: 'var(--accent)' }}>On now</span>}
                     </span>
                     <span className="font-mono text-[12px]" style={{ color: 'var(--ink-2)' }}>
                       {shiftSpan(game, s)}
