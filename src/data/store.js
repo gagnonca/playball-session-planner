@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { request, identityKey, isSignedIn, readLegacyIdentity, setAuthSession, currentUser } from './api';
-import { supabase } from './supabaseClient';
+import { supabase, recheckSession } from './supabaseClient';
 import { COACH_IDENTITY_KEY } from '../constants/storage';
 import { readCachedSnapshot, writeCachedSnapshot } from './cache';
 import { toast } from '../utils/helpers';
@@ -334,6 +334,8 @@ export function load() {
         setState({ ...EMPTY, status: 'signed-out', drafts: state.drafts });
         return;
       }
+      // Session ended on the server (signed out everywhere, or revoked).
+      if (e.status === 401 && e.body?.error === 'invalid_token') recheckSession();
       console.error('[store] snapshot failed', e);
       setState({ status: state.teamsData ? 'ready' : 'error', error: e });
     }

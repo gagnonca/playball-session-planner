@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase, authConfigured } from '../data/supabaseClient';
+import { supabase, authConfigured, signOutHere } from '../data/supabaseClient';
 import { request } from '../data/api';
 
 /**
@@ -54,9 +54,9 @@ export default function useAccount() {
     if (error) throw error;
   }, []);
 
-  // Back to the front page (sign-in) rather than wherever you were.
+  // This browser only; back to the front page (sign-in) rather than wherever you were.
   const signOut = useCallback(async () => {
-    if (supabase) await supabase.auth.signOut();
+    await signOutHere();
     window.history.replaceState({}, '', '/');
   }, []);
 
@@ -64,7 +64,7 @@ export default function useAccount() {
   // item and diagram it owns.
   const deleteAccount = useCallback(async () => {
     await request('DELETE', '/api/v2/account', { confirm: 'DELETE' });
-    if (supabase) await supabase.auth.signOut();
+    await signOutHere();
     window.history.replaceState({}, '', '/');
   }, []);
 
