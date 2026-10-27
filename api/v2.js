@@ -838,6 +838,22 @@ async function getSessionForApp(id, req, res, auth) {
 const INVITE_ROLES = new Set(['cocoach', 'assistant']);
 const INVITE_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
 const INVITE_BASE_URL = 'https://getplayball.app/join';
+// Invites are 6-character codes a coach can read out or type into the app
+// (no 0/O, 1/I/L), and also the `t` of the invite link. Single use, 14 days,
+// and joining needs a signed-in account.
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+function newInviteCode() {
+  return [...randomBytes(6)].map(b => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
+}
+
+// Codes are typed by hand: any case, spaces or a dash are fine. Older
+// invites used long case-sensitive tokens, which pass through unchanged.
+function normalizeInviteToken(raw) {
+  const t = String(raw || '').trim();
+  const code = t.toUpperCase().replace(/[\s-]/g, '');
+  return /^[A-Z0-9]{6}$/.test(code) ? code : t;
+}
 
 // The roster as the web stores it: enough for pickers and game payload ids.
 function cleanPlayers(players) {
@@ -1249,13 +1265,22 @@ async function routeTeamInvites(teamId, token, req, res, auth) {
   if (req.method === 'POST' && !token) {
     const role = (req.body || {}).role;
     if (!INVITE_ROLES.has(role)) return sendError(res, 400, 'invalid_role');
-    const newToken = randomBytes(18).toString('base64url');
     const expiresAt = new Date(Date.now() + INVITE_LIFETIME_MS).toISOString();
-    const { error } = await supabase.from('team_invites').insert({
-      token: newToken, team_id: teamId, role, created_by: auth.user.id, expires_at: expiresAt,
-    });
-    if (error) { console.error('[invites.create]', error); return sendError(res, 500, 'server_error'); }
-    return res.status(200).json({ success: true, token: newToken, role, expiresAt, url: `${INVITE_BASE_URL}?t=${newToken}` });
+    let newToken = null;
+    for (let attempt = 0; attempt < 5 && !newToken; attempt++) {
+      const code = newInviteCode();
+      // Keep invite codes apart from the iPhone app's old team share codes,
+      // since the app's Join box accepts both.
+      const { data: clash } = await supabase.from('teams').select('id').eq('ios_share_code', code).maybeSingle();
+      if (clash) continue;
+      const { error } = await supabase.from('team_invites').insert({
+        token: code, team_id: teamId, role, created_by: auth.user.id, expires_at: expiresAt,
+      });
+      if (!error) newToken = code;
+      else if (error.code !== '23505') { console.error('[invites.create]', error); return sendError(res, 500, 'server_error'); }
+    }
+    if (!newToken) return sendError(res, 500, 'server_error');
+    return res.status(200).json({ success: true, token: newToken, code: newToken, role, expiresAt, url: `${INVITE_BASE_URL}?t=${newToken}` });
   }
 
   if (req.method === 'DELETE' && token) {
@@ -1285,7 +1310,8 @@ async function liveInvite(token) {
 // GET  /invites/:token          preview — no sign-in, so the link can show
 //                               what you're joining before asking you to log in
 // POST /invites/:token/accept   join (signed in). Single use.
-async function routeInvites(token, action, req, res) {
+async function routeInvites(rawToken, action, req, res) {
+  const token = normalizeInviteToken(rawToken);
   if (!token) return sendError(res, 404, 'not_found');
   const found = await liveInvite(token);
 

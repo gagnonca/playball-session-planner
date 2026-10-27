@@ -75,9 +75,19 @@ export default function JoinLanding({ token, onDismiss }) {
                 </p>
               </div>
               {role && <p className="text-slate-400 text-sm text-center mb-5">{role.detail}</p>}
-              <p className="text-slate-300 text-sm text-center mb-4">
-                Open this link on your iPhone with PlayBall installed to join.
-              </p>
+              <a
+                href={`playball://join?t=${encodeURIComponent(token)}`}
+                className="block w-full text-center rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 mb-3 transition-colors"
+              >
+                Open in PlayBall
+              </a>
+              {/^[A-Z0-9]{6}$/i.test(token) && (
+                <p className="text-slate-400 text-sm text-center mb-5">
+                  Or open PlayBall, tap <span className="text-slate-200 font-medium">Join a Team</span>, and enter
+                  <span className="block font-mono text-2xl tracking-[0.3em] text-slate-100 mt-2">{token.toUpperCase()}</span>
+                </p>
+              )}
+              <p className="text-slate-500 text-xs text-center mb-3">Don’t have PlayBall yet?</p>
               <a
                 href="https://apps.apple.com/us/app/playball-equal-playing-time/id6744836650"
                 target="_blank"
