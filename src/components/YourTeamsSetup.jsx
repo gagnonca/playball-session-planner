@@ -107,9 +107,13 @@ export default function YourTeamsSetup({ userId, initialInfo, onClose }) {
   const webTeams = useMemo(() => (info?.teams || []).filter(t => !t.fromApp), [info]);
   const canMerge = appTeams.length > 0 && webTeams.length > 0;
   const listedTeams = canMerge ? webTeams : (info?.teams || []);
-  // A web team with the same name is preselected; otherwise it stays separate.
-  const choiceFor = (team) => choices[team.id]
-    || { into: info?.pairs.find(p => p.app.id === team.id)?.web.id || null, keepAppName: false };
+  // Nothing is merged unless the coach picks it: names aren't identity. A
+  // same-named web team is just listed first.
+  const choiceFor = (team) => choices[team.id] || { into: null, keepAppName: false };
+  const targetsFor = (team) => {
+    const match = info?.pairs.find(p => p.app.id === team.id)?.web.id;
+    return [...webTeams.filter(t => t.id === match), ...webTeams.filter(t => t.id !== match)];
+  };
   const isNewAccount = info && !info.name;
   // A name is required once: it's how invited coaches see you.
   const nameMissing = !name.trim();
@@ -176,7 +180,7 @@ export default function YourTeamsSetup({ userId, initialInfo, onClose }) {
                   <AppTeamCard
                     key={team.id}
                     team={team}
-                    webTeams={webTeams}
+                    webTeams={targetsFor(team)}
                     choice={choiceFor(team)}
                     onChange={(c) => setChoices(prev => ({ ...prev, [team.id]: c }))}
                   />

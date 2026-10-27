@@ -74,6 +74,7 @@ function GoogleButton({ disabled, onError, onStart }) {
   return <div ref={ref} className="w-full flex justify-center" style={{ minHeight: 44, opacity: disabled ? 0.5 : 1, pointerEvents: disabled ? 'none' : 'auto' }} />;
 }
 
+// Supabase's per-address email limit (Auth → Rate Limits); only the display.
 const RESEND_SECONDS = 60;
 
 export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity }) {
@@ -113,19 +114,31 @@ export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity
     return () => clearInterval(t);
   }, [resendAt]);
 
+  // Supabase enforces one code per address a minute. When it refuses (429),
+  // it says how long is left — that drives the countdown, not a guess.
+  const requestCode = async () => {
+    let wait = RESEND_SECONDS;
+    try {
+      await accountContext.sendEmailCode(email);
+    } catch (e) {
+      const left = e?.status === 429 && /after (\d+) second/.exec(e.message || '');
+      if (!left) throw e;
+      wait = Number(left[1]);
+      setError('We already sent a code to this address. Check your email, or ask for a new one when the timer runs out.');
+    }
+    setResendAt(Date.now() + wait * 1000);
+    setNow(Date.now());
+  };
+
   const sendCode = () => run(async () => {
     if (!/^\S+@\S+\.\S+$/.test(email.trim())) throw new Error('Enter a valid email address.');
-    await accountContext.sendEmailCode(email);
-    setResendAt(Date.now() + RESEND_SECONDS * 1000);
-    setNow(Date.now());
+    await requestCode();
     setStage('code');
   });
 
   const resend = () => run(async () => {
-    await accountContext.sendEmailCode(email);
+    await requestCode();
     setCode('');
-    setResendAt(Date.now() + RESEND_SECONDS * 1000);
-    setNow(Date.now());
   });
 
   const verify = () => run(async () => {
