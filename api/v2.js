@@ -943,7 +943,8 @@ function normalizeName(name) {
 //   claimable       shared by code, not on any account yet — adding it brings
 //                   its server history along
 //   managedByOther  shared by code and already on someone else's account
-//                   (teamId, managedBy, requested)
+//                   (teamId, managedBy, requested), or the same team id is
+//                   on someone else's account (canRequest: false — invite only)
 //   new             only on the device
 //
 // `suggestMerge` names an account team with the same name and no app data,
@@ -1010,6 +1011,21 @@ async function routeSetup(req, res, auth) {
       }
     } else {
       Object.assign(result, { status: 'new' });
+    }
+    // Same team id already on another coach's account (e.g. a phone that was
+    // signed in to that account before): not this account's to add. Without
+    // a share code there's no proof to request access with, so it's an
+    // invite-only case.
+    if (result.status === 'new') {
+      const { data: byId } = await supabase
+        .from('teams').select('id, coach_id').eq('id', id).is('deleted_at', null).maybeSingle();
+      if (byId && byId.coach_id !== c && !byId.coach_id.startsWith('anon:')) {
+        Object.assign(result, {
+          status: 'managedByOther', teamId: byId.id,
+          managedBy: await coachName(byId.coach_id),
+          requested: false, canRequest: false,
+        });
+      }
     }
     if (result.status === 'new' || result.status === 'claimable') {
       const wanted = normalizeName(lt?.name);

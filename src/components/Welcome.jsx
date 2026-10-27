@@ -74,12 +74,17 @@ function GoogleButton({ disabled, onError, onStart }) {
   return <div ref={ref} className="w-full flex justify-center" style={{ minHeight: 44, opacity: disabled ? 0.5 : 1, pointerEvents: disabled ? 'none' : 'auto' }} />;
 }
 
+const RESEND_SECONDS = 60;
+
 export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity }) {
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [stage, setStage] = useState('start'); // start | code
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [resendAt, setResendAt] = useState(0); // when another code may be sent (ms)
+  const [now, setNow] = useState(() => Date.now());
+  const resendIn = Math.max(0, Math.ceil((resendAt - now) / 1000));
   const returning = useReturningCoach();
   const teamNames = returning?.teamNames || [];
   const sessionCount = returning?.sessionCount || 0;
@@ -97,10 +102,30 @@ export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity
     finally { setBusy(false); }
   };
 
+  // One code a minute, matching Supabase's per-address limit.
+  // Counted from a fixed time, so a backgrounded tab's slowed timers don't stretch it.
+  useEffect(() => {
+    if (resendAt <= Date.now()) return undefined;
+    const t = setInterval(() => {
+      setNow(Date.now());
+      if (Date.now() >= resendAt) clearInterval(t);
+    }, 1000);
+    return () => clearInterval(t);
+  }, [resendAt]);
+
   const sendCode = () => run(async () => {
     if (!/^\S+@\S+\.\S+$/.test(email.trim())) throw new Error('Enter a valid email address.');
     await accountContext.sendEmailCode(email);
+    setResendAt(Date.now() + RESEND_SECONDS * 1000);
+    setNow(Date.now());
     setStage('code');
+  });
+
+  const resend = () => run(async () => {
+    await accountContext.sendEmailCode(email);
+    setCode('');
+    setResendAt(Date.now() + RESEND_SECONDS * 1000);
+    setNow(Date.now());
   });
 
   const verify = () => run(async () => {
@@ -264,6 +289,9 @@ export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity
               />
               <button className="btn btn-primary w-full" disabled={busy || code.length < 6} onClick={verify}>
                 {busy ? 'Checking…' : 'Sign in'}
+              </button>
+              <button className="btn btn-secondary w-full" disabled={busy || resendIn > 0} onClick={resend}>
+                {resendIn > 0 ? `Resend code in ${resendIn}s` : 'Resend code'}
               </button>
               <button className="btn btn-ghost w-full" disabled={busy} onClick={() => { setStage('start'); setCode(''); setError(''); }}>
                 Use a different email

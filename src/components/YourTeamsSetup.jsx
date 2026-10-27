@@ -44,43 +44,45 @@ function TeamLine({ team, trailing }) {
   );
 }
 
-function PairCard({ pair, choice, onChange }) {
-  const { app, web } = pair;
-  const sameName = app.name === web.name;
+// One team made in the iPhone app: keep it as its own team, or fold its
+// roster and games into a web team (usually the one holding its sessions).
+function AppTeamCard({ team, webTeams, choice, onChange }) {
+  const target = webTeams.find(t => t.id === choice.into);
   return (
     <div className="card p-4">
-      <div className="text-[13px] mb-2" style={{ color: 'var(--ink-2)' }}>Looks like the same team:</div>
-      <TeamLine team={app} />
-      <TeamLine team={web} />
-      <div className="flex flex-col gap-2 mt-3">
-        <label className="flex items-start gap-2 text-[13.5px] cursor-pointer">
-          <input type="radio" checked={choice.merge} onChange={() => onChange({ ...choice, merge: true })} className="mt-1" />
-          <span>
-            <span className="font-medium">Merge into one team</span>
-            <span className="block text-[12px]" style={{ color: 'var(--ink-2)' }}>
-              The roster and games from the app join the practice sessions here.
-            </span>
-          </span>
-        </label>
-        {choice.merge && !sameName && (
-          <div className="flex items-center gap-2 pl-6 text-[13px]">
-            <span style={{ color: 'var(--ink-2)' }}>Keep the name</span>
-            <select
-              className="input-field"
-              style={{ width: 'auto', padding: '4px 8px' }}
-              value={choice.name}
-              onChange={(e) => onChange({ ...choice, name: e.target.value })}
-            >
-              <option value={web.name}>{web.name}</option>
-              <option value={app.name}>{app.name}</option>
-            </select>
-          </div>
-        )}
-        <label className="flex items-start gap-2 text-[13.5px] cursor-pointer">
-          <input type="radio" checked={!choice.merge} onChange={() => onChange({ ...choice, merge: false })} className="mt-1" />
-          <span className="font-medium">Keep them separate</span>
-        </label>
-      </div>
+      <TeamLine team={team} />
+      <select
+        className="input-field mt-2"
+        aria-label={`What to do with ${team.name}`}
+        value={choice.into || ''}
+        onChange={(e) => onChange({ ...choice, into: e.target.value || null })}
+      >
+        <option value="">Keep as its own team</option>
+        {webTeams.map(t => (
+          <option key={t.id} value={t.id}>Merge into {t.name} ({counts(t)})</option>
+        ))}
+      </select>
+      {target && (
+        <>
+          <p className="text-[12px] mt-2" style={{ color: 'var(--ink-2)' }}>
+            The roster and games from the app join {target.name}&rsquo;s practice sessions.
+          </p>
+          {target.name !== team.name && (
+            <div className="flex items-center gap-2 mt-2 text-[13px]">
+              <span style={{ color: 'var(--ink-2)' }}>Name it</span>
+              <select
+                className="input-field"
+                style={{ width: 'auto', padding: '4px 8px' }}
+                value={choice.keepAppName ? 'app' : 'web'}
+                onChange={(e) => onChange({ ...choice, keepAppName: e.target.value === 'app' })}
+              >
+                <option value="web">{target.name}</option>
+                <option value="app">{team.name}</option>
+              </select>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -101,12 +103,16 @@ export default function YourTeamsSetup({ userId, initialInfo, onClose }) {
     return () => { alive = false; };
   }, [info]);
 
-  // Merging is the default for every same-named pair.
-  const choiceFor = (pair) => choices[pair.app.id] || { merge: true, name: pair.web.name };
-
-  const paired = useMemo(() => new Set((info?.pairs || []).flatMap(p => [p.app.id, p.web.id])), [info]);
-  const otherTeams = (info?.teams || []).filter(t => !paired.has(t.id));
+  const appTeams = useMemo(() => (info?.teams || []).filter(t => t.fromApp), [info]);
+  const webTeams = useMemo(() => (info?.teams || []).filter(t => !t.fromApp), [info]);
+  const canMerge = appTeams.length > 0 && webTeams.length > 0;
+  const listedTeams = canMerge ? webTeams : (info?.teams || []);
+  // A web team with the same name is preselected; otherwise it stays separate.
+  const choiceFor = (team) => choices[team.id]
+    || { into: info?.pairs.find(p => p.app.id === team.id)?.web.id || null, keepAppName: false };
   const isNewAccount = info && !info.name;
+  // A name is required once: it's how invited coaches see you.
+  const nameMissing = !name.trim();
 
   const close = () => { markSetupSeen(userId); onClose(); };
 
@@ -116,10 +122,11 @@ export default function YourTeamsSetup({ userId, initialInfo, onClose }) {
       const trimmed = name.trim();
       if (trimmed !== (info.name || '')) await request('PUT', '/api/v2/account', { name: trimmed });
       let mergedCount = 0;
-      for (const pair of info.pairs) {
-        const c = choiceFor(pair);
-        if (!c.merge) continue;
-        await request('POST', `/api/v2/teams/${pair.app.id}/merge`, { into: pair.web.id, name: c.name });
+      for (const team of canMerge ? appTeams : []) {
+        const c = choiceFor(team);
+        const target = webTeams.find(t => t.id === c.into);
+        if (!target) continue;
+        await request('POST', `/api/v2/teams/${team.id}/merge`, { into: target.id, name: c.keepAppName ? team.name : target.name });
         mergedCount++;
       }
       if (mergedCount) {
@@ -159,27 +166,29 @@ export default function YourTeamsSetup({ userId, initialInfo, onClose }) {
               maxLength={80}
             />
             <p className="text-[12px] mt-1 mb-5" style={{ color: 'var(--ink-3)' }}>
-              Shown to coaches you invite to your teams.
+              {isNewAccount ? 'Required. ' : ''}Shown to coaches you invite to your teams.
             </p>
 
-            {info.pairs.length > 0 && (
+            {canMerge && (
               <div className="flex flex-col gap-3 mb-5">
-                {info.pairs.map(pair => (
-                  <PairCard
-                    key={pair.app.id}
-                    pair={pair}
-                    choice={choiceFor(pair)}
-                    onChange={(c) => setChoices(prev => ({ ...prev, [pair.app.id]: c }))}
+                <div className="eyebrow">FROM THE IPHONE APP</div>
+                {appTeams.map(team => (
+                  <AppTeamCard
+                    key={team.id}
+                    team={team}
+                    webTeams={webTeams}
+                    choice={choiceFor(team)}
+                    onChange={(c) => setChoices(prev => ({ ...prev, [team.id]: c }))}
                   />
                 ))}
               </div>
             )}
 
-            {otherTeams.length > 0 && (
+            {listedTeams.length > 0 && (
               <div className="mb-5">
-                <div className="eyebrow mb-1">{info.pairs.length ? 'YOUR OTHER TEAMS' : 'ON YOUR ACCOUNT'}</div>
+                <div className="eyebrow mb-1">{canMerge ? 'MADE ON THE WEB' : 'ON YOUR ACCOUNT'}</div>
                 <div className="divide-y" style={{ borderColor: 'var(--line)' }}>
-                  {otherTeams.map(t => <TeamLine key={t.id} team={t} />)}
+                  {listedTeams.map(t => <TeamLine key={t.id} team={t} />)}
                 </div>
               </div>
             )}
@@ -212,8 +221,10 @@ export default function YourTeamsSetup({ userId, initialInfo, onClose }) {
         )}
 
         <div className="flex gap-3 justify-end">
-          <button type="button" className="btn btn-subtle" onClick={close} disabled={saving}>Not now</button>
-          <button type="button" className="btn btn-primary" onClick={save} disabled={!info || saving}>
+          {!isNewAccount && (
+            <button type="button" className="btn btn-subtle" onClick={close} disabled={saving}>Not now</button>
+          )}
+          <button type="button" className="btn btn-primary" onClick={save} disabled={!info || saving || nameMissing}>
             {saving ? 'Saving…' : 'Done'}
           </button>
         </div>
