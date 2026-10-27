@@ -34,7 +34,7 @@ export default function useAccount() {
     if (error) throw error;
   }, [redirectTo]);
 
-  // Emails a 6-digit code (and a sign-in link) — creates the account on first use.
+  // Emails a one-time code (6–8 digits, per the Supabase setting) (and a sign-in link) — creates the account on first use.
   const sendEmailCode = useCallback(async (email) => {
     if (!supabase) throw new Error('Sign-in is not configured');
     const { error } = await supabase.auth.signInWithOtp({

@@ -249,20 +249,20 @@ export default function Welcome({ accountContext, onStartDemo, onBrowseCommunity
           {stage === 'code' && (
             <div className="flex flex-col gap-2.5">
               <p className="text-[13.5px]" style={{ color: 'var(--ink-2)' }}>
-                We sent a 6-digit code to <strong style={{ color: 'var(--ink)' }}>{email.trim()}</strong>. Enter it below, or click the link in that email.
+                We sent a sign-in code to <strong style={{ color: 'var(--ink)' }}>{email.trim()}</strong>. Enter it below, or click the link in that email.
               </p>
               <input
                 inputMode="numeric"
                 autoComplete="one-time-code"
-                placeholder="123456"
-                maxLength={6}
+                placeholder="12345678"
+                maxLength={8}
                 value={code}
                 onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
-                onKeyDown={e => { if (e.key === 'Enter' && code.length === 6) verify(); }}
+                onKeyDown={e => { if (e.key === 'Enter' && code.length >= 6) verify(); }}
                 className="input-field text-center font-mono tracking-[0.3em] text-[18px]"
                 autoFocus
               />
-              <button className="btn btn-primary w-full" disabled={busy || code.length !== 6} onClick={verify}>
+              <button className="btn btn-primary w-full" disabled={busy || code.length < 6} onClick={verify}>
                 {busy ? 'Checking…' : 'Sign in'}
               </button>
               <button className="btn btn-ghost w-full" disabled={busy} onClick={() => { setStage('start'); setCode(''); setError(''); }}>
