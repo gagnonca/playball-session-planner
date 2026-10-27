@@ -1,6 +1,7 @@
 # Local stack for account testing
 
 Test accounts and data on this Mac only — nothing touches production.
+The manual test checklist, environments and accounts live in the iOS repo's `TESTING.md`.
 
 1. `supabase start` with this folder's `supabase/` (8-digit codes like production,
    an email template that includes the code). Copy `supabase/migrations/*.sql`
@@ -29,4 +30,4 @@ email; the code is in Mailpit. Any other @test.local email makes a new account.
 
 Invite links on a second simulator: copy the link from the share sheet, then
 
-    xcrun simctl openurl <device id> "$(pbpaste | sed 's#https://getplayball.app/join#playball://join#')"
+    xcrun simctl openurl <device id> "$(pbpaste | sed 's#https://www.getplayball.app/join#playball://join#')"
