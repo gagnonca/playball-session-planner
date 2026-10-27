@@ -19,3 +19,14 @@ Test accounts and data on this Mac only — nothing touches production.
 4. iPhone simulator (Debug): Account → Developer → Server → "Local + test accounts".
    `PlayBallUITests/AccountFlowUITests` runs sign-in → name → sign-out against it.
 5. API end-to-end suite: `node scripts/local-stack/api-tests.mjs "$PWD"`
+
+## Demo accounts
+
+`node scripts/local-stack/seed-demo.mjs "$PWD"` wipes the local database and
+creates head@test.local (owns Thunder, with sessions), assistant@test.local
+(assistant on Thunder) and cocoach@test.local (new, no name). Sign in with the
+email; the code is in Mailpit. Any other @test.local email makes a new account.
+
+Invite links on a second simulator: copy the link from the share sheet, then
+
+    xcrun simctl openurl <device id> "$(pbpaste | sed 's#https://getplayball.app/join#playball://join#')"
