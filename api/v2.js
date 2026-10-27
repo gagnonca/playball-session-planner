@@ -48,6 +48,7 @@ import { sessionForApp } from './_lib/sessionForApp.js';
 //                                            share-code team onto this account
 //                                            and stop the code accepting pushes
 //   GET    /teams/:id/members                owner + members, with roles
+//   PATCH  /teams/:id/members/:userId        owner: body { role } — assistant ⇄ co-coach
 //   DELETE /teams/:id/members/:userId        owner removes a member, or a member leaves
 //   POST   /teams/:id/invites                owner: body { role } → { url }
 //   DELETE /teams/:id/invites/:token         owner: revoke an unused invite
@@ -837,7 +838,9 @@ async function getSessionForApp(id, req, res, auth) {
 
 const INVITE_ROLES = new Set(['cocoach', 'assistant']);
 const INVITE_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
-const INVITE_BASE_URL = 'https://getplayball.app/join';
+// www, not the apex: the apex redirects, and iOS won't follow a redirect to
+// fetch apple-app-site-association, so links there would open Safari.
+const INVITE_BASE_URL = 'https://www.getplayball.app/join';
 // Invites are 6-character codes a coach can read out or type into the app
 // (no 0/O, 1/I/L), and also the `t` of the invite link. Single use, 14 days,
 // and joining needs a signed-in account.
@@ -1205,6 +1208,7 @@ async function userSummary(userId) {
 }
 
 // GET    /teams/:id/members          everyone on the team, owner first
+// PATCH  /teams/:id/members/:userId  owner changes someone's role
 // DELETE /teams/:id/members/:userId  owner removes someone, or a member leaves
 async function routeMembers(teamId, userId, req, res, auth) {
   const access = await teamAccess(teamId, auth);
@@ -1241,6 +1245,17 @@ async function routeMembers(teamId, userId, req, res, auth) {
       invites,
       requests,
     });
+  }
+
+  if (req.method === 'PATCH' && userId) {
+    if (access.role !== 'owner') return sendError(res, 403, 'owner_only');
+    const role = (req.body || {}).role;
+    if (!INVITE_ROLES.has(role)) return sendError(res, 400, 'invalid_role');
+    const { data, error } = await supabase.from('team_members').update({ role })
+      .eq('team_id', teamId).eq('user_id', userId).select('user_id');
+    if (error) return sendError(res, 500, 'server_error');
+    if (!data?.length) return sendError(res, 404, 'not_a_member');
+    return res.status(200).json({ success: true, role });
   }
 
   if (req.method === 'DELETE' && userId) {
