@@ -119,7 +119,7 @@ async function listSessions(res, token) {
 // Games the coach's iOS app syncs to this team (see dualWrite
 // mirrorTeamSharePush). Only what the read-only sub schedule needs: the web
 // builds the plan from these settings the same way the app does
-// (src/utils/gamePlan.js), or uses the stored one once the game has started.
+// (src/utils/gamePlan.js).
 async function listGames(res, token) {
   const team = await loadTeamByToken(token);
   if (!team) return send(res, 404, 'not_found', 'This share code is not valid or has been revoked.');
@@ -148,8 +148,6 @@ async function listGames(res, token) {
       goalieH1ID: g.goalieH1ID ?? null,
       goalieH2ID: g.goalieH2ID ?? null,
       goaliesPlayOutfield: Boolean(g.goaliesPlayOutfield),
-      plan: g.plan ?? null,
-      live: g.live ?? null,
     };
   }).sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
   res.setHeader('Cache-Control', 'no-store');
