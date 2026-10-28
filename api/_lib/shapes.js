@@ -12,7 +12,9 @@ export function teamFromRow(t) {
     archived: !!t.archived,
     iosShareCode: t.ios_share_code ?? null,
     players: Array.isArray(t.players) ? t.players : [],
-    ios: t.ios ?? null,
+    // The app keeps "past season" as ios.isActive; `archived` is the one
+    // stored flag, so the app always reads it from there.
+    ios: t.ios ? { ...t.ios, isActive: !t.archived } : null,
     shareCodeReadonly: !!t.share_code_readonly,
     createdAt: t.created_at,
     updatedAt: t.updated_at,

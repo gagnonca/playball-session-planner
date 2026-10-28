@@ -875,7 +875,11 @@ async function putIosTeam(id, req, res, auth) {
     id,
     coachId: auth.coachId,
     baseVersion: readBaseVersion(req.body),
-    fields: { name, players: cleanPlayers(players), ios: ios ?? null },
+    fields: {
+      name, players: cleanPlayers(players), ios: ios ?? null,
+      // A past season on the phone is an archived team on the web.
+      ...(typeof ios?.isActive === 'boolean' ? { archived: !ios.isActive } : {}),
+    },
   });
   if (result.status === 200) await touchCoach(auth.coachId);
   return sendWrite(res, result, teamFromRow, 'team');
@@ -1103,6 +1107,8 @@ async function mergeTeam(sourceId, req, res, auth) {
     name: (typeof name === 'string' && name.trim()) ? name.trim() : target.name,
     players,
     ios: target.ios ?? source.ios ?? null,
+    // Past season or not goes with whichever team's app settings are kept.
+    archived: !!(target.ios || !source.ios ? target.archived : source.archived),
     ios_share_code: code,
     share_code_readonly: target.share_code_readonly || source.share_code_readonly,
     updated_at: now,

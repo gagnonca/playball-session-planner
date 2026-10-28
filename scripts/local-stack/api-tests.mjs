@@ -246,5 +246,17 @@ check("another account's team (no share code) is managed by them, invite only", 
 r = await api(second, 'PUT', `teams/${webTeam}/ios`, { name: 'Thunder', players: [], baseVersion: null });
 check("and it can't be taken over by uploading it", r.status === 403 || r.status === 409, r);
 
+// ---------------------------------------------------------------------------
+section('11. Past seasons: the app and the web agree');
+const pastTeam = uuid();
+r = await api(head, 'PUT', `teams/${pastTeam}/ios`, { name: 'Fall 2025', players: [], ios: { isActive: false }, baseVersion: null });
+check('a past-season team from the app is archived on the web', r.status === 200 && r.json.team?.archived === true, r.json);
+r = await api(head, 'PUT', `teams/${pastTeam}`, { name: 'Fall 2025', archived: false, baseVersion: r.json.team.version });
+check('unarchived on the web → the app reads it as active', r.status === 200 && r.json.team?.ios?.isActive === true, r.json);
+r = await api(head, 'GET', 'snapshot');
+check('snapshot carries it to the app', r.json.teams?.find(t => t.id === pastTeam)?.ios?.isActive === true);
+r = await api(head, 'PUT', `teams/${pastTeam}/ios`, { name: 'Fall 2025', players: [], ios: { isActive: false }, baseVersion: r.json.teams.find(t => t.id === pastTeam).version });
+check('marked past season again on the app → archived again', r.status === 200 && r.json.team?.archived === true, r.json);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
