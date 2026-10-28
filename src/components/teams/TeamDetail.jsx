@@ -42,6 +42,7 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
     navigateToSessionBuilder,
     deleteSession,
     duplicateSession,
+    deleteTeam,
   } = teamsContext;
 
   const allTeams = teamsData?.teams || [];
@@ -389,6 +390,32 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
                     </div>
                   )}
                 </div>
+                {(!team.role || team.role === 'owner') && (
+                  <div className="w-full pt-3 mt-1 flex flex-wrap items-center gap-3" style={{ borderTop: '1px solid var(--line)' }}>
+                    <button
+                      onClick={() => {
+                        const games = team.games?.length || 0;
+                        const lost = [
+                          sessions.length && `${sessions.length} session${sessions.length === 1 ? '' : 's'}`,
+                          games && `${games} game${games === 1 ? '' : 's'}`,
+                        ].filter(Boolean).join(' and ');
+                        if (!window.confirm(`Delete "${team.name}"?${lost ? ` Its ${lost} will be deleted too.` : ''} It's also removed from the PlayBall app on every device.`)) return;
+                        setShowSettings(false);
+                        deleteTeam(selectedTeamId);
+                        const next = allTeams.find(t => t.id !== selectedTeamId && !t.archived) || allTeams.find(t => t.id !== selectedTeamId);
+                        if (next) navigateToTeamDetail(next.id); else navigateToTeams();
+                        toast('Team deleted');
+                      }}
+                      className="btn btn-ghost"
+                      style={{ color: 'var(--danger)' }}
+                    >
+                      Delete team
+                    </button>
+                    <span className="text-[12px]" style={{ color: 'var(--ink-3)' }}>
+                      For teams you no longer need, like test teams. To keep an old season, tick Previous season instead.
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
