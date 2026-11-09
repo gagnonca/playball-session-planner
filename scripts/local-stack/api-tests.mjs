@@ -258,5 +258,22 @@ check('snapshot carries it to the app', r.json.teams?.find(t => t.id === pastTea
 r = await api(head, 'PUT', `teams/${pastTeam}/ios`, { name: 'Fall 2025', players: [], ios: { isActive: false }, baseVersion: r.json.teams.find(t => t.id === pastTeam).version });
 check('marked past season again on the app → archived again', r.status === 200 && r.json.team?.archived === true, r.json);
 
+// ---------------------------------------------------------------------------
+section('12. Deleted games: the snapshot says which, so the app never guesses');
+const doomed = uuid(), kept = uuid();
+r = await api(head, 'PUT', `games/${doomed}`, { teamId: webTeam, name: 'Rained out', payload: {}, baseVersion: null });
+r = await api(head, 'PUT', `games/${kept}`, { teamId: webTeam, name: 'Still on', payload: {}, baseVersion: null });
+r = await api(head, 'DELETE', `games/${doomed}`);
+check('game deleted', r.status === 200, r);
+r = await api(head, 'GET', 'snapshot');
+const gone = r.json.deletedGames?.find(d => d.id === doomed);
+check('owner snapshot lists the deleted game with its team', gone?.teamId === webTeam && !!gone.deletedAt, r.json.deletedGames);
+check('…and not a live one', !r.json.deletedGames?.some(d => d.id === kept));
+check('the deleted game is not among the live games', !r.json.teams?.find(t => t.id === webTeam)?.games?.some(g => g.id === doomed));
+r = await api(assistant, 'GET', 'snapshot');
+check("an assistant's snapshot lists the head coach's deleted game too", r.json.deletedGames?.some(d => d.id === doomed), r.json.deletedGames);
+r = await api(outsider, 'GET', 'snapshot');
+check("someone not on the team doesn't see it", !r.json.deletedGames?.some(d => d.id === doomed));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -563,7 +563,7 @@ export default function TeamDetail({ teamsContext, sharingContext, libraryHook }
                 + New game
               </button>
             </div>
-            <TeamGames ref={teamGamesRef} key={gamesRefreshKey} teamId={selectedTeamId} players={team.players || []} />
+            <TeamGames ref={teamGamesRef} key={gamesRefreshKey} teamId={selectedTeamId} players={team.players || []} ios={team.ios} />
           </>
         )}
       </main>

@@ -458,6 +458,15 @@ async function routeSnapshot(req, res, auth) {
   const failed = [teamsR, sessionsR, gamesR, exR, libSessR, hiddenR, diagramsR, templatesR, favoritesR, publishedR].find(r => r.error);
   if (failed) { console.error('[snapshot]', failed.error); return sendError(res, 500, 'server_error'); }
 
+  // Games deleted lately on any team in this snapshot, so the iPhone removes
+  // exactly these. A game missing from \`games\` is not proof of a delete.
+  const deletedSince = new Date(Date.now() - 180 * 24 * 3600 * 1000).toISOString();
+  const deletedGames = (rows) => rows.map(g => ({ id: g.id, teamId: g.team_id, deletedAt: g.deleted_at }));
+  const deletedR = await supabase.from('games').select('id, team_id, deleted_at')
+    .eq('coach_id', c).not('deleted_at', 'is', null).gte('deleted_at', deletedSince);
+  if (deletedR.error) { console.error('[snapshot.deleted]', deletedR.error); return sendError(res, 500, 'server_error'); }
+  const deleted = deletedGames(deletedR.data);
+
   const sessionsByTeam = groupBy(sessionsR.data, 'team_id', sessionFromRow);
   const gamesByTeam = groupBy(gamesR.data, 'team_id', gameFromRow);
   const teams = teamsR.data.map(t => ({
@@ -474,14 +483,18 @@ async function routeSnapshot(req, res, auth) {
   if (shared.length) {
     const ids = shared.map(m => m.team.id);
     const owners = [...new Set(shared.map(m => m.team.coach_id))];
-    const [sharedGamesR, sharedSessionsR] = await Promise.all([
+    const [sharedGamesR, sharedSessionsR, sharedDeletedR] = await Promise.all([
       supabase.from('games').select('*').in('team_id', ids).in('coach_id', owners).is('deleted_at', null),
       supabase.from('sessions').select('*').in('team_id', ids).in('coach_id', owners).is('deleted_at', null),
+      supabase.from('games').select('id, team_id, deleted_at').in('team_id', ids).in('coach_id', owners)
+        .not('deleted_at', 'is', null).gte('deleted_at', deletedSince),
     ]);
-    if (sharedGamesR.error || sharedSessionsR.error) {
-      console.error('[snapshot.shared]', sharedGamesR.error || sharedSessionsR.error);
+    if (sharedGamesR.error || sharedSessionsR.error || sharedDeletedR.error) {
+      console.error('[snapshot.shared]', sharedGamesR.error || sharedSessionsR.error || sharedDeletedR.error);
       return sendError(res, 500, 'server_error');
     }
+    const seen = new Set(deleted.map(d => d.id));
+    for (const d of deletedGames(sharedDeletedR.data)) if (!seen.has(d.id)) deleted.push(d);
     const sharedGames = groupBy(sharedGamesR.data, 'team_id', gameFromRow);
     const sharedSessions = groupBy(sharedSessionsR.data, 'team_id', sessionFromRow);
     for (const { team, role } of shared) {
@@ -514,6 +527,7 @@ async function routeSnapshot(req, res, auth) {
     coach: { coachId: c, defaultTeamId: auth.coach.default_team_id || null, isAdmin: isAdmin(auth) },
     teams,
     sharedTeams,
+    deletedGames: deleted,
     mergedTeams: await mergedPointers(c),
     library: {
       exercises: exR.data.map(libraryItemFromRow),

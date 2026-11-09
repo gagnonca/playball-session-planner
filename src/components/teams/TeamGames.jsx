@@ -9,7 +9,7 @@ function formatGameDate(iso) {
   return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-const TeamGames = forwardRef(function TeamGames({ teamId, players = [] }, ref) {
+const TeamGames = forwardRef(function TeamGames({ teamId, players = [], ios = null }, ref) {
   const [games, setGames] = useState(null);
   const [error, setError] = useState(null);
   const [editingGame, setEditingGame] = useState(null);   // game row being edited
@@ -133,6 +133,7 @@ const TeamGames = forwardRef(function TeamGames({ teamId, players = [] }, ref) {
         <GameEditorModal
           teamId={teamId}
           teamPlayers={players}
+          ios={ios}
           game={null}
           onClose={() => setShowCreate(false)}
           onSaved={handleSaved}
@@ -142,6 +143,7 @@ const TeamGames = forwardRef(function TeamGames({ teamId, players = [] }, ref) {
         <GameEditorModal
           teamId={teamId}
           teamPlayers={players}
+          ios={ios}
           game={editingGame}
           onClose={() => setEditingGame(null)}
           onSaved={handleSaved}

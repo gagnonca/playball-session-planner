@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { uid, toast } from '../../utils/helpers';
+import { toast } from '../../utils/helpers';
 import { request } from '../../data/api';
 import { SubPlan } from '../GameSchedule';
 
@@ -19,18 +19,28 @@ function isoToDateInput(iso) {
 function dateInputToIso(dateStr) {
   if (!dateStr) return null;
   // Anchor at local noon so timezone drift doesn't bump the day.
-  const d = new Date(`${dateStr}T12:00:00`);
-  return d.toISOString();
+  return isoSeconds(new Date(`${dateStr}T12:00:00`));
 }
 
-export default function GameEditorModal({ teamId, teamPlayers = [], game, onClose, onSaved, onDeleted }) {
+// The iPhone reads dates as ISO 8601 without fractions: no ".000".
+function isoSeconds(d) {
+  return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+// The default player colour the iPhone uses (ServerTeam in SyncEngine.swift).
+const DEFAULT_TINT = '#f5e0dc';
+
+export default function GameEditorModal({ teamId, teamPlayers = [], ios = null, game, onClose, onSaved, onDeleted }) {
   const isEdit = !!game;
   const [name, setName] = useState(game?.name ?? '');
-  const [date, setDate] = useState(isoToDateInput(game?.date));
+  // A new game needs a date for the iPhone; default to today.
+  const [date, setDate] = useState(isoToDateInput(game?.date ?? (isEdit ? null : new Date().toISOString())));
   const [isHome, setIsHome] = useState(game?.is_home ?? false);
-  const [playersOnField, setPlayersOnField] = useState(game?.payload?.playersOnField ?? 4);
-  const [periodLengthMinutes, setPeriodLengthMinutes] = useState(game?.payload?.periodLengthMinutes ?? 10);
-  const [numberOfPeriods, setNumberOfPeriods] = useState(game?.payload?.numberOfPeriods ?? 4);
+  // New games start from the team's app settings (match format, halves or
+  // quarters, period length), like a new game on the iPhone.
+  const [playersOnField, setPlayersOnField] = useState(game?.payload?.playersOnField ?? ios?.matchFormat ?? 4);
+  const [periodLengthMinutes, setPeriodLengthMinutes] = useState(game?.payload?.periodLengthMinutes ?? ios?.periodLengthMinutes ?? 10);
+  const [numberOfPeriods, setNumberOfPeriods] = useState(game?.payload?.numberOfPeriods ?? ios?.gameFormat ?? 4);
   const [captainID, setCaptainID] = useState(game?.payload?.captainID ?? '');
   // availablePlayers in the iOS payload is the FULL player object per game;
   // we track just the picked id set in the editor and reassemble objects
@@ -48,8 +58,8 @@ export default function GameEditorModal({ teamId, teamPlayers = [], game, onClos
     (game?.payload?.availablePlayers || []).filter(p => p?.id).map(p => [p.id, p])
   );
   const pickedPlayers = Array.from(selectedPlayerIds).map(pid =>
-    teamPlayerById.get(pid) ?? existingAvailById.get(pid) ?? { id: pid, name: 'Unknown', tintHex: null }
-  );
+    teamPlayerById.get(pid) ?? existingAvailById.get(pid) ?? { id: pid, name: 'Unknown' }
+  ).map(p => ({ id: p.id, name: p.name, tintHex: p.tintHex || DEFAULT_TINT }));
   // Live preview of the subs these settings give — the same plan the iOS app
   // builds (utils/gamePlan.js). Settings only the app edits (keepers, swap
   // size…) come along from the game as synced.
@@ -77,10 +87,12 @@ export default function GameEditorModal({ teamId, teamPlayers = [], game, onClos
 
   const handleSave = async () => {
     if (!name.trim()) { toast('Name is required'); return; }
+    if (!date) { toast('Date is required'); return; }
 
     setBusy(true);
     try {
-      const id = game?.id || uid();
+      // A UUID, as the iPhone's games have: it can't read any other id.
+      const id = game?.id || crypto.randomUUID().toUpperCase();
       const existingPayload = game?.payload || {};
       // Build availablePlayers as the iOS-shaped objects ({id,name,tintHex})
       // so iOS-side decoders see what they expect. Prefer teamPlayers as
@@ -98,10 +110,11 @@ export default function GameEditorModal({ teamId, teamPlayers = [], game, onClos
         numberOfPeriods: Number(numberOfPeriods) || 0,
         captainID: captainID || null,
         availablePlayers,
-        // Default substitutionStyle so iOS-side decoders don't choke when
-        // they eventually pull a web-created game. Edit-existing keeps whatever
-        // the iOS app set.
+        // Fields the iPhone requires; editing keeps whatever the app set.
         substitutionStyle: existingPayload.substitutionStyle ?? 'short',
+        goaliesPlayOutfield: Boolean(existingPayload.goaliesPlayOutfield),
+        // Newest edit wins when the iPhone merges; this one is newest now.
+        updatedAt: isoSeconds(new Date()),
       };
 
       let data;
